@@ -22,16 +22,16 @@
 
 ## 4. Data Models
 
-- [ ] 4.1 Create `src/tour_guide/models/__init__.py` and `models/poi.py` with `OsmNode`, `WikiArticle`, `POIContext`, `POI`, `BBox`, `TagFilter` dataclasses
-- [ ] 4.2 Create `models/persona.py` with `PersonaConfig`, `VoiceStyle`, `StyleProfile` dataclasses matching YAML schema
-- [ ] 4.3 Write unit tests in `tests/unit/test_poi_models.py` verifying field types and defaults
+- [x] 4.1 Create `src/tour_guide/models/__init__.py` and `models/poi.py` with `OsmNode`, `WikiArticle`, `POIContext`, `POI`, `BBox`, `TagFilter` dataclasses
+- [x] 4.2 Create `models/persona.py` with `PersonaConfig`, `VoiceStyle`, `StyleProfile` dataclasses matching YAML schema
+- [x] 4.3 Write unit tests in `tests/unit/test_poi_models.py` verifying field types and defaults
 
 ## 5. PersonaLoader (YAML, TDD)
 
-- [ ] 5.1 Write failing tests in `tests/unit/test_persona_loader.py` covering valid YAML load, missing file error, and invalid schema error
-- [ ] 5.2 Create `src/tour_guide/prompts/__init__.py`, `prompts/loader.py` with `PersonaLoader.load(persona_id: str) -> PersonaConfig` reading from `prompts/personas/`
-- [ ] 5.3 Create `backend/prompts/personas/history_uncle.yaml` with full persona definition: id, display_name, voice (Charon), voice_style (speaking_rate 0.95), style_profile (embellishment 0.1), system_prompt, narration_template, qa_template, system_messages, confidence_labels
-- [ ] 5.4 Run persona loader tests and confirm all pass
+- [x] 5.1 Write failing tests in `tests/unit/test_persona_loader.py` covering valid YAML load, missing file error, and invalid schema error
+- [x] 5.2 Create `src/tour_guide/prompts/__init__.py`, `prompts/loader.py` with `PersonaLoader.load(persona_id: str) -> PersonaConfig` reading from `prompts/personas/`
+- [x] 5.3 Create `backend/prompts/personas/history_uncle.yaml` with full persona definition: id, display_name, voice (Charon), voice_style (speaking_rate 0.95), style_profile (embellishment 0.1), system_prompt, narration_template, qa_template, system_messages, confidence_labels
+- [x] 5.4 Run persona loader tests and confirm all pass
 
 ## 6. PromptBuilder (Pure Function, TDD)
 

@@ -1,0 +1,9 @@
+target-version = "py312"
+line-length = 100
+
+[lint]
+select = ["E", "F", "I", "B", "UP", "ASYNC", "S", "RUF"]
+ignore = ["S101"]   # allow asserts in tests
+
+[lint.per-file-ignores]
+"tests/**" = ["S"]

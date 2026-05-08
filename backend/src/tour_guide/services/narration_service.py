@@ -1,0 +1,137 @@
+"""NarrationService — orchestrates LLM streaming, sentence splitting, and TTS synthesis."""
+
+import base64
+from collections.abc import AsyncIterator
+from dataclasses import dataclass
+from typing import Literal
+
+from tour_guide.models.persona import PersonaConfig
+from tour_guide.models.poi import POIContext
+from tour_guide.pipeline.sentence_splitter import StreamingSentenceBuffer
+from tour_guide.prompts.builder import PromptBuilder
+from tour_guide.providers.llm import LlmOpts, LlmProvider, Message
+from tour_guide.providers.tts import TtsOpts, TtsProvider
+from tour_guide.services.confidence import ConfidenceClassifier
+
+# ---------------------------------------------------------------------------
+# Event types
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class MetaEvent:
+    type: Literal["meta"] = "meta"
+    poi_id: str = ""
+    cache_hit: bool = False
+    confidence: str = "low"
+    estimated_duration_s: int = 0
+
+
+@dataclass
+class TextEvent:
+    type: Literal["text"] = "text"
+    chunk: str = ""
+    sentence_idx: int = 0
+
+
+@dataclass
+class AudioEvent:
+    type: Literal["audio"] = "audio"
+    chunk_b64: str = ""  # base64-encoded audio bytes
+    sentence_idx: int = 0
+
+
+@dataclass
+class EndEvent:
+    type: Literal["end"] = "end"
+
+
+@dataclass
+class ErrorEvent:
+    type: Literal["error"] = "error"
+    code: str = ""
+    message: str = ""
+    retry_after_s: int = 0
+
+
+NarrationEvent = MetaEvent | TextEvent | AudioEvent | EndEvent | ErrorEvent
+
+
+# ---------------------------------------------------------------------------
+# NarrationService
+# ---------------------------------------------------------------------------
+
+
+class NarrationService:
+    """Orchestrates narration: PromptBuilder → LLM stream → sentence split → TTS → events."""
+
+    def __init__(
+        self,
+        llm: LlmProvider,
+        tts: TtsProvider,
+    ) -> None:
+        self._llm = llm
+        self._tts = tts
+
+    async def narrate(
+        self,
+        poi: POIContext,
+        persona: PersonaConfig,
+        lang: str,
+        length: str,
+        force_regenerate: bool = False,
+    ) -> AsyncIterator[NarrationEvent]:
+        """Stream narration events for the given POI and persona.
+
+        Yields:
+            MetaEvent — first, with confidence and cache status
+            TextEvent + AudioEvent — interleaved pairs per sentence
+            EndEvent — final event
+        """
+        # 1. Yield MetaEvent
+        confidence = ConfidenceClassifier.classify(poi)
+        yield MetaEvent(
+            poi_id=poi.osm.id,
+            cache_hit=False,
+            confidence=confidence,
+        )
+
+        # 2. Build prompt messages
+        raw_messages = PromptBuilder.build(persona, poi, lang, length)
+        llm_messages = [Message(role=m["role"], content=m["content"]) for m in raw_messages]
+        opts = LlmOpts()
+
+        # 3. Stream LLM → split sentences → TTS → yield events
+        buffer = StreamingSentenceBuffer()
+        sentence_idx = 0
+        voice_id = persona.voice.get(lang, "Charon")
+
+        async for chunk in self._llm.chat_stream(llm_messages, opts):
+            sentences = buffer.feed(chunk)
+            for sentence in sentences:
+                yield TextEvent(chunk=sentence, sentence_idx=sentence_idx)
+                audio_bytes = await self._synthesize_all(sentence, voice_id)
+                yield AudioEvent(
+                    chunk_b64=base64.b64encode(audio_bytes).decode(),
+                    sentence_idx=sentence_idx,
+                )
+                sentence_idx += 1
+
+        # 4. Flush remaining buffer content
+        remainder = buffer.flush()
+        if remainder:
+            yield TextEvent(chunk=remainder, sentence_idx=sentence_idx)
+            audio_bytes = await self._synthesize_all(remainder, voice_id)
+            yield AudioEvent(
+                chunk_b64=base64.b64encode(audio_bytes).decode(),
+                sentence_idx=sentence_idx,
+            )
+
+        yield EndEvent()
+
+    async def _synthesize_all(self, text: str, voice_id: str) -> bytes:
+        """Collect all audio chunks from TTS into a single bytes object."""
+        audio_chunks = b""
+        async for audio_bytes in self._tts.synthesize(text, voice_id, TtsOpts()):
+            audio_chunks += audio_bytes
+        return audio_chunks

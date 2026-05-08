@@ -1,24 +1,24 @@
 ## 1. Project Skeleton & Tooling
 
-- [ ] 1.1 Create `backend/pyproject.toml` with PEP 621 project definition, all runtime and dev dependencies (fastapi, uvicorn, sse-starlette, pydantic-settings, httpx, litellm, google-genai, PyYAML, aiofiles, pytest, pytest-asyncio, ruff, respx, freezegun)
-- [ ] 1.2 Create `backend/ruff.toml` linter config (target py312, line-length 100, select E/F/I/B/UP/ASYNC/S/RUF)
-- [ ] 1.3 Create `backend/pytest.ini` with `asyncio_mode = auto` and `real_provider` marker registered
-- [ ] 1.4 Create `backend/.env.example` with GEMINI_API_KEY, HOST, PORT, POI_CACHE_DIR, NARRATION_CACHE_DIR
-- [ ] 1.5 Create `backend/README.md` with setup steps, run command, test command, curl recipes for all 3 endpoints
-- [ ] 1.6 Create empty package files: `src/tour_guide/__init__.py`, `tests/__init__.py`, `tests/unit/__init__.py`, `tests/integration/__init__.py`, `tests/smoke/__init__.py`
-- [ ] 1.7 Create `backend/tests/conftest.py` (empty placeholder)
-- [ ] 1.8 Install dependencies with `pip install -e ".[dev]"` and verify `pytest --version` succeeds
+- [x] 1.1 Create `backend/pyproject.toml` with PEP 621 project definition, all runtime and dev dependencies (fastapi, uvicorn, sse-starlette, pydantic-settings, httpx, litellm, google-genai, PyYAML, aiofiles, pytest, pytest-asyncio, ruff, respx, freezegun)
+- [x] 1.2 Create `backend/ruff.toml` linter config (target py312, line-length 100, select E/F/I/B/UP/ASYNC/S/RUF)
+- [x] 1.3 Create `backend/pytest.ini` with `asyncio_mode = auto` and `real_provider` marker registered
+- [x] 1.4 Create `backend/.env.example` with GEMINI_API_KEY, HOST, PORT, POI_CACHE_DIR, NARRATION_CACHE_DIR
+- [x] 1.5 Create `backend/README.md` with setup steps, run command, test command, curl recipes for all 3 endpoints
+- [x] 1.6 Create empty package files: `src/tour_guide/__init__.py`, `tests/__init__.py`, `tests/unit/__init__.py`, `tests/integration/__init__.py`, `tests/smoke/__init__.py`
+- [x] 1.7 Create `backend/tests/conftest.py` (empty placeholder)
+- [x] 1.8 Install dependencies with `pip install -e ".[dev]"` and verify `pytest --version` succeeds
 
 ## 2. First Passing Test
 
-- [ ] 2.1 Create `tests/unit/test_smoke.py` with `test_python_works` (assert 1+1==2) and run `pytest tests/unit/test_smoke.py -v` to confirm pytest works
+- [x] 2.1 Create `tests/unit/test_smoke.py` with `test_python_works` (assert 1+1==2) and run `pytest tests/unit/test_smoke.py -v` to confirm pytest works
 
 ## 3. SentenceSplitter (Pure Function, TDD)
 
-- [ ] 3.1 Write failing tests in `tests/unit/test_sentence_splitter.py` covering Chinese punctuation split, English punctuation split, mixed text, and edge cases (empty string, no punctuation)
-- [ ] 3.2 Create `src/tour_guide/pipeline/__init__.py` and implement `split_complete_text(text: str) -> list[str]` in `sentence_splitter.py` to pass basic tests
-- [ ] 3.3 Write failing tests for `StreamingSentenceBuffer` covering chunk-by-chunk feeding, sentence yielding on punctuation detection, and `flush()` for remaining buffer
-- [ ] 3.4 Implement `StreamingSentenceBuffer` class in `sentence_splitter.py` to pass all streaming tests
+- [x] 3.1 Write failing tests in `tests/unit/test_sentence_splitter.py` covering Chinese punctuation split, English punctuation split, mixed text, and edge cases (empty string, no punctuation)
+- [x] 3.2 Create `src/tour_guide/pipeline/__init__.py` and implement `split_complete_text(text: str) -> list[str]` in `sentence_splitter.py` to pass basic tests
+- [x] 3.3 Write failing tests for `StreamingSentenceBuffer` covering chunk-by-chunk feeding, sentence yielding on punctuation detection, and `flush()` for remaining buffer
+- [x] 3.4 Implement `StreamingSentenceBuffer` class in `sentence_splitter.py` to pass all streaming tests
 
 ## 4. Data Models
 

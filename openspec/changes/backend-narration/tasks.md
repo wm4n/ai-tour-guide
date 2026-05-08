@@ -41,9 +41,9 @@
 
 ## 7. ConfidenceClassifier (Pure Function, TDD)
 
-- [ ] 7.1 Write failing tests in `tests/unit/test_confidence.py` for high (wiki >=200 chars), medium (wiki <200 chars), low (no wiki)
-- [ ] 7.2 Create `src/tour_guide/services/confidence.py` with `ConfidenceClassifier.classify(poi_context) -> Literal["high","medium","low"]`
-- [ ] 7.3 Run confidence tests and confirm pass
+- [x] 7.1 Write failing tests in `tests/unit/test_confidence.py` for high (wiki >=200 chars), medium (wiki <200 chars), low (no wiki)
+- [x] 7.2 Create `src/tour_guide/services/confidence.py` with `ConfidenceClassifier.classify(poi_context) -> Literal["high","medium","low"]`
+- [x] 7.3 Run confidence tests and confirm pass
 
 ## 8. Provider Interfaces and Fakes
 

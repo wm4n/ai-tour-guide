@@ -35,9 +35,9 @@
 
 ## 6. PromptBuilder (Pure Function, TDD)
 
-- [ ] 6.1 Write failing tests in `tests/unit/test_prompt_builder.py` covering: messages contain system + user roles, POI name appears in prompt, wiki content included when available, wiki extract truncated at 1500 chars
-- [ ] 6.2 Create `prompts/builder.py` with `PromptBuilder.build(persona, poi, lang, length) -> list[Message]` composing from persona `narration_template`
-- [ ] 6.3 Run all prompt builder tests and confirm pass
+- [x] 6.1 Write failing tests in `tests/unit/test_prompt_builder.py` covering: messages contain system + user roles, POI name appears in prompt, wiki content included when available, wiki extract truncated at 1500 chars
+- [x] 6.2 Create `prompts/builder.py` with `PromptBuilder.build(persona, poi, lang, length) -> list[Message]` composing from persona `narration_template`
+- [x] 6.3 Run all prompt builder tests and confirm pass
 
 ## 7. ConfidenceClassifier (Pure Function, TDD)
 

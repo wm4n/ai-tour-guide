@@ -38,9 +38,7 @@ async def narrate(
     narration_service: NarrationService = Depends(get_narration_service),  # noqa: B008
 ):
     # Build a minimal POIContext from poi_id
-    poi_context = POIContext(
-        osm=OsmNode(id=request.poi_id, lat=0.0, lon=0.0, tags={})
-    )
+    poi_context = POIContext(osm=OsmNode(id=request.poi_id, lat=0.0, lon=0.0, tags={}))
     # Build a minimal persona (in full app, load from PersonaLoader)
     persona = PersonaConfig(
         id=request.persona,

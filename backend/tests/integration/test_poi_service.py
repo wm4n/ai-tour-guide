@@ -10,6 +10,7 @@ from tour_guide.services.poi_service import POIService
 # Fake clients
 # ---------------------------------------------------------------------------
 
+
 class FakeOverpassClient:
     def __init__(self, nodes):
         self.call_count = 0
@@ -31,6 +32,7 @@ class FakeWikiClient:
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture()
 def sample_node():
@@ -61,10 +63,9 @@ def sample_article():
 # Test 1: Full pipeline returns enriched POIs with wiki and confidence
 # ---------------------------------------------------------------------------
 
+
 class TestPOIServiceNearby:
-    async def test_full_pipeline_returns_enriched_pois(
-        self, tmp_path, sample_node, sample_article
-    ):
+    async def test_full_pipeline_returns_enriched_pois(self, tmp_path, sample_node, sample_article):
         """Full pipeline returns POIs with wiki populated and confidence set."""
         overpass = FakeOverpassClient([sample_node])
         wiki = FakeWikiClient(sample_article)
@@ -85,9 +86,7 @@ class TestPOIServiceNearby:
     # Test 2: Cache hit skips external client calls
     # ---------------------------------------------------------------------------
 
-    async def test_cache_hit_skips_overpass_query(
-        self, tmp_path, sample_node, sample_article
-    ):
+    async def test_cache_hit_skips_overpass_query(self, tmp_path, sample_node, sample_article):
         """Second nearby() call with same args uses cache; OverpassClient called only once."""
         overpass = FakeOverpassClient([sample_node])
         wiki = FakeWikiClient(sample_article)

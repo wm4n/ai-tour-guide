@@ -82,9 +82,7 @@ class PersonaLoader:
         """
         path = base_dir / f"{persona_id}.yaml"
         if not path.exists():
-            raise FileNotFoundError(
-                f"Persona '{persona_id}' not found: '{path}' does not exist."
-            )
+            raise FileNotFoundError(f"Persona '{persona_id}' not found: '{path}' does not exist.")
         return cls.load_from_path(path)
 
     @classmethod

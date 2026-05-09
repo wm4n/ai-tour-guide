@@ -85,9 +85,7 @@ class TestOverpassClientQuery:
     @respx.mock
     async def test_429_raises_overpass_rate_limit_error(self, client):
         """429 response raises OverpassRateLimitError with retry_after_s."""
-        respx.post(OVERPASS_URL).mock(
-            return_value=httpx.Response(429)
-        )
+        respx.post(OVERPASS_URL).mock(return_value=httpx.Response(429))
 
         with pytest.raises(OverpassRateLimitError) as exc_info:
             await client.query(SAMPLE_BBOX, SAMPLE_TAGS)

@@ -29,9 +29,9 @@ def parse_sse_events(text: str) -> list[dict]:
         data = None
         for line in block.split("\n"):
             if line.startswith("event: "):
-                event_type = line[len("event: "):]
+                event_type = line[len("event: ") :]
             elif line.startswith("data: "):
-                data = json.loads(line[len("data: "):])
+                data = json.loads(line[len("data: ") :])
         if event_type and data is not None:
             events.append({"type": event_type, **data})
     return events

@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 
 @dataclass
 class OsmNode:
-    id: str          # e.g. "osm:node:12345"
+    id: str  # e.g. "osm:node:12345"
     lat: float
     lon: float
     tags: dict[str, str] = field(default_factory=dict)
@@ -12,7 +12,7 @@ class OsmNode:
 @dataclass
 class WikiArticle:
     title: str
-    extract: str     # intro text
+    extract: str  # intro text
     url: str
     lang: str
 
@@ -32,7 +32,7 @@ class POI:
     tags: dict[str, str] = field(default_factory=dict)
     wiki: WikiArticle | None = None
     distance_m: float = 0.0
-    confidence: str = "low"   # "high" | "medium" | "low"
+    confidence: str = "low"  # "high" | "medium" | "low"
 
 
 @dataclass

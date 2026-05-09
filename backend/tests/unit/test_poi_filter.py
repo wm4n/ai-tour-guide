@@ -95,12 +95,14 @@ class TestFilterPOINodes:
             tags={"historic": "castle", "wikidata": "Q999"},
         )
 
-        result = filter_poi_nodes([
-            valid_museum,
-            invalid_no_wiki,
-            invalid_no_category,
-            valid_historic,
-        ])
+        result = filter_poi_nodes(
+            [
+                valid_museum,
+                invalid_no_wiki,
+                invalid_no_category,
+                valid_historic,
+            ]
+        )
 
         assert len(result) == 2
         assert valid_museum in result

@@ -207,9 +207,7 @@ class TestNarrationServiceEventOrder:
             assert isinstance(audio_evt, AudioEvent)
             t_idx = text_evt.sentence_idx
             a_idx = audio_evt.sentence_idx
-            assert t_idx == a_idx, (
-                f"sentence_idx mismatch: TextEvent={t_idx}, AudioEvent={a_idx}"
-            )
+            assert t_idx == a_idx, f"sentence_idx mismatch: TextEvent={t_idx}, AudioEvent={a_idx}"
 
     @pytest.mark.asyncio
     async def test_sentence_idx_increments(self, persona, poi_with_wiki):
@@ -319,7 +317,7 @@ class TestNarrationServiceCache:
     ):
         """Cache hit: pre-populated cache causes MetaEvent(cache_hit=True) and single AudioEvent."""
         cache = NarrationCache(tmp_path)
-        cached_audio = b"\xAB\xCD" * 50  # 100 bytes of fake cached audio
+        cached_audio = b"\xab\xcd" * 50  # 100 bytes of fake cached audio
         cache_key = f"{poi_with_wiki.osm.id}|{persona.id}|zh-TW|medium"
         cache.put(cache_key, cached_audio, "pre-cached transcript")
 
@@ -382,7 +380,7 @@ class TestNarrationServiceCache:
     async def test_force_regenerate_bypasses_cache(self, persona, poi_with_wiki, tmp_path):
         """force_regenerate=True bypasses cache even when pre-populated."""
         cache = NarrationCache(tmp_path)
-        cached_audio = b"\xFF" * 100  # distinctive fake cached audio
+        cached_audio = b"\xff" * 100  # distinctive fake cached audio
         cache_key = f"{poi_with_wiki.osm.id}|{persona.id}|zh-TW|medium"
         cache.put(cache_key, cached_audio, "old transcript")
 

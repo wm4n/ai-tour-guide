@@ -11,10 +11,12 @@ class AppConfig(BaseSettings):
     host: str = Field("0.0.0.0", alias="HOST")  # noqa: S104
     port: int = Field(8000, alias="PORT")
     poi_cache_dir: str = Field(
-        "/tmp/tour_guide_cache", alias="POI_CACHE_DIR"  # noqa: S108
+        "/tmp/tour_guide_cache",
+        alias="POI_CACHE_DIR",  # noqa: S108
     )
     narration_cache_dir: str = Field(
-        "/tmp/tour_guide_narration_cache", alias="NARRATION_CACHE_DIR"  # noqa: S108
+        "/tmp/tour_guide_narration_cache",
+        alias="NARRATION_CACHE_DIR",  # noqa: S108
     )
     log_level: str = Field("INFO", alias="LOG_LEVEL")
 

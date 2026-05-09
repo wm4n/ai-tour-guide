@@ -17,13 +17,13 @@ class StyleProfile:
 @dataclass
 class PersonaConfig:
     id: str
-    display_name: dict[str, str]          # e.g. {"zh-TW": "歷史大叔", "en": "The History Uncle"}
-    voice: dict[str, str]                 # e.g. {"zh-TW": "Charon", "en": "Charon"}
+    display_name: dict[str, str]  # e.g. {"zh-TW": "歷史大叔", "en": "The History Uncle"}
+    voice: dict[str, str]  # e.g. {"zh-TW": "Charon", "en": "Charon"}
     voice_style: VoiceStyle
     style_profile: StyleProfile
-    poi_source: str                        # e.g. "osm_wikipedia"
-    system_prompt: dict[str, str]         # lang -> prompt text
-    narration_template: dict[str, str]    # lang -> template text
-    qa_template: dict[str, str]           # lang -> template text
+    poi_source: str  # e.g. "osm_wikipedia"
+    system_prompt: dict[str, str]  # lang -> prompt text
+    narration_template: dict[str, str]  # lang -> template text
+    qa_template: dict[str, str]  # lang -> template text
     system_messages: dict[str, Any] = field(default_factory=dict)
     confidence_labels: dict[str, Any] = field(default_factory=dict)

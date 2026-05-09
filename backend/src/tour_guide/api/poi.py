@@ -81,6 +81,4 @@ async def poi_nearby(
             headers={"Retry-After": str(e.retry_after_s)},
         )
     except Exception as e:
-        raise HTTPException(
-            status_code=503, detail="Upstream service unavailable"
-        ) from e
+        raise HTTPException(status_code=503, detail="Upstream service unavailable") from e

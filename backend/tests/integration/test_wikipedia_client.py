@@ -27,9 +27,7 @@ class TestWikipediaClientSummary:
                     "title": "故宮博物院",
                     "extract": "國立故宮博物院是...",
                     "content_urls": {
-                        "desktop": {
-                            "page": "https://zh.wikipedia.org/wiki/故宮博物院"
-                        }
+                        "desktop": {"page": "https://zh.wikipedia.org/wiki/故宮博物院"}
                     },
                 },
             )
@@ -65,11 +63,7 @@ class TestWikipediaClientSummary:
                     "type": "disambiguation",
                     "title": "台灣",
                     "extract": "台灣可能指:",
-                    "content_urls": {
-                        "desktop": {
-                            "page": "https://zh.wikipedia.org/wiki/台灣"
-                        }
-                    },
+                    "content_urls": {"desktop": {"page": "https://zh.wikipedia.org/wiki/台灣"}},
                 },
             )
         )

@@ -100,47 +100,47 @@
 
 ## 17. POI Nearby API Endpoint
 
-- [ ] 17.1 Write failing tests in `tests/integration/test_poi_api.py` covering: valid request returns 200 with pois list, invalid coordinates return 422, upstream 429 returns 429, upstream 503 returns 503; use fake POIService
-- [ ] 17.2 Create `api/poi.py` router with `GET /poi/nearby` handler validating query params and calling POIService
+- [x] 17.1 Write failing tests in `tests/integration/test_poi_api.py` covering: valid request returns 200 with pois list, invalid coordinates return 422, upstream 429 returns 429, upstream 503 returns 503; use fake POIService
+- [x] 17.2 Create `api/poi.py` router with `GET /poi/nearby` handler validating query params and calling POIService
 
 ## 18. Narration SSE API Endpoint
 
-- [ ] 18.1 Write failing tests in `tests/integration/test_narration_api.py` covering: successful stream has correct event order (meta → text/audio → end), meta event has required fields, audio event has chunk_b64 and sentence_idx, error event on LLM rate limit, missing poi_id returns 422; use FakeLlmProvider and FakeTtsProvider
-- [ ] 18.2 Create `api/narration.py` router with `POST /narration` SSE handler streaming NarrationService events via sse-starlette
+- [x] 18.1 Write failing tests in `tests/integration/test_narration_api.py` covering: successful stream has correct event order (meta → text/audio → end), meta event has required fields, audio event has chunk_b64 and sentence_idx, error event on LLM rate limit, missing poi_id returns 422; use FakeLlmProvider and FakeTtsProvider
+- [x] 18.2 Create `api/narration.py` router with `POST /narration` SSE handler streaming NarrationService events via sse-starlette
 
 ## 19. Narration Cache (Filesystem, TDD)
 
-- [ ] 19.1 Write failing tests in `tests/unit/test_narration_cache.py` covering: put then get returns same bytes, non-existent key returns None, LRU eviction at 500 MB; use `tmp_path`
-- [ ] 19.2 Create `cache/narration_cache.py` with `NarrationCache` using key `{poi_id}|{persona}|{lang}|{length}`, storing audio bytes and transcript, LRU at 500 MB
+- [x] 19.1 Write failing tests in `tests/unit/test_narration_cache.py` covering: put then get returns same bytes, non-existent key returns None, LRU eviction at 500 MB; use `tmp_path`
+- [x] 19.2 Create `cache/narration_cache.py` with `NarrationCache` using key `{poi_id}|{persona}|{lang}|{length}`, storing audio bytes and transcript, LRU at 500 MB
 
 ## 20. Wire NarrationCache into NarrationService
 
-- [ ] 20.1 Update `NarrationService` to accept `NarrationCache` and call `cache.get(key)` before pipeline; call `cache.put(key, audio, transcript)` after successful end event
-- [ ] 20.2 Update narration service tests to verify cache is populated on miss and bypassed on hit
+- [x] 20.1 Update `NarrationService` to accept `NarrationCache` and call `cache.get(key)` before pipeline; call `cache.put(key, audio, transcript)` after successful end event
+- [x] 20.2 Update narration service tests to verify cache is populated on miss and bypassed on hit
 
 ## 21. Real Provider Adapters
 
-- [ ] 21.1 Create `providers/llm.py` `LiteLLMAdapter` implementing `LlmProvider` using `litellm.acompletion(stream=True)` for Gemini Flash model
-- [ ] 21.2 Create `providers/tts.py` `GeminiTtsAdapter` implementing `TtsProvider` using `google-genai` SDK with configurable voice and speaking rate
+- [x] 21.1 Create `providers/llm.py` `LiteLLMAdapter` implementing `LlmProvider` using `litellm.acompletion(stream=True)` for Gemini Flash model
+- [x] 21.2 Create `providers/tts.py` `GeminiTtsAdapter` implementing `TtsProvider` using `google-genai` SDK with configurable voice and speaking rate
 
 ## 22. FastAPI App Factory and DI Wiring
 
-- [ ] 22.1 Create `src/tour_guide/main.py` with `create_app(config: AppConfig) -> FastAPI` factory that wires all dependencies (providers, services, clients, caches) via FastAPI lifespan or `Depends`, includes all routers
-- [ ] 22.2 Wire real providers when `GEMINI_API_KEY` is set, fake providers in test mode
-- [ ] 22.3 Verify app starts with all 3 routes registered (`/health`, `/poi/nearby`, `/narration`) via integration test
+- [x] 22.1 Create `src/tour_guide/main.py` with `create_app(config: AppConfig) -> FastAPI` factory that wires all dependencies (providers, services, clients, caches) via FastAPI lifespan or `Depends`, includes all routers
+- [x] 22.2 Wire real providers when `GEMINI_API_KEY` is set, fake providers in test mode
+- [x] 22.3 Verify app starts with all 3 routes registered (`/health`, `/poi/nearby`, `/narration`) via integration test
 
 ## 23. Full Test Suite and Linting
 
-- [ ] 23.1 Run `pytest tests/unit/ tests/integration/ -v` and confirm all tests pass with 0 failures
-- [ ] 23.2 Run `ruff check src/ tests/` and fix any lint errors until exit code 0
-- [ ] 23.3 Run `ruff format --check src/ tests/` and fix formatting issues
+- [x] 23.1 Run `pytest tests/unit/ tests/integration/ -v` and confirm all tests pass with 0 failures
+- [x] 23.2 Run `ruff check src/ tests/` and fix any lint errors until exit code 0
+- [x] 23.3 Run `ruff format --check src/ tests/` and fix formatting issues
 
 ## 24. Real-Provider Smoke Test
 
-- [ ] 24.1 Create `tests/smoke/test_real_providers.py` with `@pytest.mark.real_provider` test running full narration pipeline against real Gemini API and asserting at least one `audio` event and one `end` event in SSE stream
-- [ ] 24.2 Run smoke test manually with `pytest -m real_provider` and valid GEMINI_API_KEY to verify end-to-end pipeline
+- [x] 24.1 Create `tests/smoke/test_real_providers.py` with `@pytest.mark.real_provider` test running full narration pipeline against real Gemini API and asserting at least one `audio` event and one `end` event in SSE stream
+- [x] 24.2 Run smoke test manually with `pytest -m real_provider` and valid GEMINI_API_KEY to verify end-to-end pipeline
 
 ## 25. README Curl Recipes and Manual E2E Verification
 
-- [ ] 25.1 Add curl recipe examples to `backend/README.md` for `GET /health`, `GET /poi/nearby` (with sample coords), and `POST /narration` (with sample poi_id, showing SSE stream output)
-- [ ] 25.2 Run backend locally with `uvicorn tour_guide.main:app --reload` and manually execute all curl recipes to confirm expected output
+- [x] 25.1 Add curl recipe examples to `backend/README.md` for `GET /health`, `GET /poi/nearby` (with sample coords), and `POST /narration` (with sample poi_id, showing SSE stream output)
+- [x] 25.2 Run backend locally with `uvicorn tour_guide.main:app --reload` and manually execute all curl recipes to confirm expected output

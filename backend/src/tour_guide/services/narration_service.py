@@ -5,6 +5,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Literal
 
+from tour_guide.cache.narration_cache import NarrationCache
 from tour_guide.models.persona import PersonaConfig
 from tour_guide.models.poi import POIContext
 from tour_guide.pipeline.sentence_splitter import StreamingSentenceBuffer
@@ -69,9 +70,11 @@ class NarrationService:
         self,
         llm: LlmProvider,
         tts: TtsProvider,
+        cache: NarrationCache | None = None,
     ) -> None:
         self._llm = llm
         self._tts = tts
+        self._cache = cache
 
     async def narrate(
         self,
@@ -85,49 +88,77 @@ class NarrationService:
 
         Yields:
             MetaEvent — first, with confidence and cache status
-            TextEvent + AudioEvent — interleaved pairs per sentence
+            TextEvent + AudioEvent — interleaved pairs per sentence (cache miss path)
+            AudioEvent — single event with full cached audio (cache hit path)
             EndEvent — final event
         """
-        # 1. Yield MetaEvent
         confidence = ConfidenceClassifier.classify(poi)
+        cache_key = f"{poi.osm.id}|{persona.id}|{lang}|{length}"
+
+        # 1. Check cache (if cache is configured and not force-regenerating)
+        if self._cache is not None and not force_regenerate:
+            cached = self._cache.get(cache_key)
+            if cached is not None:
+                cached_audio, _transcript = cached
+                yield MetaEvent(
+                    poi_id=poi.osm.id,
+                    cache_hit=True,
+                    confidence=confidence,
+                )
+                yield AudioEvent(
+                    chunk_b64=base64.b64encode(cached_audio).decode(),
+                    sentence_idx=0,
+                )
+                yield EndEvent()
+                return
+
+        # 2. Cache miss (or no cache / force_regenerate): run full pipeline
         yield MetaEvent(
             poi_id=poi.osm.id,
             cache_hit=False,
             confidence=confidence,
         )
 
-        # 2. Build prompt messages
+        # 3. Build prompt messages
         raw_messages = PromptBuilder.build(persona, poi, lang, length)
         llm_messages = [Message(role=m["role"], content=m["content"]) for m in raw_messages]
         opts = LlmOpts()
 
-        # 3. Stream LLM → split sentences → TTS → yield events
+        # 4. Stream LLM → split sentences → TTS → yield events
         buffer = StreamingSentenceBuffer()
         sentence_idx = 0
         voice_id = persona.voice.get(lang, "Charon")
+        all_audio_chunks: list[bytes] = []
 
         async for chunk in self._llm.chat_stream(llm_messages, opts):
             sentences = buffer.feed(chunk)
             for sentence in sentences:
                 yield TextEvent(chunk=sentence, sentence_idx=sentence_idx)
                 audio_bytes = await self._synthesize_all(sentence, voice_id)
+                all_audio_chunks.append(audio_bytes)
                 yield AudioEvent(
                     chunk_b64=base64.b64encode(audio_bytes).decode(),
                     sentence_idx=sentence_idx,
                 )
                 sentence_idx += 1
 
-        # 4. Flush remaining buffer content
+        # 5. Flush remaining buffer content
         remainder = buffer.flush()
         if remainder:
             yield TextEvent(chunk=remainder, sentence_idx=sentence_idx)
             audio_bytes = await self._synthesize_all(remainder, voice_id)
+            all_audio_chunks.append(audio_bytes)
             yield AudioEvent(
                 chunk_b64=base64.b64encode(audio_bytes).decode(),
                 sentence_idx=sentence_idx,
             )
 
         yield EndEvent()
+
+        # 6. Populate cache after EndEvent (if cache is configured)
+        if self._cache is not None:
+            combined_audio = b"".join(all_audio_chunks)
+            self._cache.put(cache_key, combined_audio, "")
 
     async def _synthesize_all(self, text: str, voice_id: str) -> bytes:
         """Collect all audio chunks from TTS into a single bytes object."""

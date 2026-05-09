@@ -4,6 +4,7 @@ import base64
 
 import pytest
 
+from tour_guide.cache.narration_cache import NarrationCache
 from tour_guide.models.poi import OsmNode, POIContext, WikiArticle
 from tour_guide.prompts.loader import PersonaLoader
 from tour_guide.providers.fakes import FakeLlmProvider, FakeTtsProvider
@@ -307,3 +308,100 @@ class TestNarrationServiceEndEvent:
 
         end_events = [e for e in events if isinstance(e, EndEvent)]
         assert len(end_events) == 1, f"Expected exactly 1 EndEvent, got {len(end_events)}"
+
+
+class TestNarrationServiceCache:
+    """Tests for NarrationCache integration with NarrationService."""
+
+    @pytest.mark.asyncio
+    async def test_cache_hit_returns_audio_with_cache_hit_true(
+        self, persona, poi_with_wiki, tmp_path
+    ):
+        """Cache hit: pre-populated cache causes MetaEvent(cache_hit=True) and single AudioEvent."""
+        cache = NarrationCache(tmp_path)
+        cached_audio = b"\xAB\xCD" * 50  # 100 bytes of fake cached audio
+        cache_key = f"{poi_with_wiki.osm.id}|{persona.id}|zh-TW|medium"
+        cache.put(cache_key, cached_audio, "pre-cached transcript")
+
+        service = NarrationService(
+            llm=FakeLlmProvider(["故宮。"]),
+            tts=FakeTtsProvider(),
+            cache=cache,
+        )
+
+        events = []
+        async for event in service.narrate(poi_with_wiki, persona, "zh-TW", "medium"):
+            events.append(event)
+
+        # First event must be MetaEvent with cache_hit=True
+        assert isinstance(events[0], MetaEvent)
+        assert events[0].cache_hit is True
+
+        # Should have a single AudioEvent with the cached audio
+        audio_events = [e for e in events if isinstance(e, AudioEvent)]
+        assert len(audio_events) == 1
+        decoded = base64.b64decode(audio_events[0].chunk_b64)
+        assert decoded == cached_audio
+
+        # Last event must be EndEvent
+        assert isinstance(events[-1], EndEvent)
+
+        # No TextEvents on cache hit path
+        text_events = [e for e in events if isinstance(e, TextEvent)]
+        assert len(text_events) == 0
+
+    @pytest.mark.asyncio
+    async def test_cache_miss_populates_cache(self, persona, poi_with_wiki, tmp_path):
+        """Cache miss: narrate() runs full pipeline and populates cache afterwards."""
+        cache = NarrationCache(tmp_path)
+        service = NarrationService(
+            llm=FakeLlmProvider(["故宮。"]),
+            tts=FakeTtsProvider(),
+            cache=cache,
+        )
+
+        # Verify cache is empty before narration
+        cache_key = f"{poi_with_wiki.osm.id}|{persona.id}|zh-TW|medium"
+        assert cache.get(cache_key) is None
+
+        events = []
+        async for event in service.narrate(poi_with_wiki, persona, "zh-TW", "medium"):
+            events.append(event)
+
+        # After narration, cache should be populated
+        cached = cache.get(cache_key)
+        assert cached is not None
+        cached_audio, _transcript = cached
+        assert len(cached_audio) > 0
+
+        # The MetaEvent should show cache_hit=False (it was a miss)
+        assert isinstance(events[0], MetaEvent)
+        assert events[0].cache_hit is False
+
+    @pytest.mark.asyncio
+    async def test_force_regenerate_bypasses_cache(self, persona, poi_with_wiki, tmp_path):
+        """force_regenerate=True bypasses cache even when pre-populated."""
+        cache = NarrationCache(tmp_path)
+        cached_audio = b"\xFF" * 100  # distinctive fake cached audio
+        cache_key = f"{poi_with_wiki.osm.id}|{persona.id}|zh-TW|medium"
+        cache.put(cache_key, cached_audio, "old transcript")
+
+        service = NarrationService(
+            llm=FakeLlmProvider(["故宮。"]),
+            tts=FakeTtsProvider(),
+            cache=cache,
+        )
+
+        events = []
+        async for event in service.narrate(
+            poi_with_wiki, persona, "zh-TW", "medium", force_regenerate=True
+        ):
+            events.append(event)
+
+        # MetaEvent should have cache_hit=False (bypass used)
+        assert isinstance(events[0], MetaEvent)
+        assert events[0].cache_hit is False
+
+        # Pipeline ran, so TextEvents should be present
+        text_events = [e for e in events if isinstance(e, TextEvent)]
+        assert len(text_events) > 0

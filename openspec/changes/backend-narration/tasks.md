@@ -47,56 +47,56 @@
 
 ## 8. Provider Interfaces and Fakes
 
-- [ ] 8.1 Create `src/tour_guide/providers/__init__.py` and `providers/llm.py` with `LlmProvider` Protocol, `LlmOpts`, `Message` types
-- [ ] 8.2 Write failing tests in `tests/unit/test_llm_provider.py` for `FakeLlmProvider` yielding scripted chunks in order
-- [ ] 8.3 Create `providers/fakes.py` with `FakeLlmProvider(scripted_chunks: list[str])` implementing `LlmProvider`
-- [ ] 8.4 Create `providers/tts.py` with `TtsProvider` Protocol and `TtsOpts`
-- [ ] 8.5 Write failing tests in `tests/unit/test_tts_provider.py` for `FakeTtsProvider` returning fixed silent bytes
-- [ ] 8.6 Add `FakeTtsProvider` to `providers/fakes.py` implementing `TtsProvider`
+- [x] 8.1 Create `src/tour_guide/providers/__init__.py` and `providers/llm.py` with `LlmProvider` Protocol, `LlmOpts`, `Message` types
+- [x] 8.2 Write failing tests in `tests/unit/test_llm_provider.py` for `FakeLlmProvider` yielding scripted chunks in order
+- [x] 8.3 Create `providers/fakes.py` with `FakeLlmProvider(scripted_chunks: list[str])` implementing `LlmProvider`
+- [x] 8.4 Create `providers/tts.py` with `TtsProvider` Protocol and `TtsOpts`
+- [x] 8.5 Write failing tests in `tests/unit/test_tts_provider.py` for `FakeTtsProvider` returning fixed silent bytes
+- [x] 8.6 Add `FakeTtsProvider` to `providers/fakes.py` implementing `TtsProvider`
 
 ## 9. NarrationService (Integration, TDD)
 
-- [ ] 9.1 Write failing integration tests in `tests/integration/test_narration_service.py` covering: cache miss runs full pipeline, cache hit returns audio directly, force_regenerate bypasses cache, completed narration is saved to cache; use FakeLlmProvider and FakeTtsProvider
-- [ ] 9.2 Create `src/tour_guide/services/__init__.py` and `services/narration_service.py` with `NarrationService.narrate()` orchestrating PromptBuilder → LlmProvider → SentenceSplitter → TtsProvider → yield NarrationEvent
-- [ ] 9.3 Define `NarrationEvent` type variants: `MetaEvent`, `TextEvent`, `AudioEvent`, `EndEvent`, `ErrorEvent`
-- [ ] 9.4 Run narration service integration tests and confirm all pass
+- [x] 9.1 Write failing integration tests in `tests/integration/test_narration_service.py` covering: cache miss runs full pipeline, cache hit returns audio directly, force_regenerate bypasses cache, completed narration is saved to cache; use FakeLlmProvider and FakeTtsProvider
+- [x] 9.2 Create `src/tour_guide/services/__init__.py` and `services/narration_service.py` with `NarrationService.narrate()` orchestrating PromptBuilder → LlmProvider → SentenceSplitter → TtsProvider → yield NarrationEvent
+- [x] 9.3 Define `NarrationEvent` type variants: `MetaEvent`, `TextEvent`, `AudioEvent`, `EndEvent`, `ErrorEvent`
+- [x] 9.4 Run narration service integration tests and confirm all pass
 
 ## 10. External HTTP Clients (TDD with respx)
 
-- [ ] 10.1 Write failing tests in `tests/integration/test_wikipedia_client.py` using respx to mock Wikipedia REST API; cover known title returns WikiArticle, unknown returns None, disambiguation returns None
-- [ ] 10.2 Create `src/tour_guide/clients/__init__.py` and `clients/wikipedia.py` with `WikipediaClient.summary(title, lang) -> WikiArticle | None` using httpx
-- [ ] 10.3 Write failing tests in `tests/integration/test_overpass_client.py` using respx; cover successful query, 503 retry, 429 raises OverpassRateLimitError
-- [ ] 10.4 Create `clients/overpass.py` with `OverpassClient.query(bbox, tags) -> list[OsmNode]` with retry (3 attempts, 1s/2s/4s backoff)
+- [x] 10.1 Write failing tests in `tests/integration/test_wikipedia_client.py` using respx to mock Wikipedia REST API; cover known title returns WikiArticle, unknown returns None, disambiguation returns None
+- [x] 10.2 Create `src/tour_guide/clients/__init__.py` and `clients/wikipedia.py` with `WikipediaClient.summary(title, lang) -> WikiArticle | None` using httpx
+- [x] 10.3 Write failing tests in `tests/integration/test_overpass_client.py` using respx; cover successful query, 503 retry, 429 raises OverpassRateLimitError
+- [x] 10.4 Create `clients/overpass.py` with `OverpassClient.query(bbox, tags) -> list[OsmNode]` with retry (3 attempts, 1s/2s/4s backoff)
 
 ## 11. POI Filter Logic (Pure Function, TDD)
 
-- [ ] 11.1 Write failing tests in `tests/unit/test_poi_filter.py` covering: node with tourism tag + wiki tag passes, node without wiki tag excluded, node with excluded tag type excluded
-- [ ] 11.2 Create POI filter function (in `services/poi_service.py` or dedicated `services/poi_filter.py`) with tourism/historic whitelist and wiki tag requirement
+- [x] 11.1 Write failing tests in `tests/unit/test_poi_filter.py` covering: node with tourism tag + wiki tag passes, node without wiki tag excluded, node with excluded tag type excluded
+- [x] 11.2 Create POI filter function (in `services/poi_service.py` or dedicated `services/poi_filter.py`) with tourism/historic whitelist and wiki tag requirement
 
 ## 12. POI Cache (Filesystem, TDD)
 
-- [ ] 12.1 Write failing tests in `tests/unit/test_poi_cache.py` covering: cache hit returns stored value, cache miss returns None, expired TTL treated as miss, LRU eviction at 100 MB; use `tmp_path` pytest fixture
-- [ ] 12.2 Create `src/tour_guide/cache/__init__.py` and `cache/poi_cache.py` with `POICache` implementing two-layer key scheme, TTL 30 days, LRU at 100 MB
+- [x] 12.1 Write failing tests in `tests/unit/test_poi_cache.py` covering: cache hit returns stored value, cache miss returns None, expired TTL treated as miss, LRU eviction at 100 MB; use `tmp_path` pytest fixture
+- [x] 12.2 Create `src/tour_guide/cache/__init__.py` and `cache/poi_cache.py` with `POICache` implementing two-layer key scheme, TTL 30 days, LRU at 100 MB
 
 ## 13. POIService (Integration, TDD)
 
-- [ ] 13.1 Write failing tests in `tests/integration/test_poi_service.py` covering: full pipeline returns enriched POIs with wiki and confidence, cache hit skips external clients; use fake clients and tmp_path cache
-- [ ] 13.2 Create `services/poi_service.py` with `POIService.nearby(lat, lon, radius, persona, lang) -> list[POI]` combining OverpassClient + filter + WikipediaClient + ConfidenceClassifier + POICache
+- [x] 13.1 Write failing tests in `tests/integration/test_poi_service.py` covering: full pipeline returns enriched POIs with wiki and confidence, cache hit skips external clients; use fake clients and tmp_path cache
+- [x] 13.2 Create `services/poi_service.py` with `POIService.nearby(lat, lon, radius, persona, lang) -> list[POI]` combining OverpassClient + filter + WikipediaClient + ConfidenceClassifier + POICache
 
 ## 14. AppConfig
 
-- [ ] 14.1 Write failing tests in `tests/unit/test_config.py` covering: config loads from env, missing GEMINI_API_KEY raises ValidationError, default values are correct
-- [ ] 14.2 Create `src/tour_guide/config.py` with `AppConfig(BaseSettings)` for all environment variables
+- [x] 14.1 Write failing tests in `tests/unit/test_config.py` covering: config loads from env, missing GEMINI_API_KEY raises ValidationError, default values are correct
+- [x] 14.2 Create `src/tour_guide/config.py` with `AppConfig(BaseSettings)` for all environment variables
 
 ## 15. SSE Event Encoding
 
-- [ ] 15.1 Write failing tests in `tests/unit/test_sse.py` for `encode_event()` format: `"event: {type}\ndata: {json}\n\n"`
-- [ ] 15.2 Create `src/tour_guide/api/sse.py` with `encode_event(event_type: str, data: dict) -> str` helper
+- [x] 15.1 Write failing tests in `tests/unit/test_sse.py` for `encode_event()` format: `"event: {type}\ndata: {json}\n\n"`
+- [x] 15.2 Create `src/tour_guide/api/sse.py` with `encode_event(event_type: str, data: dict) -> str` helper
 
 ## 16. Health API Endpoint
 
-- [ ] 16.1 Write failing tests in `tests/integration/test_health_api.py` verifying `GET /health` returns 200 with `{"status": "ok", "uptime_s": <non-negative>}`
-- [ ] 16.2 Create `src/tour_guide/api/__init__.py` and `api/health.py` router with `GET /health` handler
+- [x] 16.1 Write failing tests in `tests/integration/test_health_api.py` verifying `GET /health` returns 200 with `{"status": "ok", "uptime_s": <non-negative>}`
+- [x] 16.2 Create `src/tour_guide/api/__init__.py` and `api/health.py` router with `GET /health` handler
 
 ## 17. POI Nearby API Endpoint
 

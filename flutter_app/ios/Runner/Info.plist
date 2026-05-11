@@ -66,5 +66,9 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>AI Tour Guide 需要存取您的位置以顯示附近景點。</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>AI Tour Guide 需要存取您的位置以自動播報旁白。</string>
 </dict>
 </plist>

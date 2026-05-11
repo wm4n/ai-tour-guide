@@ -44,18 +44,51 @@ void main() {
   });
 
   group('NarrationEvent', () {
-    test('MetaEvent has poiId and confidence', () {
-      const event = MetaEvent(
-        poiId: 'osm:way:12345',
-        cacheHit: false,
-        confidence: 'high',
-      );
+    test('MetaEvent.fromJson parses all fields', () {
+      final event = MetaEvent.fromJson({
+        'poi_id': 'osm:way:12345',
+        'cache_hit': false,
+        'confidence': 'high',
+        'estimated_duration_s': 30,
+      });
       expect(event.confidence, 'high');
+      expect(event.estimatedDurationS, 30);
+      expect(event.cacheHit, isFalse);
+    });
+
+    test('MetaEvent.estimatedDurationS defaults to 0', () {
+      final event = MetaEvent.fromJson({
+        'poi_id': 'abc',
+        'cache_hit': true,
+        'confidence': 'low',
+      });
+      expect(event.estimatedDurationS, 0);
+    });
+
+    test('TextEvent.fromJson parses chunk and sentenceIdx', () {
+      final event = TextEvent.fromJson({'chunk': 'Hello', 'sentence_idx': 1});
+      expect(event.chunk, 'Hello');
+      expect(event.sentenceIdx, 1);
     });
 
     test('AudioEvent has base64 chunk and sentenceIdx', () {
       const event = AudioEvent(chunkB64: 'abc123', sentenceIdx: 2);
       expect(event.sentenceIdx, 2);
+    });
+
+    test('EndEvent constructs with no fields', () {
+      const event = EndEvent();
+      expect(event, isA<NarrationEvent>());
+    });
+
+    test('ErrorEvent.fromJson parses retry_after_s', () {
+      final event = ErrorEvent.fromJson({
+        'code': 'RATE_LIMITED',
+        'message': 'Too many requests',
+        'retry_after_s': 30,
+      });
+      expect(event.code, 'RATE_LIMITED');
+      expect(event.retryAfterS, 30);
     });
   });
 }

@@ -93,6 +93,7 @@ flutter_app/
 │   └── shared/
 │       ├── backend/
 │       │   ├── backend_client.dart                ← HTTP + SSE（dart-define URL）
+│       │   ├── sse_parser.dart                    ← 自訂 SSE byteStream 解析器
 │       │   └── models/                            ← POI, NarrationEvent, PersonaConfig
 │       ├── audio/
 │       │   └── audio_player_service.dart          ← just_audio 包裝
@@ -233,7 +234,17 @@ flutter run --dart-define=BACKEND_URL=http://10.0.2.2:8000
 flutter run --dart-define=BACKEND_URL=http://192.168.x.x:8000
 ```
 
-`dart_defines/dev.json` 提供預設值，`BackendClient` 在建構時讀取：
+`dart_defines/dev.json` 提供預設值，使用 `--dart-define-from-file` 一次帶入：
+
+```bash
+# 使用 JSON 檔批次帶入（推薦）
+flutter run --dart-define-from-file=dart_defines/dev.json
+
+# 或單一 key 直接帶入
+flutter run --dart-define=BACKEND_URL=http://10.0.2.2:8000
+```
+
+`BackendClient` 在建構時讀取：
 
 ```dart
 const backendUrl = String.fromEnvironment('BACKEND_URL', defaultValue: 'http://localhost:8000');

@@ -18,7 +18,7 @@ class NarrationSheet extends ConsumerWidget {
       maxChildSize: 0.6,
       snap: true,
       snapSizes: const [0.12, 0.6],
-      builder: (context, scrollController) => Container(
+      builder: (_, scrollController) => Container(
         decoration: const BoxDecoration(
           color: Color(0xFF16213E),
           borderRadius: BorderRadius.vertical(top: Radius.circular(16)),

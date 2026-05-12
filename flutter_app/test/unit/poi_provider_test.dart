@@ -7,7 +7,7 @@ import 'package:flutter_app/shared/location/location_service.dart';
 import 'package:flutter_app/shared/providers.dart';
 
 void main() {
-  final fakePois = [
+  const fakePois = [
     POI(
       id: 'osm:1',
       name: '故宮',
@@ -22,7 +22,7 @@ void main() {
   test('PoiProvider returns pois from BackendClient on position update',
       () async {
     final fakeLocation = FakeLocationService();
-    final fakeClient = FakeBackendClient(nearbyPois: fakePois);
+    const fakeClient = FakeBackendClient(nearbyPois: fakePois);
     final container = ProviderContainer(
       overrides: [
         locationServiceProvider.overrideWithValue(fakeLocation),

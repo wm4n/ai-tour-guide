@@ -1,9 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:flutter_app/shared/backend/backend_client.dart';
 import 'package:flutter_app/shared/backend/models/poi.dart';
 import 'package:flutter_app/shared/location/haversine.dart';
-import 'package:flutter_app/shared/location/location_service.dart';
 import 'package:flutter_app/shared/providers.dart';
 
 const _refetchThresholdM = 250.0;

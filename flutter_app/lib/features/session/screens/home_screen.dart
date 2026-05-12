@@ -57,10 +57,11 @@ class HomeScreen extends ConsumerWidget {
 
   Future<void> _start(BuildContext context, WidgetRef ref) async {
     await ref.read(sessionProvider.notifier).start();
+    if (!context.mounted) return;
     final status = ref.read(sessionProvider).status;
-    if (status == SessionStatus.active && context.mounted) {
+    if (status == SessionStatus.active) {
       context.push('/map');
-    } else if (status == SessionStatus.idle && context.mounted) {
+    } else if (status == SessionStatus.idle) {
       showDialog<void>(
         context: context,
         builder: (_) => AlertDialog(

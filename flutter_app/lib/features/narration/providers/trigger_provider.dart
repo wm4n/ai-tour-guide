@@ -3,7 +3,6 @@ import 'package:geolocator/geolocator.dart';
 import 'package:flutter_app/features/map/providers/poi_provider.dart';
 import 'package:flutter_app/features/narration/providers/narration_provider.dart';
 import 'package:flutter_app/features/narration/trigger_engine.dart';
-import 'package:flutter_app/shared/db/local_db.dart';
 import 'package:flutter_app/shared/providers.dart';
 
 class TriggerNotifier extends Notifier<void> {

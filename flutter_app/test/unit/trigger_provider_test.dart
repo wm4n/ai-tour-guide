@@ -1,8 +1,6 @@
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_app/features/map/providers/poi_provider.dart';
-import 'package:flutter_app/features/narration/providers/narration_provider.dart';
 import 'package:flutter_app/features/narration/providers/trigger_provider.dart';
 import 'package:flutter_app/shared/backend/backend_client.dart';
 import 'package:flutter_app/shared/backend/models/poi.dart';
@@ -12,7 +10,7 @@ import 'package:flutter_app/shared/location/location_service.dart';
 import 'package:flutter_app/shared/providers.dart';
 
 void main() {
-  final nearPoi = POI(
+  const nearPoi = POI(
     id: 'osm:near',
     name: '近處景點',
     lat: 25.1031,
@@ -31,7 +29,7 @@ void main() {
       overrides: [
         locationServiceProvider.overrideWithValue(fakeLocation),
         backendClientProvider.overrideWithValue(
-          FakeBackendClient(nearbyPois: [nearPoi]),
+          const FakeBackendClient(nearbyPois: [nearPoi]),
         ),
         audioPlayerServiceProvider.overrideWithValue(fakeAudio),
         localDbProvider.overrideWithValue(db),

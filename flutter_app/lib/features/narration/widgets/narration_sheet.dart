@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_app/features/narration/providers/narration_provider.dart';
+import 'package:flutter_app/features/qa/providers/qa_provider.dart';
 
 class NarrationSheet extends ConsumerWidget {
   const NarrationSheet({super.key});
@@ -60,6 +61,49 @@ class NarrationSheet extends ConsumerWidget {
                 ),
               ),
             const SizedBox(height: 8),
+            // Q&A 字幕區塊（僅在 Q&A 進行中時顯示）
+            Consumer(
+              builder: (context, ref, _) {
+                final qa = ref.watch(qaProvider);
+                if (qa.status == QaStatus.idle && qa.transcript.isEmpty) {
+                  return const SizedBox.shrink();
+                }
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF0A2240),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (qa.transcript.isNotEmpty)
+                        Text(
+                          qa.transcript,
+                          style: const TextStyle(
+                            color: Color(0xFF4A9EFF),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      if (qa.responseText.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Text(
+                            qa.responseText,
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 13,
+                              height: 1.5,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                );
+              },
+            ),
             Text(
               state.subtitle,
               style: const TextStyle(

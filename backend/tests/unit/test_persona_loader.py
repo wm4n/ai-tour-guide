@@ -163,3 +163,23 @@ qa_template:
         registry = PersonaLoader.load_all(base_dir=tmp_path)
         assert "test_persona" in registry
         assert len(registry) == 1
+
+
+class TestAllPersonaYamls:
+    """Smoke tests: each persona YAML loads without error."""
+
+    @pytest.mark.parametrize("persona_id", [
+        "history_uncle",
+        "story_brother",
+        "gossip_auntie",
+        "kid_sister",
+        "foodie",
+    ])
+    def test_persona_yaml_loads_successfully(self, persona_id):
+        """Each persona YAML file should load without raising."""
+        config = PersonaLoader.load(persona_id)
+        assert config.id == persona_id
+        assert "zh-TW" in config.system_prompt
+        assert "en" in config.system_prompt
+        assert "zh-TW" in config.narration_template
+        assert "en" in config.narration_template

@@ -110,3 +110,56 @@ class TestPersonaLoaderErrors:
 
         with pytest.raises(ValueError, match="id"):
             PersonaLoader.load_from_path(invalid_file)
+
+
+class TestPersonaLoaderLoadAll:
+    """Tests for PersonaLoader.load_all()."""
+
+    def test_load_all_returns_dict_with_history_uncle(self):
+        """load_all() should include history_uncle (the only YAML that exists so far)."""
+        registry = PersonaLoader.load_all()
+        assert "history_uncle" in registry
+        assert isinstance(registry["history_uncle"], PersonaConfig)
+
+    def test_load_all_returns_dict_keyed_by_id(self):
+        """load_all() should key each persona by its id field."""
+        registry = PersonaLoader.load_all()
+        for persona_id, config in registry.items():
+            assert config.id == persona_id
+
+    def test_load_all_custom_dir_empty(self, tmp_path):
+        """load_all() on empty directory returns empty dict."""
+        registry = PersonaLoader.load_all(base_dir=tmp_path)
+        assert registry == {}
+
+    def test_load_all_custom_dir_with_yaml(self, tmp_path):
+        """load_all() loads all YAML files from given directory."""
+        yaml_content = """
+id: test_persona
+display_name:
+  zh-TW: 測試
+  en: Test
+voice:
+  zh-TW: Charon
+  en: Charon
+voice_style:
+  speaking_rate: 1.0
+  emotion: neutral
+style_profile:
+  embellishment: 0.0
+  preferred_topics: []
+poi_source: osm_wikipedia
+system_prompt:
+  zh-TW: 測試 prompt
+  en: Test prompt
+narration_template:
+  zh-TW: "narrate {poi_name}"
+  en: "narrate {poi_name}"
+qa_template:
+  zh-TW: "answer {question}"
+  en: "answer {question}"
+"""
+        (tmp_path / "test_persona.yaml").write_text(yaml_content)
+        registry = PersonaLoader.load_all(base_dir=tmp_path)
+        assert "test_persona" in registry
+        assert len(registry) == 1

@@ -97,3 +97,20 @@ class PersonaLoader:
             raise FileNotFoundError(f"Persona YAML not found: '{path}'")
         data: dict[str, Any] = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         return _parse(data, path)
+
+    @classmethod
+    def load_all(
+        cls,
+        base_dir: Path = _DEFAULT_PERSONAS_DIR,
+    ) -> dict[str, "PersonaConfig"]:
+        """Load all persona YAML files from base_dir.
+
+        Returns:
+            Dict mapping persona_id -> PersonaConfig for every .yaml file found.
+            Skips non-YAML files. Empty dict if directory has no YAML files.
+        """
+        registry: dict[str, PersonaConfig] = {}
+        for yaml_file in sorted(base_dir.glob("*.yaml")):
+            config = cls.load_from_path(yaml_file)
+            registry[config.id] = config
+        return registry

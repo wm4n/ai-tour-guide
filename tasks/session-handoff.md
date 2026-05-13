@@ -2,8 +2,8 @@
 
 > 這份文件給下一個 Claude session 用，目的是讓對方在 zero context 下能直接接手繼續推進。
 
-**前次 session 結束時間**：2026-05-13
-**前次 session 主要產出**：Plan D Push-to-talk Q&A 完成，Flutter 71/71 測試通過，後端 159/159 通過，flutter analyze 10 info（無 error/warning）
+**前次 session 結束時間**：2026-05-14
+**前次 session 主要產出**：Plan E 食家 persona + Google Places 完成，Flutter 77/77 測試通過，後端 195/195 通過（+2 skipped），flutter analyze 12 info（無 error/warning）
 
 ---
 
@@ -30,7 +30,7 @@
 | **B** | Flutter App MVP — 消費 Plan A 後端 | ✅ **完成** | `docs/superpowers/plans/2026-05-11-plan-b-flutter-app-mvp.md` |
 | **C** | Persona 系統擴充 + 雙語（5 persona、zh-TW + en） | ✅ **完成** | `docs/superpowers/plans/2026-05-12-plan-c-persona-i18n.md` |
 | **D** | Push-to-talk Q&A | ✅ **完成** | `docs/superpowers/plans/2026-05-13-plan-d-push-to-talk.md` |
-| **E** | 食家 persona + Google Places | 未開始 | 待寫 |
+| **E** | 食家 persona + Google Places | ✅ **完成** | `docs/superpowers/plans/2026-05-14-plan-e-foodie-google-places.md` |
 | **F** | 背景定位 + 部署上線 | 未開始 | 待寫 |
 
 ---
@@ -80,6 +80,26 @@ d4c3d7c feat(backend): add PersonaLoader.load_all() to load all persona YAMLs
 ### Plan D — Push-to-talk Q&A（已完成）
 
 **最後狀態**：Flutter 71/71 tests pass，後端 159/159 pass，flutter analyze 10 info（無 error/warning）
+
+### Plan E — 食家 persona + Google Places（已完成）
+
+**最後狀態**：Flutter 77/77 tests pass，後端 195/195 pass（+2 skipped），flutter analyze 12 info（無 error/warning）
+
+Plan E 新增的關鍵 commits（由新到舊）：
+```
+be1c4c8 feat(flutter): add _FoodieRatingBar to NarrationSheet — shows rating/price for foodie POIs
+f6ee480 feat(flutter): TriggerNotifier reads per-persona trigger radius from kPersonas
+4db18a5 feat(flutter): add defaultTriggerRadiusM to PersonaInfo; foodie=50m, others=100m
+0b6b4a2 feat(flutter): extend POI model with nullable foodie fields (rating, priceLevel, etc.)
+d905c2b feat(backend): wire GooglePlacesClient in app factory (env-var based Real/Fake switch)
+a5e6d62 feat(backend): api/poi.py conditionally includes foodie fields in response
+ff2c6de feat(backend): add POIService persona routing — foodie → Google Places, others → Overpass
+4d4e3d5 feat(backend): add ConfidenceClassifier.classify_place() for Google Places results
+159a8f8 feat(backend): add FoodieFilter with meal-time threshold (TDD)
+de9a6ca feat(backend): add GooglePlacesClient (Protocol + Fake + Real) and GOOGLE_PLACES_API_KEY config
+6e253a1 feat(backend): parse default_trigger_radius_m in PersonaLoader; foodie YAML → google_places
+9795d3b feat(backend): add Place model and foodie fields to POI + PersonaConfig
+```
 
 Plan D 新增的關鍵 commits（由新到舊）：
 ```
@@ -203,11 +223,12 @@ curl -X POST http://localhost:8000/qa \
   -H "Accept: text/event-stream"
 ```
 
-### Step 2：Plan E — 食家 persona + Google Places
+### Step 2：Plan F — 背景定位 + 部署上線
 
-- 食家 persona（foodie）目前走 osm_wikipedia，Plan E 改接 Google Places API
-- 評分過濾、用餐時段加權、50m 觸發半徑
-- 需要 Google Places API key
+- Plan E 已完成，下一步是 Plan F
+- 背景定位（Background geolocation）
+- Cloud Run 部署
+- Google Maps + Google Places API Key 設定
 
 ---
 
@@ -295,8 +316,8 @@ cd flutter_app && dart run build_runner build --delete-conflicting-outputs
 ```text
 我想接續上次的 AI tour guide 專案進度。請先讀 tasks/session-handoff.md，
 然後按其中「下一步具體 action」往下做。
-Plan A（後端）、Plan B（Flutter App）、Plan C（Persona 系統 + 雙語）、Plan D（Push-to-talk Q&A）都已完成，
-下一步是端對端 smoke test（重點驗 Plan D PTT 功能），然後開始 Plan E（食家 persona + Google Places）。
+Plan A（後端）、Plan B（Flutter App）、Plan C（Persona 系統 + 雙語）、Plan D（Push-to-talk Q&A）、Plan E（食家 persona + Google Places）都已完成，
+下一步是端對端 smoke test，然後開始 Plan F（背景定位 + 部署上線）。
 ```
 
 —— END HANDOFF

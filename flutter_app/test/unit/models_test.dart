@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_app/shared/backend/models/poi.dart';
 import 'package:flutter_app/shared/backend/models/narration_event.dart';
+import 'package:flutter_app/shared/backend/models/qa_event.dart';
 
 void main() {
   group('POI.fromJson', () {
@@ -89,6 +90,30 @@ void main() {
       });
       expect(event.code, 'RATE_LIMITED');
       expect(event.retryAfterS, 30);
+    });
+  });
+
+  group('QaEvent', () {
+    test('TranscriptQaEvent.fromJson', () {
+      final e = TranscriptQaEvent.fromJson({'text': '這是問題'});
+      expect(e.text, '這是問題');
+    });
+
+    test('TextQaEvent.fromJson', () {
+      final e = TextQaEvent.fromJson({'chunk': '回答', 'sentence_idx': 0});
+      expect(e.chunk, '回答');
+      expect(e.sentenceIdx, 0);
+    });
+
+    test('AudioQaEvent.fromJson', () {
+      final e = AudioQaEvent.fromJson({'chunk_b64': 'AAAA', 'sentence_idx': 1});
+      expect(e.chunkB64, 'AAAA');
+      expect(e.sentenceIdx, 1);
+    });
+
+    test('ErrorQaEvent.fromJson', () {
+      final e = ErrorQaEvent.fromJson({'code': 'stt_error', 'message': 'timeout'});
+      expect(e.code, 'stt_error');
     });
   });
 }

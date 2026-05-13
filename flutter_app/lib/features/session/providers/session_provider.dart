@@ -20,12 +20,14 @@ class SessionState {
 
   SessionState copyWith({
     SessionStatus? status,
+    String? persona,
+    String? lang,
     int? currentSessionId,
   }) =>
       SessionState(
         status: status ?? this.status,
-        persona: persona,
-        lang: lang,
+        persona: persona ?? this.persona,
+        lang: lang ?? this.lang,
         currentSessionId: currentSessionId ?? this.currentSessionId,
       );
 }
@@ -37,6 +39,16 @@ class SessionNotifier extends StateNotifier<SessionState> {
   final LocationService _location;
   final LocalDb _db;
 
+  void setPersona(String persona) {
+    if (state.status != SessionStatus.idle) return;
+    state = state.copyWith(persona: persona);
+  }
+
+  void setLang(String lang) {
+    if (state.status != SessionStatus.idle) return;
+    state = state.copyWith(lang: lang);
+  }
+
   Future<void> start() async {
     state = state.copyWith(status: SessionStatus.starting);
     final granted = await _location.requestPermission();
@@ -44,8 +56,7 @@ class SessionNotifier extends StateNotifier<SessionState> {
       state = state.copyWith(status: SessionStatus.idle);
       return;
     }
-    final sessionId =
-        await _db.startSession(state.persona, state.lang);
+    final sessionId = await _db.startSession(state.persona, state.lang);
     _location.start();
     state = state.copyWith(
       status: SessionStatus.active,

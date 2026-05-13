@@ -53,5 +53,41 @@ void main() {
       addTearDown(container.dispose);
       expect(container.read(sessionProvider).persona, 'history_uncle');
     });
+
+    test('setPersona() updates persona when idle', () {
+      final container = makeContainer();
+      addTearDown(container.dispose);
+      container.read(sessionProvider.notifier).setPersona('story_brother');
+      expect(container.read(sessionProvider).persona, 'story_brother');
+    });
+
+    test('setPersona() is no-op when not idle', () async {
+      final container = makeContainer();
+      addTearDown(container.dispose);
+      await container.read(sessionProvider.notifier).start();
+      container.read(sessionProvider.notifier).setPersona('story_brother');
+      expect(container.read(sessionProvider).persona, 'history_uncle');
+    });
+
+    test('setLang() updates lang when idle', () {
+      final container = makeContainer();
+      addTearDown(container.dispose);
+      container.read(sessionProvider.notifier).setLang('en');
+      expect(container.read(sessionProvider).lang, 'en');
+    });
+
+    test('setLang() is no-op when not idle', () async {
+      final container = makeContainer();
+      addTearDown(container.dispose);
+      await container.read(sessionProvider.notifier).start();
+      container.read(sessionProvider.notifier).setLang('en');
+      expect(container.read(sessionProvider).lang, 'zh-TW');
+    });
+
+    test('default lang is zh-TW', () {
+      final container = makeContainer();
+      addTearDown(container.dispose);
+      expect(container.read(sessionProvider).lang, 'zh-TW');
+    });
   });
 }

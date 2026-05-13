@@ -42,6 +42,49 @@ void main() {
       final poi = POI.fromJson(json);
       expect(poi.wiki, isNull);
     });
+
+    test('parses foodie POI with rating fields', () {
+      final json = {
+        'id': 'gplace:ChIJ001',
+        'name': '鼎泰豐',
+        'lat': 25.033,
+        'lon': 121.564,
+        'tags': <String, dynamic>{},
+        'wiki': null,
+        'distance_m': 47.3,
+        'confidence': 'high',
+        'rating': 4.6,
+        'user_ratings_total': 328,
+        'price_level': 2,
+        'place_types': ['restaurant', 'food'],
+        'vicinity': '信義區松高路12號',
+      };
+      final poi = POI.fromJson(json);
+      expect(poi.rating, 4.6);
+      expect(poi.userRatingsTotal, 328);
+      expect(poi.priceLevel, 2);
+      expect(poi.placeTypes, ['restaurant', 'food']);
+      expect(poi.vicinity, '信義區松高路12號');
+    });
+
+    test('non-foodie POI has null foodie fields', () {
+      final json = {
+        'id': 'osm:way:12345',
+        'name': '故宮博物院',
+        'lat': 25.1023,
+        'lon': 121.5482,
+        'tags': <String, dynamic>{},
+        'wiki': null,
+        'distance_m': 87.5,
+        'confidence': 'high',
+      };
+      final poi = POI.fromJson(json);
+      expect(poi.rating, isNull);
+      expect(poi.userRatingsTotal, isNull);
+      expect(poi.priceLevel, isNull);
+      expect(poi.placeTypes, isNull);
+      expect(poi.vicinity, isNull);
+    });
   });
 
   group('NarrationEvent', () {

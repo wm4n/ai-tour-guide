@@ -32,6 +32,13 @@ class POI {
   final double distanceM;
   final String confidence;
 
+  // foodie only — null for non-foodie POIs
+  final double? rating;
+  final int? userRatingsTotal;
+  final int? priceLevel;
+  final List<String>? placeTypes;
+  final String? vicinity;
+
   const POI({
     required this.id,
     required this.name,
@@ -41,6 +48,11 @@ class POI {
     this.wiki,
     required this.distanceM,
     required this.confidence,
+    this.rating,
+    this.userRatingsTotal,
+    this.priceLevel,
+    this.placeTypes,
+    this.vicinity,
   });
 
   factory POI.fromJson(Map<String, dynamic> json) => POI(
@@ -55,5 +67,10 @@ class POI {
             : null,
         distanceM: (json['distance_m'] as num).toDouble(),
         confidence: json['confidence'] as String,
+        rating: (json['rating'] as num?)?.toDouble(),
+        userRatingsTotal: json['user_ratings_total'] as int?,
+        priceLevel: json['price_level'] as int?,
+        placeTypes: (json['place_types'] as List<dynamic>?)?.cast<String>(),
+        vicinity: json['vicinity'] as String?,
       );
 }

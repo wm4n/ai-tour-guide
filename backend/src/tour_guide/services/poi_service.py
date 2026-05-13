@@ -1,12 +1,14 @@
 """POI Service: combines Overpass, Wikipedia, filter, confidence, and cache."""
 
+import datetime
 import math
 
 from tour_guide.cache.poi_cache import POICache
 from tour_guide.clients.overpass import OverpassClient
 from tour_guide.clients.wikipedia import WikipediaClient
-from tour_guide.models.poi import POI, BBox, POIContext, TagFilter, WikiArticle
+from tour_guide.models.poi import POI, BBox, Place, POIContext, TagFilter, WikiArticle
 from tour_guide.services.confidence import ConfidenceClassifier
+from tour_guide.services.foodie_filter import filter_places
 from tour_guide.services.poi_filter import filter_poi_nodes
 
 _DEFAULT_TAG_FILTERS = [
@@ -31,16 +33,39 @@ def _lat_lon_to_bbox(lat: float, lon: float, radius_m: int) -> BBox:
     return BBox(lat - delta_lat, lon - delta_lon, lat + delta_lat, lon + delta_lon)
 
 
+def _place_to_poi(place: Place, user_lat: float, user_lon: float) -> POI:
+    """Convert a Google Places Place to a POI dataclass."""
+    confidence = ConfidenceClassifier.classify_place(place)
+    distance = _haversine(user_lat, user_lon, place.lat, place.lon)
+    return POI(
+        id=place.id,
+        name=place.name,
+        lat=place.lat,
+        lon=place.lon,
+        tags={},
+        wiki=None,
+        distance_m=distance,
+        confidence=confidence,
+        rating=place.rating,
+        user_ratings_total=place.user_ratings_total,
+        price_level=place.price_level,
+        place_types=place.types,
+        vicinity=place.vicinity,
+    )
+
+
 class POIService:
     def __init__(
         self,
         overpass: OverpassClient,
         wikipedia: WikipediaClient,
         cache: POICache,
+        google_places=None,
     ):
         self._overpass = overpass
         self._wikipedia = wikipedia
         self._cache = cache
+        self._google_places = google_places
 
     async def nearby(
         self,
@@ -50,20 +75,60 @@ class POIService:
         persona: str,
         lang: str,
     ) -> list[POI]:
-        # Region cache key (persona excluded: same POIs regardless of persona)
+        if persona == "foodie":
+            return await self._nearby_foodie(lat, lon, radius)
+        return await self._nearby_osm(lat, lon, radius, lang)
+
+    async def _nearby_foodie(self, lat: float, lon: float, radius: int) -> list[POI]:
+        if self._google_places is None:
+            return []
+
+        region_key = f"region:foodie:{lat:.3f}:{lon:.3f}:{radius}"
+        cached = self._cache.get(region_key)
+        if cached is not None:
+            return [
+                POI(
+                    id=p["id"], name=p["name"], lat=p["lat"], lon=p["lon"],
+                    tags=p["tags"], wiki=None,
+                    distance_m=p["distance_m"], confidence=p["confidence"],
+                    rating=p.get("rating"), user_ratings_total=p.get("user_ratings_total"),
+                    price_level=p.get("price_level"), place_types=p.get("place_types"),
+                    vicinity=p.get("vicinity"),
+                )
+                for p in cached
+            ]
+
+        current_hour = datetime.datetime.now().hour
+        places = await self._google_places.nearby_restaurants(lat, lon, radius)
+        filtered = filter_places(places, current_hour)
+        pois = [_place_to_poi(p, lat, lon) for p in filtered]
+        pois.sort(key=lambda p: p.distance_m)
+
+        self._cache.put(
+            region_key,
+            [
+                {
+                    "id": p.id, "name": p.name, "lat": p.lat, "lon": p.lon,
+                    "tags": p.tags, "distance_m": p.distance_m, "confidence": p.confidence,
+                    "rating": p.rating, "user_ratings_total": p.user_ratings_total,
+                    "price_level": p.price_level, "place_types": p.place_types,
+                    "vicinity": p.vicinity,
+                }
+                for p in pois
+            ],
+        )
+        return pois
+
+    async def _nearby_osm(self, lat: float, lon: float, radius: int, lang: str) -> list[POI]:
         region_key = f"region:{lat:.3f}:{lon:.3f}:{radius}:{lang}"
         cached = self._cache.get(region_key)
         if cached is not None:
             return [
                 POI(
-                    id=p["id"],
-                    name=p["name"],
-                    lat=p["lat"],
-                    lon=p["lon"],
+                    id=p["id"], name=p["name"], lat=p["lat"], lon=p["lon"],
                     tags=p["tags"],
                     wiki=WikiArticle(**p["wiki"]) if p["wiki"] else None,
-                    distance_m=p["distance_m"],
-                    confidence=p["confidence"],
+                    distance_m=p["distance_m"], confidence=p["confidence"],
                 )
                 for p in cached
             ]
@@ -101,22 +166,16 @@ class POIService:
 
         pois.sort(key=lambda p: p.distance_m)
 
-        # Cache the serialized results
         self._cache.put(
             region_key,
             [
                 {
-                    "id": p.id,
-                    "name": p.name,
-                    "lat": p.lat,
-                    "lon": p.lon,
+                    "id": p.id, "name": p.name, "lat": p.lat, "lon": p.lon,
                     "tags": p.tags,
                     "wiki": vars(p.wiki) if p.wiki else None,
-                    "distance_m": p.distance_m,
-                    "confidence": p.confidence,
+                    "distance_m": p.distance_m, "confidence": p.confidence,
                 }
                 for p in pois
             ],
         )
-
         return pois

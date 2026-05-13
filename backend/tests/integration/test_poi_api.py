@@ -183,3 +183,65 @@ class TestPOINearbyAPI:
         )
 
         assert response.status_code == 503
+
+
+@pytest.fixture
+def sample_foodie_poi():
+    """Create a sample foodie POI with Google Places fields."""
+    return POI(
+        id="gplace:ChIJ001",
+        name="鼎泰豐",
+        lat=25.033,
+        lon=121.564,
+        tags={},
+        wiki=None,
+        distance_m=47.3,
+        confidence="high",
+        rating=4.6,
+        user_ratings_total=328,
+        price_level=2,
+        place_types=["restaurant", "food"],
+        vicinity="信義區松高路12號",
+    )
+
+
+class TestPOINearbyAPIFoodieFields:
+    def test_foodie_poi_response_includes_rating_fields(self, app, client, sample_foodie_poi):
+        """GET /poi/nearby with foodie POI returns rating, user_ratings_total etc."""
+        fake_service = FakePOIService(pois=[sample_foodie_poi])
+
+        def override_poi_service():
+            return fake_service
+
+        app.dependency_overrides[get_poi_service] = override_poi_service
+
+        response = client.get(
+            "/poi/nearby?lat=25.033&lon=121.564&radius=500&lang=zh-TW&persona=foodie"
+        )
+
+        assert response.status_code == 200
+        poi = response.json()["pois"][0]
+        assert poi["rating"] == 4.6
+        assert poi["user_ratings_total"] == 328
+        assert poi["price_level"] == 2
+        assert poi["place_types"] == ["restaurant", "food"]
+        assert poi["vicinity"] == "信義區松高路12號"
+
+    def test_non_foodie_poi_response_excludes_rating_fields(self, app, client, sample_poi):
+        """GET /poi/nearby with regular POI does NOT include rating fields."""
+        fake_service = FakePOIService(pois=[sample_poi])
+
+        def override_poi_service():
+            return fake_service
+
+        app.dependency_overrides[get_poi_service] = override_poi_service
+
+        response = client.get(
+            "/poi/nearby?lat=25.1023&lon=121.5482&radius=500&lang=zh-TW&persona=history_uncle"
+        )
+
+        assert response.status_code == 200
+        poi = response.json()["pois"][0]
+        assert "rating" not in poi
+        assert "user_ratings_total" not in poi
+        assert "place_types" not in poi

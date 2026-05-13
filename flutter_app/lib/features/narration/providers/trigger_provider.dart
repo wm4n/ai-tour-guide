@@ -3,6 +3,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:flutter_app/features/map/providers/poi_provider.dart';
 import 'package:flutter_app/features/narration/providers/narration_provider.dart';
 import 'package:flutter_app/features/narration/trigger_engine.dart';
+import 'package:flutter_app/features/session/providers/session_provider.dart';
 import 'package:flutter_app/shared/providers.dart';
 
 class TriggerNotifier extends Notifier<void> {
@@ -46,7 +47,12 @@ class TriggerNotifier extends Notifier<void> {
     if (triggers.isNotEmpty) {
       final poi = triggers.first;
       _sessionPlayedIds.add(poi.id);
-      ref.read(narrationProvider.notifier).narrate(poi);
+      final session = ref.read(sessionProvider);
+      ref.read(narrationProvider.notifier).narrate(
+        poi,
+        persona: session.persona,
+        lang: session.lang,
+      );
     }
   }
 }

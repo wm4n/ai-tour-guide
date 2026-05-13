@@ -33,14 +33,16 @@ class TestPOICache:
         cache = POICache(tmp_path)
         test_data = {"id": "poi:1", "name": "Museum"}
 
-        # Put data at current time
-        cache.put("museum:taipei", test_data)
+        # Put data at a known point in time
+        with freeze_time("2026-01-01"):
+            cache.put("museum:taipei", test_data)
 
-        # Verify it's there
-        assert cache.get("museum:taipei") == test_data
+        # Verify it's there immediately after
+        with freeze_time("2026-01-01"):
+            assert cache.get("museum:taipei") == test_data
 
-        # Simulate 31 days later
-        with freeze_time("2026-06-09"):  # 31 days after 2026-05-09
+        # Simulate 31 days later (past 30-day TTL)
+        with freeze_time("2026-02-01"):  # 31 days after 2026-01-01
             result = cache.get("museum:taipei")
             assert result is None
 

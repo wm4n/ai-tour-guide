@@ -1,7 +1,10 @@
 from collections.abc import AsyncIterator
 
 from tour_guide.providers.llm import LlmOpts, Message
+from tour_guide.providers.stt import FakeSttProvider
 from tour_guide.providers.tts import TtsOpts
+
+__all__ = ["FakeLlmProvider", "FakeTtsProvider", "FakeSttProvider"]
 
 
 class FakeLlmProvider:

@@ -2,12 +2,12 @@
 
 import dataclasses
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from tour_guide.api.sse import encode_event
-from tour_guide.models.persona import PersonaConfig, StyleProfile, VoiceStyle
+from tour_guide.models.persona import PersonaConfig
 from tour_guide.models.poi import OsmNode, POIContext
 from tour_guide.services.narration_service import NarrationService
 
@@ -26,6 +26,10 @@ def get_narration_service() -> NarrationService:
     raise NotImplementedError("Override with dependency")
 
 
+def get_persona_registry() -> dict[str, PersonaConfig]:
+    raise NotImplementedError("Override with dependency")
+
+
 def _event_to_dict(event) -> dict:
     d = dataclasses.asdict(event)
     d.pop("type", None)
@@ -36,21 +40,16 @@ def _event_to_dict(event) -> dict:
 async def narrate(
     request: NarrationRequest,
     narration_service: NarrationService = Depends(get_narration_service),  # noqa: B008
+    persona_registry: dict = Depends(get_persona_registry),  # noqa: B008
 ):
-    # Build a minimal POIContext from poi_id
+    if request.persona not in persona_registry:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown persona: '{request.persona}'. "
+            f"Valid options: {sorted(persona_registry.keys())}",
+        )
+    persona: PersonaConfig = persona_registry[request.persona]
     poi_context = POIContext(osm=OsmNode(id=request.poi_id, lat=0.0, lon=0.0, tags={}))
-    # Build a minimal persona (in full app, load from PersonaLoader)
-    persona = PersonaConfig(
-        id=request.persona,
-        display_name={"zh-TW": request.persona},
-        voice={"zh-TW": "Charon"},
-        voice_style=VoiceStyle(),
-        style_profile=StyleProfile(),
-        poi_source="osm_wikipedia",
-        system_prompt={"zh-TW": "You are a tour guide."},
-        narration_template={"zh-TW": "Narrate {poi_name}."},
-        qa_template={"zh-TW": "Answer: {question}"},
-    )
 
     async def generate():
         try:

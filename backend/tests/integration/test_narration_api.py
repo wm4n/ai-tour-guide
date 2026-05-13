@@ -7,7 +7,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from tour_guide.api.narration import get_narration_service, router
+from tour_guide.api.narration import get_narration_service, get_persona_registry, router
+from tour_guide.models.persona import PersonaConfig, StyleProfile, VoiceStyle
 from tour_guide.services.narration_service import (
     AudioEvent,
     EndEvent,
@@ -38,6 +39,25 @@ def parse_sse_events(text: str) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Fake Registry
+# ---------------------------------------------------------------------------
+
+_FAKE_REGISTRY: dict = {
+    "history_uncle": PersonaConfig(
+        id="history_uncle",
+        display_name={"zh-TW": "歷史大叔", "en": "The History Uncle"},
+        voice={"zh-TW": "Charon", "en": "Charon"},
+        voice_style=VoiceStyle(speaking_rate=0.95, emotion="contemplative"),
+        style_profile=StyleProfile(embellishment=0.1, preferred_topics=["history"]),
+        poi_source="osm_wikipedia",
+        system_prompt={"zh-TW": "你是歷史大叔。", "en": "You are The History Uncle."},
+        narration_template={"zh-TW": "narrate {poi_name}", "en": "narrate {poi_name}"},
+        qa_template={"zh-TW": "answer {question}", "en": "answer {question}"},
+    ),
+}
+
+
+# ---------------------------------------------------------------------------
 # Fake NarrationService
 # ---------------------------------------------------------------------------
 
@@ -57,12 +77,13 @@ class FakeNarrationService:
 
 @pytest.fixture
 def app():
-    """Minimal FastAPI app with narration router and fake service injected."""
+    """Minimal FastAPI app with narration router and fake service + registry injected."""
     application = FastAPI()
     application.include_router(router)
 
     fake_service = FakeNarrationService()
     application.dependency_overrides[get_narration_service] = lambda: fake_service
+    application.dependency_overrides[get_persona_registry] = lambda: _FAKE_REGISTRY
 
     return application
 
@@ -166,3 +187,17 @@ class TestNarrationAPIValidation:
         """POST /narration without poi_id returns HTTP 422."""
         response = client.post("/narration", json={})
         assert response.status_code == 422
+
+    def test_unknown_persona_returns_400(self, client):
+        """POST /narration with an unknown persona returns HTTP 400."""
+        response = client.post(
+            "/narration",
+            json={
+                "poi_id": "osm:node:123",
+                "persona": "unknown_persona",
+                "lang": "zh-TW",
+                "length": "medium",
+                "force_regenerate": False,
+            },
+        )
+        assert response.status_code == 400

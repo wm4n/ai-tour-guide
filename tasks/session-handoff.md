@@ -3,7 +3,7 @@
 > 這份文件給下一個 Claude session 用，目的是讓對方在 zero context 下能直接接手繼續推進。
 
 **前次 session 結束時間**：2026-05-12
-**前次 session 主要產出**：Plan B Flutter App MVP 全部 19 tasks 完成，42/42 測試通過，flutter analyze 無 error/warning
+**前次 session 主要產出**：Plan C Persona 系統擴充完成，Flutter 53/53 測試通過，後端 145/146 通過（1 個既有 TTL 測試與 Plan C 無關），flutter analyze 無 error
 
 ---
 
@@ -28,7 +28,7 @@
 |---|---|---|---|
 | **A** | Backend MVP — 單 persona narration | ✅ **完成** | `docs/superpowers/plans/2026-05-08-plan-a-backend-mvp.md` |
 | **B** | Flutter App MVP — 消費 Plan A 後端 | ✅ **完成** | `docs/superpowers/plans/2026-05-11-plan-b-flutter-app-mvp.md` |
-| **C** | Persona 系統擴充 + 雙語（4 persona、zh-TW + en） | 未開始 | 待寫 |
+| **C** | Persona 系統擴充 + 雙語（5 persona、zh-TW + en） | ✅ **完成** | `docs/superpowers/plans/2026-05-12-plan-c-persona-i18n.md` |
 | **D** | Push-to-talk Q&A | 未開始 | 待寫 |
 | **E** | 食家 persona + Google Places | 未開始 | 待寫 |
 | **F** | 背景定位 + 部署上線 | 未開始 | 待寫 |
@@ -59,38 +59,27 @@ curl http://localhost:8000/health           # {"status":"ok"}
 
 **最後狀態**：42/42 tests pass，flutter analyze 7 個 info（`prefer_const_constructors`、`use_super_parameters`），無 error/warning
 
-完整 commit 列表（由新到舊）：
+### Plan C — Persona 系統擴充 + 雙語（已完成）
+
+**最後狀態**：Flutter 53/53 tests pass，後端 145/146 pass（1 個既有 TTL 測試與 Plan C 無關），flutter analyze 無 error
+
+Plan C 新增的關鍵 commits（由新到舊）：
 ```
-97577bd docs(flutter): add README with setup, run, and test instructions for Plan B
-0c3f39e feat(flutter): add MapScreen with Google Maps POI markers, NarrationSheet overlay, and app routing
-3f561b5 refactor(flutter): fix context shadowing in NarrationSheet DraggableScrollableSheet builder
-b31bb3f feat(flutter): add NarrationMiniBar and NarrationSheet (DraggableScrollableSheet)
-39a47c9 refactor(flutter): simplify context.mounted check in HomeScreen._start
-d9ca184 feat(flutter): add HomeScreen with persona chip and start journey button
-7512e07 chore(flutter): fix unused imports and prefer_const_constructors lint in trigger provider files
-4495e2b feat(flutter): add TriggerProvider that auto-triggers narration on POI proximity
-933c232 feat(flutter): add NarrationProvider with SSE streaming and audio FIFO queue
-23db88c feat(flutter): add PoiProvider that re-fetches /poi/nearby on 250m movement
-0f1305b feat(flutter): add SessionProvider state machine (idle/starting/active/ending)
-129a51a feat(flutter): add shared Riverpod providers (client, location, db, audio)
-403b248 feat(flutter): add AudioPlayerService interface with Real (just_audio) and Fake implementations
-9acce94 feat(flutter): add BackendClient interface with Real and Fake implementations
-632ba96 feat(flutter): add LocationService interface with Real and Fake implementations
-80a1c9b feat(flutter): add drift DB schema with sessions and narration_history tables
-3c1cea0 feat(flutter): add TriggerEngine pure function with haversine + cooldown checks
-9699504 feat(flutter): add haversine distance function
-b9f7d42 feat(flutter): add SseParser for text/event-stream parsing
-3530573 fix(flutter): align NarrationEvent models with backend payload, add fromJson factories
-eefd239 feat(flutter): add POI and NarrationEvent data models
-a9953b9 fix(flutter): add INTERNET permission, distinguish Maps API key placeholders, set iOS platform 14.0
-97eb018 feat(flutter): configure Google Maps Platform for Android and iOS
-ca0ff24 fix(flutter): add ProviderScope to main.dart, clean widget_test stub, protect dart_defines in gitignore
-78ed132 feat(flutter): initialize Flutter app skeleton with dependencies
+967fe06 fix(flutter): update narrate() call sites in map_screen and narration_sheet_test with persona/lang params
+319d365 feat(flutter): restructure HomeScreen with PersonaSelector cards and language toggle
+668c26d feat(flutter): TriggerNotifier reads persona/lang from sessionProvider before narrating
+adbfacd feat(flutter): narrate() accepts persona/lang params, reads from session state
+165b1cc feat(flutter): add PersonaSelector vertical card widget with selection state
+5a40f87 feat(flutter): expose persona/lang in SessionState.copyWith, add setPersona/setLang
+3b3fa4b feat(flutter): add PersonaInfo model and kPersonas constants
+f413896 feat(backend): wire PersonaLoader into /narration endpoint, unknown persona → 400
+2f3fc53 feat(backend): add story_brother, gossip_auntie, kid_sister, foodie persona YAMLs
+d4c3d7c feat(backend): add PersonaLoader.load_all() to load all persona YAMLs
 ```
 
 ---
 
-## 4. Flutter App 架構（Plan B 產出）
+## 4. Flutter App 架構（Plan C 產出）
 
 ```
 flutter_app/lib/
@@ -98,17 +87,19 @@ flutter_app/lib/
 ├── app.dart                                   ← MaterialApp.router + GoRouter (/ → Home, /map → Map)
 ├── features/
 │   ├── session/
-│   │   ├── providers/session_provider.dart    ← SessionNotifier, SessionStatus enum
-│   │   ├── screens/home_screen.dart           ← ConsumerWidget, 開始旅程按鈕
-│   │   └── widgets/persona_chip.dart          ← 歷史大叔靜態 chip（Plan C 擴充多 persona）
+│   │   ├── persona_data.dart                  ← PersonaInfo model + kPersonas (5 個 persona 常數) [Plan C]
+│   │   ├── providers/session_provider.dart    ← SessionNotifier + setPersona/setLang [Plan C 擴充]
+│   │   ├── screens/home_screen.dart           ← PersonaSelector + SegmentedButton 語言切換 [Plan C 改版]
+│   │   ├── widgets/persona_chip.dart          ← 已棄用（保留檔案但 HomeScreen 不再使用）
+│   │   └── widgets/persona_selector.dart      ← 5 張垂直卡片選角 UI [Plan C]
 │   ├── map/
 │   │   ├── providers/poi_provider.dart        ← PoiNotifier (AsyncNotifier), 250m 重新 fetch
 │   │   ├── screens/map_screen.dart            ← GoogleMap + POI markers + NarrationSheet overlay
 │   │   └── widgets/poi_marker.dart            ← BitmapDescriptor 依 confidence (azure/yellow/red)
 │   └── narration/
 │       ├── trigger_engine.dart                ← 純靜態 TriggerEngine.evaluate()
-│       ├── providers/narration_provider.dart  ← NarrationNotifier, SSE + just_audio FIFO queue
-│       ├── providers/trigger_provider.dart    ← TriggerNotifier, 監聽 position + POI 自動觸發
+│       ├── providers/narration_provider.dart  ← NarrationNotifier, narrate(poi, persona:, lang:) [Plan C 擴充]
+│       ├── providers/trigger_provider.dart    ← TriggerNotifier, 從 sessionProvider 讀 persona/lang [Plan C]
 │       ├── widgets/narration_mini_bar.dart    ← 底部 mini bar (playing/paused toggle + skip)
 │       └── widgets/narration_sheet.dart       ← DraggableScrollableSheet (12% → 60%)
 └── shared/
@@ -135,6 +126,15 @@ flutter_app/lib/
 - `MetaEvent` — 有 `estimatedDurationS` 欄位
 - 全部 subclass 有 `fromJson` factory
 
+**Plan C 新增後端檔案：**
+- `backend/prompts/personas/history_uncle.yaml` — 歷史大叔（既有，已補 en）
+- `backend/prompts/personas/story_brother.yaml` — 故事大哥哥
+- `backend/prompts/personas/gossip_auntie.yaml` — 八卦阿姨
+- `backend/prompts/personas/kid_sister.yaml` — 童趣小妹
+- `backend/prompts/personas/foodie.yaml` — 美食家
+- `PersonaLoader.load_all()` 在 app startup 預載全部 persona 到 registry
+- `/narration` endpoint 改從 registry 取 persona（unknown → 400）
+
 **dart-define 注入**：
 - `dart_defines/dev.json` → `{"BACKEND_URL": "http://10.0.2.2:8000"}` (Android emulator)
 - iOS simulator 用 `--dart-define=BACKEND_URL=http://localhost:8000`
@@ -153,22 +153,20 @@ cd backend && GEMINI_API_KEY=<真實key> .venv/bin/uvicorn tour_guide.main:app -
 cd flutter_app && flutter run --dart-define-from-file=dart_defines/dev.json
 ```
 
-驗證 golden path：
-1. HomeScreen 顯示「歷史大叔」+「開始旅程」
-2. 點擊 → 地圖開啟，POI markers 顯示
-3. 點擊 POI marker → NarrationSheet 滑出，音訊播放
-4. 走近 100m POI → 自動觸發旁白
+驗證 Plan C golden path：
+1. HomeScreen 顯示 5 張 persona 卡片
+2. 點選不同 persona → highlight 正確移動
+3. 切換語言（中文/EN）
+4. 點「開始旅程」→ 地圖開啟，POI markers 顯示
+5. 走近 100m POI → 自動以選定 persona + 語言觸發旁白
 
-### Step 2：Plan C — Persona 系統擴充
+### Step 2：Plan D — Push-to-talk Q&A
 
-使用 brainstorming skill 設計 Plan C：
-- 4 個 persona（歷史大叔、美食達人、建築師、在地人）
-- PersonaChip 改為可選擇的動態元件
-- 雙語（zh-TW + en）切換
-
-### Step 3：Plan D — Push-to-talk Q&A
-
-設計 PTT Q&A 流程（Google STT → LLM context → TTS）
+使用 brainstorming skill 設計 Plan D：
+- 麥克風錄音（push-to-talk）→ Google STT → LLM（同 persona context）→ TTS
+- 旁白 ducking（音量降 50%）而非暫停
+- `/qa` SSE endpoint（後端已在設計文件中規劃好）
+- 問答不快取、不影響 cooldown/history
 
 ---
 
@@ -189,11 +187,13 @@ cd flutter_app && flutter run --dart-define-from-file=dart_defines/dev.json
 
 所有 unit/widget/integration test 均用 fake，不需要真實 key。
 
-### 6.3 Plan B 設計限制（MVP 有意為之，Plan C 擴充）
+### 6.3 Plan C 設計限制（MVP 有意為之，後續 Plan 擴充）
 
-- `PersonaChip` 是靜態的「歷史大叔」— 多 persona 是 Plan C 範圍
+- `foodie` persona 的 Google Places POI 路由 → Plan E 範圍（Plan C 先走 osm_wikipedia）
+- Flutter UI 文字 i18n（按鈕、對話框）維持中文 → Plan F 範圍
+- persona 觸發半徑 per-persona override（foodie 預設 50m）→ Plan F 範圍
 - `recordNarration(sessionId: 1, ...)` hardcoded — MVP 不強制 session FK
-- `flutter analyze` 7 個 `info` 是 `prefer_const_constructors` / `use_super_parameters`，非 error
+- `flutter analyze` 僅 info 等級，無 error/warning
 
 ### 6.4 Drift build_runner
 
@@ -214,9 +214,12 @@ cd flutter_app && dart run build_runner build --delete-conflicting-outputs
 |---|---|
 | 整體 v1 設計 | `docs/superpowers/specs/2026-05-08-ai-tour-guide-design.md` |
 | Plan B Flutter App MVP 設計 | `docs/superpowers/specs/2026-05-11-plan-b-flutter-app-mvp-design.md` |
+| Plan C Persona + 雙語設計 | `docs/superpowers/specs/2026-05-12-plan-c-persona-i18n-design.md` |
 | Plan A Backend 實作計畫 | `docs/superpowers/plans/2026-05-08-plan-a-backend-mvp.md` |
 | Plan B Flutter App 實作計畫 | `docs/superpowers/plans/2026-05-11-plan-b-flutter-app-mvp.md` |
-| OpenSpec Plan B change | `openspec/changes/plan-b-flutter-app-mvp/` |
+| Plan C 實作計畫 | `docs/superpowers/plans/2026-05-12-plan-c-persona-i18n.md` |
+| OpenSpec Plan C change（已 archive） | `openspec/changes/archive/2026-05-13-plan-c-persona-i18n/` |
+| Persona YAML 檔案 | `backend/prompts/personas/` |
 | Backend 程式碼 | `backend/src/tour_guide/` |
 | Flutter App 程式碼 | `flutter_app/lib/` |
 | Flutter App 測試 | `flutter_app/test/` |
@@ -240,8 +243,8 @@ cd flutter_app && dart run build_runner build --delete-conflicting-outputs
 ```text
 我想接續上次的 AI tour guide 專案進度。請先讀 tasks/session-handoff.md，
 然後按其中「下一步具體 action」往下做。
-Plan A（後端）和 Plan B（Flutter App）都已完成，下一步是端對端 smoke test，
-然後開始 Plan C（Persona 系統擴充）。
+Plan A（後端）、Plan B（Flutter App）、Plan C（Persona 系統 + 雙語）都已完成，
+下一步是端對端 smoke test，然後開始 Plan D（Push-to-talk Q&A）。
 ```
 
 —— END HANDOFF

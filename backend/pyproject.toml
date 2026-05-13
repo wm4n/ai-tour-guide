@@ -13,6 +13,7 @@ dependencies = [
     "google-genai>=0.3.0",
     "PyYAML>=6.0",
     "aiofiles>=23.0.0",
+    "python-multipart>=0.0.9",
 ]
 
 [project.optional-dependencies]

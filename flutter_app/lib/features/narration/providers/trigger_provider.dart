@@ -3,6 +3,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:flutter_app/features/map/providers/poi_provider.dart';
 import 'package:flutter_app/features/narration/providers/narration_provider.dart';
 import 'package:flutter_app/features/narration/trigger_engine.dart';
+import 'package:flutter_app/features/session/persona_data.dart';
 import 'package:flutter_app/features/session/providers/session_provider.dart';
 import 'package:flutter_app/shared/providers.dart';
 
@@ -36,18 +37,25 @@ class TriggerNotifier extends Notifier<void> {
       if (inCooldown) cooldownIds.add(poi.id);
     }
 
+    final session = ref.read(sessionProvider);
+    final personaInfo = kPersonas.firstWhere(
+      (p) => p.id == session.persona,
+      orElse: () => kPersonas.first,
+    );
+    final triggerRadiusM = personaInfo.defaultTriggerRadiusM.toDouble();
+
     final triggers = TriggerEngine.evaluate(
       userLat: position.latitude,
       userLon: position.longitude,
       pois: pois.cast(),
       playedPoiIds: _sessionPlayedIds,
       cooldownPoiIds: cooldownIds,
+      radiusM: triggerRadiusM,
     );
 
     if (triggers.isNotEmpty) {
       final poi = triggers.first;
       _sessionPlayedIds.add(poi.id);
-      final session = ref.read(sessionProvider);
       ref.read(narrationProvider.notifier).narrate(
         poi,
         persona: session.persona,

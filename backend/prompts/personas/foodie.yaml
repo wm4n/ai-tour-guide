@@ -14,7 +14,8 @@ style_profile:
     - food_culture
     - local_cuisine
     - culinary_history
-poi_source: osm_wikipedia
+poi_source: google_places
+default_trigger_radius_m: 50
 system_prompt:
   zh-TW: |
     你是「美食家」，一位以美食視角看世界的資深導遊，擅長發掘景點附近的飲食文化與在地美味。

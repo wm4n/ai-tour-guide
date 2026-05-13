@@ -165,6 +165,67 @@ qa_template:
         assert len(registry) == 1
 
 
+class TestPersonaLoaderDefaultTriggerRadius:
+    def test_foodie_has_50m_trigger_radius(self, tmp_path):
+        """foodie persona YAML with default_trigger_radius_m: 50 should parse correctly."""
+        yaml_content = """
+id: foodie_test
+display_name:
+  zh-TW: 測試美食家
+voice:
+  zh-TW: Leda
+voice_style:
+  speaking_rate: 1.0
+  emotion: warm
+style_profile:
+  embellishment: 0.4
+  preferred_topics:
+    - food
+poi_source: google_places
+default_trigger_radius_m: 50
+system_prompt:
+  zh-TW: 你是美食家
+narration_template:
+  zh-TW: 介紹 {poi_name}
+qa_template:
+  zh-TW: 回答問題
+"""
+        yaml_file = tmp_path / "foodie_test.yaml"
+        yaml_file.write_text(yaml_content)
+        from tour_guide.prompts.loader import PersonaLoader
+        config = PersonaLoader.load_from_path(yaml_file)
+        assert config.default_trigger_radius_m == 50
+
+    def test_persona_without_radius_defaults_to_100(self, tmp_path):
+        """Persona YAML without default_trigger_radius_m should default to 100."""
+        yaml_content = """
+id: no_radius_test
+display_name:
+  zh-TW: 無半徑
+voice:
+  zh-TW: Charon
+voice_style:
+  speaking_rate: 1.0
+  emotion: neutral
+style_profile:
+  embellishment: 0.1
+  preferred_topics:
+    - history
+poi_source: osm_wikipedia
+system_prompt:
+  zh-TW: 你是歷史大叔
+narration_template:
+  zh-TW: 介紹 {poi_name}
+qa_template:
+  zh-TW: 回答問題
+"""
+        yaml_file = tmp_path / "no_radius_test.yaml"
+        yaml_file.write_text(yaml_content)
+        from tour_guide.prompts.loader import PersonaLoader
+        config = PersonaLoader.load_from_path(yaml_file)
+        assert config.default_trigger_radius_m == 100
+
+
 class TestAllPersonaYamls:
     """Smoke tests: each persona YAML loads without error."""
 

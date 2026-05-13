@@ -62,6 +62,7 @@ def _parse(data: dict[str, Any], path: Path) -> PersonaConfig:
         qa_template=dict(data["qa_template"]),
         system_messages=dict(data.get("system_messages") or {}),
         confidence_labels=dict(data.get("confidence_labels") or {}),
+        default_trigger_radius_m=int(data.get("default_trigger_radius_m", 100)),
     )
 
 

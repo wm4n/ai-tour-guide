@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from tour_guide.api import health, narration, poi, qa
 from tour_guide.cache.narration_cache import NarrationCache
 from tour_guide.cache.poi_cache import POICache
+from tour_guide.clients.google_places import FakeGooglePlacesClient, RealGooglePlacesClient
 from tour_guide.clients.overpass import OverpassClient
 from tour_guide.clients.wikipedia import WikipediaClient
 from tour_guide.config import AppConfig
@@ -21,14 +22,6 @@ from tour_guide.services.qa_service import QAService
 
 
 def create_app(config: AppConfig) -> FastAPI:
-    """Create and configure the FastAPI application.
-
-    Args:
-        config: Application configuration with API keys and settings.
-
-    Returns:
-        Configured FastAPI application instance.
-    """
     http_client = httpx.AsyncClient()
 
     overpass_client = OverpassClient(client=http_client)
@@ -40,10 +33,16 @@ def create_app(config: AppConfig) -> FastAPI:
     tts_provider = GeminiTtsAdapter(api_key=config.gemini_api_key)
     stt_provider = GeminiSttAdapter(api_key=config.gemini_api_key)
 
+    if config.google_places_api_key:
+        google_places_client = RealGooglePlacesClient(api_key=config.google_places_api_key)
+    else:
+        google_places_client = FakeGooglePlacesClient(scripted_places=[])
+
     poi_service = POIService(
         overpass=overpass_client,
         wikipedia=wikipedia_client,
         cache=poi_cache,
+        google_places=google_places_client,
     )
     narration_service = NarrationService(
         llm=llm_provider,
@@ -64,7 +63,6 @@ def create_app(config: AppConfig) -> FastAPI:
 
     app = FastAPI(title="AI Tour Guide", lifespan=lifespan)
 
-    # Override dependency functions using FastAPI's dependency_overrides pattern
     app.dependency_overrides[poi.get_poi_service] = lambda: poi_service
     app.dependency_overrides[narration.get_narration_service] = lambda: narration_service
     app.dependency_overrides[narration.get_persona_registry] = lambda: persona_registry
@@ -79,11 +77,7 @@ def create_app(config: AppConfig) -> FastAPI:
     return app
 
 
-# Module-level app for uvicorn: `uvicorn tour_guide.main:app`
-# Requires GEMINI_API_KEY env var. For dev: GEMINI_API_KEY=anything uvicorn tour_guide.main:app
 try:
     app = create_app(AppConfig())
 except Exception:
-    # Allow import without GEMINI_API_KEY set (e.g., during test collection)
-    # Tests should call create_app(config) directly with monkeypatched env vars
     app = None  # type: ignore

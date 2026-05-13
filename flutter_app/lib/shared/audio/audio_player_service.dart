@@ -9,6 +9,8 @@ abstract class AudioPlayerService {
   Future<void> pause();
   Future<void> resume();
   Future<void> skip();
+  Future<void> duck();    // 音量降至 50%
+  Future<void> unduck();  // 音量恢復 100%
   Stream<bool> get isPlayingStream;
   Future<void> dispose();
 }
@@ -53,6 +55,12 @@ class RealAudioPlayerService implements AudioPlayerService {
   }
 
   @override
+  Future<void> duck() => _player.setVolume(0.5);
+
+  @override
+  Future<void> unduck() => _player.setVolume(1.0);
+
+  @override
   Stream<bool> get isPlayingStream => _player.playingStream;
 
   @override
@@ -68,6 +76,7 @@ class RealAudioPlayerService implements AudioPlayerService {
 
 class FakeAudioPlayerService implements AudioPlayerService {
   final List<Uint8List> enqueuedChunks = [];
+  bool isDucked = false;
   final _controller = StreamController<bool>.broadcast();
 
   @override
@@ -89,6 +98,16 @@ class FakeAudioPlayerService implements AudioPlayerService {
   @override
   Future<void> skip() async {
     _controller.add(false);
+  }
+
+  @override
+  Future<void> duck() async {
+    isDucked = true;
+  }
+
+  @override
+  Future<void> unduck() async {
+    isDucked = false;
   }
 
   @override

@@ -1,4 +1,4 @@
-from tour_guide.models.poi import OsmNode, POIContext, WikiArticle
+from tour_guide.models.poi import OsmNode, POIContext, Place, WikiArticle
 from tour_guide.services.confidence import ConfidenceClassifier
 
 
@@ -92,3 +92,47 @@ class TestConfidenceClassifier:
         )
         poi_context = POIContext(osm=osm, wiki=wiki)
         assert ConfidenceClassifier.classify(poi_context) == "low"
+
+
+class TestConfidenceClassifierPlace:
+    """Tests for ConfidenceClassifier.classify_place()."""
+
+    def test_high_when_above_both_thresholds(self):
+        place = Place(
+            id="gplace:001", name="名店", lat=25.0, lon=121.0,
+            rating=4.5, user_ratings_total=100, price_level=2,
+            types=["restaurant"], vicinity="台北",
+        )
+        assert ConfidenceClassifier.classify_place(place) == "high"
+
+    def test_high_boundary_exactly_45_and_100(self):
+        place = Place(
+            id="gplace:002", name="名店", lat=25.0, lon=121.0,
+            rating=4.5, user_ratings_total=100, price_level=2,
+            types=["restaurant"], vicinity="台北",
+        )
+        assert ConfidenceClassifier.classify_place(place) == "high"
+
+    def test_medium_when_rating_below_45(self):
+        place = Place(
+            id="gplace:003", name="中等", lat=25.0, lon=121.0,
+            rating=4.3, user_ratings_total=200, price_level=2,
+            types=["restaurant"], vicinity="台北",
+        )
+        assert ConfidenceClassifier.classify_place(place) == "medium"
+
+    def test_medium_when_count_below_100(self):
+        place = Place(
+            id="gplace:004", name="中等", lat=25.0, lon=121.0,
+            rating=4.8, user_ratings_total=50, price_level=2,
+            types=["restaurant"], vicinity="台北",
+        )
+        assert ConfidenceClassifier.classify_place(place) == "medium"
+
+    def test_low_when_rating_none(self):
+        place = Place(
+            id="gplace:005", name="無評", lat=25.0, lon=121.0,
+            rating=None, user_ratings_total=None, price_level=None,
+            types=["restaurant"], vicinity="台北",
+        )
+        assert ConfidenceClassifier.classify_place(place) == "low"

@@ -18,6 +18,7 @@ class AppConfig(BaseSettings):
         "/tmp/tour_guide_narration_cache",  # noqa: S108
         alias="NARRATION_CACHE_DIR",
     )
+    google_places_api_key: str = Field("", alias="GOOGLE_PLACES_API_KEY")
     log_level: str = Field("INFO", alias="LOG_LEVEL")
 
     model_config = {"populate_by_name": True, "env_prefix": ""}

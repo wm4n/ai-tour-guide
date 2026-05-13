@@ -211,3 +211,62 @@ class TestPromptBuilderBuild:
 
         # English system prompt should be used
         assert "History Uncle" in system_content or "English" in system_content
+
+
+class TestPromptBuilderQA:
+    """Tests for PromptBuilder.build_qa()."""
+
+    @pytest.fixture
+    def persona(self):
+        from tour_guide.models.persona import PersonaConfig, StyleProfile, VoiceStyle
+        return PersonaConfig(
+            id="history_uncle",
+            display_name={"zh-TW": "歷史大叔"},
+            voice={"zh-TW": "Charon"},
+            voice_style=VoiceStyle(),
+            style_profile=StyleProfile(),
+            poi_source="osm_wikipedia",
+            system_prompt={"zh-TW": "你是歷史大叔。"},
+            narration_template={"zh-TW": "narrate {poi_name}"},
+            qa_template={
+                "zh-TW": "{system_prompt}\n使用者在「{poi_name}」附近，旁白摘要：{narration_summary}\n使用者問：「{user_question}」",
+                "en": "{system_prompt}\nUser is near '{poi_name}'. Summary: {narration_summary}\nQuestion: '{user_question}'",
+            },
+        )
+
+    def test_build_qa_with_poi(self, persona):
+        messages = PromptBuilder.build_qa(
+            persona=persona,
+            lang="zh-TW",
+            current_poi_name="故宮博物院",
+            narration_so_far="故宮是台灣最重要的博物館...",
+            user_question="這裡有多少文物？",
+        )
+        assert len(messages) == 2
+        assert messages[0]["role"] == "system"
+        assert "歷史大叔" in messages[0]["content"]
+        user_msg = messages[1]["content"]
+        assert "故宮博物院" in user_msg
+        assert "這裡有多少文物？" in user_msg
+
+    def test_build_qa_without_poi(self, persona):
+        messages = PromptBuilder.build_qa(
+            persona=persona,
+            lang="zh-TW",
+            current_poi_name=None,
+            narration_so_far="",
+            user_question="台北有什麼好玩的？",
+        )
+        assert len(messages) == 2
+        user_msg = messages[1]["content"]
+        assert "台北有什麼好玩的？" in user_msg
+
+    def test_build_qa_english(self, persona):
+        messages = PromptBuilder.build_qa(
+            persona=persona,
+            lang="en",
+            current_poi_name="National Palace Museum",
+            narration_so_far="The museum holds...",
+            user_question="How old is it?",
+        )
+        assert "How old is it?" in messages[1]["content"]

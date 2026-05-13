@@ -38,8 +38,23 @@ void main() {
     expect(find.text('開始旅程'), findsOneWidget);
   });
 
-  testWidgets('shows persona chip with history_uncle', (tester) async {
+  testWidgets('shows all 5 persona cards', (tester) async {
     await tester.pumpWidget(_makeWidget());
     expect(find.text('歷史大叔'), findsOneWidget);
+    expect(find.text('故事大哥哥'), findsOneWidget);
+    expect(find.text('八卦阿姨'), findsOneWidget);
+    expect(find.text('童趣小妹'), findsOneWidget);
+    expect(find.text('美食家'), findsOneWidget);
+  });
+
+  testWidgets('shows language segmented button', (tester) async {
+    await tester.pumpWidget(_makeWidget());
+    expect(find.text('中文'), findsOneWidget);
+    expect(find.text('EN'), findsOneWidget);
+  });
+
+  testWidgets('history_uncle is selected by default', (tester) async {
+    await tester.pumpWidget(_makeWidget());
+    expect(find.byIcon(Icons.check_circle), findsOneWidget);
   });
 }

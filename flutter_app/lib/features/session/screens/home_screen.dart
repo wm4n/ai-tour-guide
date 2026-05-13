@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_app/features/session/providers/session_provider.dart';
-import 'package:flutter_app/features/session/widgets/persona_chip.dart';
+import 'package:flutter_app/features/session/widgets/persona_selector.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -15,10 +15,10 @@ class HomeScreen extends ConsumerWidget {
     return Scaffold(
       backgroundColor: const Color(0xFF1A1A2E),
       body: SafeArea(
-        child: Center(
+        child: SingleChildScrollView(
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
             children: [
+              const SizedBox(height: 32),
               const Text(
                 'AI Tour Guide',
                 style: TextStyle(
@@ -28,12 +28,29 @@ class HomeScreen extends ConsumerWidget {
                 ),
               ),
               const SizedBox(height: 16),
-              const PersonaChip(),
-              const SizedBox(height: 48),
-              ElevatedButton(
-                onPressed: isStarting
+              SegmentedButton<String>(
+                segments: const [
+                  ButtonSegment(value: 'zh-TW', label: Text('中文')),
+                  ButtonSegment(value: 'en', label: Text('EN')),
+                ],
+                selected: {session.lang},
+                onSelectionChanged: isStarting
                     ? null
-                    : () => _start(context, ref),
+                    : (s) =>
+                        ref.read(sessionProvider.notifier).setLang(s.first),
+                style: ButtonStyle(
+                  foregroundColor: WidgetStateProperty.resolveWith(
+                    (states) => states.contains(WidgetState.selected)
+                        ? const Color(0xFF4A9EFF)
+                        : Colors.white60,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const PersonaSelector(),
+              const SizedBox(height: 32),
+              ElevatedButton(
+                onPressed: isStarting ? null : () => _start(context, ref),
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 40,
@@ -44,10 +61,12 @@ class HomeScreen extends ConsumerWidget {
                     ? const SizedBox(
                         width: 20,
                         height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
+                        child:
+                            CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Text('開始旅程', style: TextStyle(fontSize: 18)),
               ),
+              const SizedBox(height: 32),
             ],
           ),
         ),

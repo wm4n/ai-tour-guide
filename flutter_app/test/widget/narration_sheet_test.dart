@@ -60,7 +60,7 @@ class _FakeNarrationNotifier extends StateNotifier<NarrationState>
     implements NarrationNotifier {
   _FakeNarrationNotifier(super.state);
   @override
-  Future<void> narrate(POI poi) async {}
+  Future<void> narrate(POI poi, {required String persona, required String lang}) async {}
   @override
   Future<void> pause() async {}
   @override

@@ -40,7 +40,14 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           position: LatLng(poi.lat, poi.lon),
           icon: poiMarkerHue(poi.confidence),
           infoWindow: InfoWindow(title: poi.name),
-          onTap: () => ref.read(narrationProvider.notifier).narrate(poi),
+          onTap: () {
+                final session = ref.read(sessionProvider);
+                ref.read(narrationProvider.notifier).narrate(
+                  poi,
+                  persona: session.persona,
+                  lang: session.lang,
+                );
+              },
         ));
       }
     });

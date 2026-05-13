@@ -80,5 +80,33 @@ void main() {
       );
       expect(triggers.map((p) => p.id).toList(), ['near']);
     });
+
+    test('respects custom radiusM of 50m — excludes POI at 89m', () {
+      // ~89m north of user — within 100m but outside 50m
+      final poi = _poi('near50', 25.1031, 121.5482);
+      final triggers = TriggerEngine.evaluate(
+        userLat: userLat,
+        userLon: userLon,
+        pois: [poi],
+        playedPoiIds: {},
+        cooldownPoiIds: {},
+        radiusM: 50.0,
+      );
+      expect(triggers, isEmpty);
+    });
+
+    test('respects custom radiusM of 50m — includes POI at 40m', () {
+      // ~44m north of user — within 50m
+      final poi = _poi('within50', 25.1027, 121.5482);
+      final triggers = TriggerEngine.evaluate(
+        userLat: userLat,
+        userLon: userLon,
+        pois: [poi],
+        playedPoiIds: {},
+        cooldownPoiIds: {},
+        radiusM: 50.0,
+      );
+      expect(triggers, [poi]);
+    });
   });
 }

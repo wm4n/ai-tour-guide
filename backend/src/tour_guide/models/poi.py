@@ -24,6 +24,19 @@ class POIContext:
 
 
 @dataclass
+class Place:
+    id: str                          # "gplace:{place_id}"
+    name: str
+    lat: float
+    lon: float
+    rating: float | None
+    user_ratings_total: int | None
+    price_level: int | None          # 1-4, None if unknown
+    types: list[str]
+    vicinity: str
+
+
+@dataclass
 class POI:
     id: str
     name: str
@@ -32,7 +45,13 @@ class POI:
     tags: dict[str, str] = field(default_factory=dict)
     wiki: WikiArticle | None = None
     distance_m: float = 0.0
-    confidence: str = "low"  # "high" | "medium" | "low"
+    confidence: str = "low"          # "high" | "medium" | "low"
+    # foodie-only fields (None for non-foodie POIs)
+    rating: float | None = None
+    user_ratings_total: int | None = None
+    price_level: int | None = None
+    place_types: list[str] | None = None
+    vicinity: str | None = None
 
 
 @dataclass

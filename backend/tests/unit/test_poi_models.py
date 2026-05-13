@@ -1,5 +1,5 @@
 from tour_guide.models.persona import PersonaConfig, StyleProfile, VoiceStyle
-from tour_guide.models.poi import POI, BBox, OsmNode, POIContext, TagFilter, WikiArticle
+from tour_guide.models.poi import POI, BBox, OsmNode, POIContext, Place, TagFilter, WikiArticle
 
 
 class TestOsmNode:
@@ -131,6 +131,39 @@ class TestPOIContext:
         context = POIContext(osm=osm)
         assert context.osm == osm
         assert context.wiki is None
+
+
+class TestPlaceModel:
+    def test_place_has_required_fields(self):
+        place = Place(
+            id="gplace:ChIJ123",
+            name="鼎泰豐",
+            lat=25.033,
+            lon=121.564,
+            rating=4.6,
+            user_ratings_total=328,
+            price_level=2,
+            types=["restaurant", "food"],
+            vicinity="信義區松高路12號",
+        )
+        assert place.id == "gplace:ChIJ123"
+        assert place.rating == 4.6
+        assert place.price_level == 2
+
+    def test_place_nullable_fields(self):
+        place = Place(
+            id="gplace:abc",
+            name="無評分餐廳",
+            lat=25.0,
+            lon=121.0,
+            rating=None,
+            user_ratings_total=None,
+            price_level=None,
+            types=["restaurant"],
+            vicinity="台北市",
+        )
+        assert place.rating is None
+        assert place.user_ratings_total is None
 
 
 class TestTagFilter:

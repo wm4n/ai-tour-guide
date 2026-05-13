@@ -7,6 +7,7 @@ import 'package:flutter_app/features/map/widgets/poi_marker.dart';
 import 'package:flutter_app/features/narration/providers/narration_provider.dart';
 import 'package:flutter_app/features/narration/providers/trigger_provider.dart';
 import 'package:flutter_app/features/narration/widgets/narration_sheet.dart';
+import 'package:flutter_app/features/qa/widgets/push_to_talk_button.dart';
 import 'package:flutter_app/features/session/providers/session_provider.dart';
 
 class MapScreen extends ConsumerStatefulWidget {
@@ -91,6 +92,12 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           const Align(
             alignment: Alignment.bottomCenter,
             child: NarrationSheet(),
+          ),
+          const Positioned(
+            bottom: 100,
+            left: 0,
+            right: 0,
+            child: Center(child: PushToTalkButton()),
           ),
         ],
       ),

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_app/features/qa/providers/qa_provider.dart';
 import 'package:flutter_app/features/qa/widgets/push_to_talk_button.dart';
 import 'package:flutter_app/features/session/providers/session_provider.dart';
 import 'package:flutter_app/shared/audio/audio_player_service.dart';

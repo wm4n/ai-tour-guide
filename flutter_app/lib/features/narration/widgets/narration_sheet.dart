@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_app/features/narration/providers/narration_provider.dart';
 import 'package:flutter_app/features/qa/providers/qa_provider.dart';
+import 'package:flutter_app/shared/backend/models/poi.dart';
 
 class NarrationSheet extends ConsumerWidget {
   const NarrationSheet({super.key});
@@ -61,6 +62,7 @@ class NarrationSheet extends ConsumerWidget {
                 ),
               ),
             const SizedBox(height: 8),
+            _FoodieRatingBar(poi: state.currentPoi!),
             // Q&A 字幕區塊（僅在 Q&A 進行中時顯示）
             Consumer(
               builder: (context, ref, _) {
@@ -153,6 +155,35 @@ class NarrationSheet extends ConsumerWidget {
             ),
             const SizedBox(height: 16),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FoodieRatingBar extends StatelessWidget {
+  const _FoodieRatingBar({required this.poi});
+
+  final POI poi;
+
+  @override
+  Widget build(BuildContext context) {
+    if (poi.rating == null) return const SizedBox.shrink();
+
+    final priceDollars = poi.priceLevel != null
+        ? '\$' * poi.priceLevel!
+        : '';
+    final countText = poi.userRatingsTotal != null
+        ? '(${poi.userRatingsTotal} 則評論)'
+        : '';
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Text(
+        '⭐ ${poi.rating!.toStringAsFixed(1)}  $countText${priceDollars.isNotEmpty ? '  $priceDollars' : ''}',
+        style: const TextStyle(
+          color: Colors.amber,
+          fontSize: 12,
         ),
       ),
     );

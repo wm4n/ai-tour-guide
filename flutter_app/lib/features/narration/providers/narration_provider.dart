@@ -54,8 +54,16 @@ class NarrationNotifier extends StateNotifier<NarrationState> {
   final LocalDb _db;
   StreamSubscription<NarrationEvent>? _sub;
   int _audioChunkCount = 0;
+  String _currentPersona = 'history_uncle';
+  String _currentLang = 'zh-TW';
 
-  Future<void> narrate(POI poi) async {
+  Future<void> narrate(
+    POI poi, {
+    required String persona,
+    required String lang,
+  }) async {
+    _currentPersona = persona;
+    _currentLang = lang;
     await _sub?.cancel();
     _audioChunkCount = 0;
     state = NarrationState(
@@ -66,8 +74,8 @@ class NarrationNotifier extends StateNotifier<NarrationState> {
     _sub = _client
         .narrate(
           poiId: poi.id,
-          persona: 'history_uncle',
-          lang: 'zh-TW',
+          persona: persona,
+          lang: lang,
           length: 'medium',
         )
         .listen(
@@ -110,7 +118,6 @@ class NarrationNotifier extends StateNotifier<NarrationState> {
   }
 
   void _recordNarration(POI poi) {
-    // Use try-catch to avoid FK constraint failures in tests (MVP: hardcoded session 1)
     _db
         .recordNarration(
           sessionId: 1,
@@ -118,8 +125,8 @@ class NarrationNotifier extends StateNotifier<NarrationState> {
           poiName: poi.name,
           poiLat: poi.lat,
           poiLon: poi.lon,
-          persona: 'history_uncle',
-          lang: 'zh-TW',
+          persona: _currentPersona,
+          lang: _currentLang,
           completed: true,
         )
         .catchError((_) {/* ignore FK errors in MVP */});

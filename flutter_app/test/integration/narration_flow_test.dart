@@ -61,7 +61,11 @@ void main() {
         narrationProvider.select((s) => s.status),
         (_, next) => states.add(next),
       );
-      await container.read(narrationProvider.notifier).narrate(_testPoi);
+      await container.read(narrationProvider.notifier).narrate(
+        _testPoi,
+        persona: 'history_uncle',
+        lang: 'zh-TW',
+      );
       await Future<void>.delayed(Duration.zero);
       expect(states, contains(NarrationStatus.loading));
     });
@@ -80,7 +84,11 @@ void main() {
         ],
       );
       addTearDown(container.dispose);
-      await container.read(narrationProvider.notifier).narrate(_testPoi);
+      await container.read(narrationProvider.notifier).narrate(
+        _testPoi,
+        persona: 'history_uncle',
+        lang: 'zh-TW',
+      );
       await Future<void>.delayed(Duration.zero);
       expect(fakeAudio.enqueuedChunks, isNotEmpty);
     });
@@ -88,7 +96,11 @@ void main() {
     test('subtitle is accumulated from text events', () async {
       final container = _makeContainer();
       addTearDown(container.dispose);
-      await container.read(narrationProvider.notifier).narrate(_testPoi);
+      await container.read(narrationProvider.notifier).narrate(
+        _testPoi,
+        persona: 'history_uncle',
+        lang: 'zh-TW',
+      );
       await Future<void>.delayed(Duration.zero);
       expect(container.read(narrationProvider).subtitle, contains('故宮'));
     });

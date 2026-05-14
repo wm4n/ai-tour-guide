@@ -4,6 +4,9 @@ from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 from tour_guide.api import health, narration, poi, qa
 from tour_guide.cache.narration_cache import NarrationCache
@@ -62,6 +65,22 @@ def create_app(config: AppConfig) -> FastAPI:
         await http_client.aclose()
 
     app = FastAPI(title="AI Tour Guide", lifespan=lifespan)
+
+    configured_api_key = config.api_key
+
+    class ApiKeyMiddleware(BaseHTTPMiddleware):
+        async def dispatch(self, request: Request, call_next):
+            if not configured_api_key:
+                return await call_next(request)
+            provided_key = request.headers.get("X-Api-Key", "")
+            if provided_key != configured_api_key:
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "Invalid or missing X-Api-Key"},
+                )
+            return await call_next(request)
+
+    app.add_middleware(ApiKeyMiddleware)
 
     app.dependency_overrides[poi.get_poi_service] = lambda: poi_service
     app.dependency_overrides[narration.get_narration_service] = lambda: narration_service

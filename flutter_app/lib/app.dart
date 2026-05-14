@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_app/features/session/screens/home_screen.dart';
 import 'package:flutter_app/features/map/screens/map_screen.dart';
+import 'package:flutter_app/shared/providers.dart';
 
 final _router = GoRouter(
   routes: [
@@ -16,8 +18,32 @@ final _router = GoRouter(
   ],
 );
 
-class App extends StatelessWidget {
+class App extends ConsumerStatefulWidget {
   const App({super.key});
+
+  @override
+  ConsumerState<App> createState() => _AppState();
+}
+
+class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    // Initialize notification service
+    ref.read(notificationServiceProvider).init();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    ref.read(appLifecycleStateProvider.notifier).state = state;
+  }
 
   @override
   Widget build(BuildContext context) {

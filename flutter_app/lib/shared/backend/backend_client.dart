@@ -35,9 +35,14 @@ abstract class BackendClient {
 
 class RealBackendClient implements BackendClient {
   final String baseUrl;
+  final String apiKey;
   final http.Client _http;
 
-  RealBackendClient({required this.baseUrl}) : _http = http.Client();
+  RealBackendClient({required this.baseUrl, this.apiKey = ''})
+      : _http = http.Client();
+
+  Map<String, String> get _authHeaders =>
+      apiKey.isNotEmpty ? {'X-Api-Key': apiKey} : {};
 
   @override
   Future<List<POI>> fetchNearby({
@@ -56,7 +61,7 @@ class RealBackendClient implements BackendClient {
         'persona': persona,
       },
     );
-    final response = await _http.get(uri);
+    final response = await _http.get(uri, headers: _authHeaders);
     if (response.statusCode != 200) {
       throw Exception('fetchNearby failed: HTTP ${response.statusCode}');
     }
@@ -78,6 +83,7 @@ class RealBackendClient implements BackendClient {
         http.Request('POST', Uri.parse('$baseUrl/narration'));
     request.headers['Content-Type'] = 'application/json';
     request.headers['Accept'] = 'text/event-stream';
+    request.headers.addAll(_authHeaders);
     request.body = jsonEncode({
       'poi_id': poiId,
       'persona': persona,
@@ -105,6 +111,7 @@ class RealBackendClient implements BackendClient {
   }) async* {
     final request = http.MultipartRequest('POST', Uri.parse('$baseUrl/qa'));
     request.headers['Accept'] = 'text/event-stream';
+    request.headers.addAll(_authHeaders);
     request.files.add(http.MultipartFile.fromBytes(
       'audio',
       audioBytes,

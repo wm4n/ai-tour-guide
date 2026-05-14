@@ -1,3 +1,4 @@
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:flutter_app/features/map/providers/poi_provider.dart';
@@ -56,11 +57,16 @@ class TriggerNotifier extends Notifier<void> {
     if (triggers.isNotEmpty) {
       final poi = triggers.first;
       _sessionPlayedIds.add(poi.id);
-      ref.read(narrationProvider.notifier).narrate(
-        poi,
-        persona: session.persona,
-        lang: session.lang,
-      );
+      final lifecycleState = ref.read(appLifecycleStateProvider);
+      if (lifecycleState == AppLifecycleState.resumed) {
+        ref.read(narrationProvider.notifier).narrate(
+          poi,
+          persona: session.persona,
+          lang: session.lang,
+        );
+      } else {
+        await ref.read(notificationServiceProvider).showPoiTrigger(poi);
+      }
     }
   }
 }

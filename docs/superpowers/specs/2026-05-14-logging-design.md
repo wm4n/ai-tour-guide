@@ -45,7 +45,10 @@ Every log call produces a `LogEntry` with:
 
 ## Event Catalog
 
-All event names are defined as constants in `LogEvents` (Flutter) and `LogEvents` (Python). Both sides use identical string values.
+All event names are defined as constants in `LogEvents` (Flutter) and `LogEvents` (Python). Both sides use identical **string values** (e.g. `"POI_LOADED"`), but constant names follow each language's convention:
+
+- **Dart:** `LogEvents.poiLoaded` (camelCase) → value `"POI_LOADED"`
+- **Python:** `LogEvents.POI_LOADED` (UPPER_SNAKE_CASE) → value `"POI_LOADED"`
 
 ### Level Rules
 - `INFO` — human-readable milestone (SESSION_START, POI_LOADED, NARRATION_COMPLETE)

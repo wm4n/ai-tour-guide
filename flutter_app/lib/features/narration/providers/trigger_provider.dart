@@ -7,6 +7,8 @@ import 'package:flutter_app/features/narration/trigger_engine.dart';
 import 'package:flutter_app/features/session/persona_data.dart';
 import 'package:flutter_app/features/session/providers/session_provider.dart';
 import 'package:flutter_app/shared/providers.dart';
+import 'package:flutter_app/shared/logging/app_logger.dart';
+import 'package:flutter_app/shared/logging/log_events.dart';
 
 class TriggerNotifier extends Notifier<void> {
   final Set<String> _sessionPlayedIds = {};
@@ -59,6 +61,11 @@ class TriggerNotifier extends Notifier<void> {
       _sessionPlayedIds.add(poi.id);
       final lifecycleState = ref.read(appLifecycleStateProvider);
       if (lifecycleState == AppLifecycleState.resumed) {
+        AppLogger.info(LogEvents.narrationTrigger, {
+          'poi_id': poi.id,
+          'poi_name': poi.name,
+          'persona': session.persona,
+        });
         ref.read(narrationProvider.notifier).narrate(
           poi,
           persona: session.persona,

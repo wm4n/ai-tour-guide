@@ -6,6 +6,8 @@ import 'package:flutter_app/shared/backend/backend_client.dart';
 import 'package:flutter_app/shared/backend/models/qa_event.dart';
 import 'package:flutter_app/shared/mic/mic_recorder_service.dart';
 import 'package:flutter_app/shared/providers.dart';
+import 'package:flutter_app/shared/logging/app_logger.dart';
+import 'package:flutter_app/shared/logging/log_events.dart';
 
 enum QaStatus { idle, recording, processing, answering, error }
 
@@ -50,6 +52,7 @@ class QaNotifier extends StateNotifier<QaState> {
   final MicRecorderService _mic;
   StreamSubscription<QaEvent>? _sub;
   DateTime? _recordingStartedAt;
+  String? _currentPoiId;
 
   Future<void> startRecording() async {
     await _sub?.cancel();
@@ -81,6 +84,8 @@ class QaNotifier extends StateNotifier<QaState> {
       return;
     }
 
+    _currentPoiId = currentPoiId;
+    AppLogger.info(LogEvents.qaStart, {'poi_id': currentPoiId ?? ''});
     final audioBytes = await _mic.stopAndGetBytes();
     state = state.copyWith(status: QaStatus.processing);
 
@@ -116,6 +121,8 @@ class QaNotifier extends StateNotifier<QaState> {
       case AudioQaEvent(:final chunkB64):
         _qaAudio.enqueueBytes(base64.decode(chunkB64));
       case EndQaEvent():
+        AppLogger.info(LogEvents.qaAnswerComplete, {'poi_id': _currentPoiId ?? ''});
+        _currentPoiId = null;
         _narrationAudio.unduck();
         state = state.copyWith(status: QaStatus.idle);
       case ErrorQaEvent(:final message):

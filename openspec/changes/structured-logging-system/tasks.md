@@ -23,13 +23,13 @@
 
 ## 4. Flutter — Initialization and Call Sites
 
-- [ ] 4.1 Update `flutter_app/lib/main.dart` — call `AppLogger.init(transports: [ConsoleTransport()])` before `WidgetsFlutterBinding.ensureInitialized()`
-- [ ] 4.2 Update `flutter_app/lib/features/session/providers/session_provider.dart` — add `SESSION_START`, `SESSION_END`, `LOCATION_PERMISSION` log calls
-- [ ] 4.3 Update `flutter_app/lib/features/map/providers/poi_provider.dart` — add `POI_REQUEST`, `POI_LOADED`, `POI_EMPTY`, `API_ERROR` log calls
-- [ ] 4.4 Update `flutter_app/lib/features/narration/providers/trigger_provider.dart` — add `NARRATION_TRIGGER` log call
-- [ ] 4.5 Update `flutter_app/lib/features/narration/providers/narration_provider.dart` — add `NARRATION_START`, `NARRATION_CHUNK`, `NARRATION_COMPLETE`, `NARRATION_SKIP` log calls with duration tracking
-- [ ] 4.6 Update `flutter_app/lib/features/qa/providers/qa_provider.dart` — add `QA_START`, `QA_ANSWER_COMPLETE` log calls
-- [ ] 4.7 Run `flutter test` — verify all existing tests pass (log calls are additive)
+- [x] 4.1 Update `flutter_app/lib/main.dart` — call `AppLogger.init(transports: [ConsoleTransport()])` before `WidgetsFlutterBinding.ensureInitialized()`
+- [x] 4.2 Update `flutter_app/lib/features/session/providers/session_provider.dart` — add `SESSION_START`, `SESSION_END`, `LOCATION_PERMISSION` log calls
+- [x] 4.3 Update `flutter_app/lib/features/map/providers/poi_provider.dart` — add `POI_REQUEST`, `POI_LOADED`, `POI_EMPTY`, `API_ERROR` log calls
+- [x] 4.4 Update `flutter_app/lib/features/narration/providers/trigger_provider.dart` — add `NARRATION_TRIGGER` log call
+- [x] 4.5 Update `flutter_app/lib/features/narration/providers/narration_provider.dart` — add `NARRATION_START`, `NARRATION_CHUNK`, `NARRATION_COMPLETE`, `NARRATION_SKIP` log calls with duration tracking
+- [x] 4.6 Update `flutter_app/lib/features/qa/providers/qa_provider.dart` — add `QA_START`, `QA_ANSWER_COMPLETE` log calls
+- [x] 4.7 Run `flutter test` — verify all existing tests pass (log calls are additive)
 
 ## 5. Backend — log_events.py + logging_config.py
 

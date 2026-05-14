@@ -7,6 +7,8 @@ import 'package:flutter_app/shared/backend/models/narration_event.dart';
 import 'package:flutter_app/shared/backend/models/poi.dart';
 import 'package:flutter_app/shared/db/local_db.dart';
 import 'package:flutter_app/shared/providers.dart';
+import 'package:flutter_app/shared/logging/app_logger.dart';
+import 'package:flutter_app/shared/logging/log_events.dart';
 
 enum NarrationStatus { idle, loading, playing, paused, error }
 
@@ -56,6 +58,7 @@ class NarrationNotifier extends StateNotifier<NarrationState> {
   int _audioChunkCount = 0;
   String _currentPersona = 'history_uncle';
   String _currentLang = 'zh-TW';
+  DateTime? _narrationStartedAt;
 
   Future<void> narrate(
     POI poi, {
@@ -66,6 +69,8 @@ class NarrationNotifier extends StateNotifier<NarrationState> {
     _currentLang = lang;
     await _sub?.cancel();
     _audioChunkCount = 0;
+    _narrationStartedAt = DateTime.now();
+    AppLogger.info(LogEvents.narrationStart, {'poi_id': poi.id});
     state = NarrationState(
       status: NarrationStatus.loading,
       currentPoi: poi,
@@ -98,12 +103,24 @@ class NarrationNotifier extends StateNotifier<NarrationState> {
         state = state.copyWith(subtitle: state.subtitle + chunk);
       case AudioEvent(:final chunkB64):
         _audioChunkCount++;
+        AppLogger.debug(LogEvents.narrationChunk, {
+          'poi_id': poi.id,
+          'chunk_index': _audioChunkCount,
+        });
         final bytes = base64.decode(chunkB64);
         _audio.enqueueBytes(bytes);
         state = state.copyWith(
           progress: (_audioChunkCount * 0.1).clamp(0.0, 0.9),
         );
       case EndEvent():
+        final durationMs = _narrationStartedAt != null
+            ? DateTime.now().difference(_narrationStartedAt!).inMilliseconds
+            : 0;
+        AppLogger.info(LogEvents.narrationComplete, {
+          'poi_id': poi.id,
+          'duration_ms': durationMs,
+        });
+        _narrationStartedAt = null;
         _recordNarration(poi);
         state = state.copyWith(
           status: NarrationStatus.idle,
@@ -143,6 +160,10 @@ class NarrationNotifier extends StateNotifier<NarrationState> {
   }
 
   Future<void> skip() async {
+    AppLogger.warn(LogEvents.narrationSkip, {
+      'poi_id': state.currentPoi?.id ?? '',
+      'reason': 'user_skip',
+    });
     await _sub?.cancel();
     await _audio.skip();
     state = state.copyWith(status: NarrationStatus.idle);

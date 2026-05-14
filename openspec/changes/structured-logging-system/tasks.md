@@ -33,11 +33,11 @@
 
 ## 5. Backend — log_events.py + logging_config.py
 
-- [ ] 5.1 Create `backend/tests/unit/test_logging_config.py` with tests for `_HumanFormatter`, `_JsonFormatter`, `setup_logging`, and `log_event`
-- [ ] 5.2 Run `pytest tests/unit/test_logging_config.py` — verify tests fail (modules do not exist)
-- [ ] 5.3 Create `backend/src/tour_guide/log_events.py` — `LogEvents` class with all UPPER_SNAKE_CASE constants
-- [ ] 5.4 Create `backend/src/tour_guide/logging_config.py` — `_HumanFormatter`, `_JsonFormatter`, `setup_logging()`, `log_event()` helper
-- [ ] 5.5 Run `pytest tests/unit/test_logging_config.py` — verify all tests pass
+- [x] 5.1 Create `backend/tests/unit/test_logging_config.py` with tests for `_HumanFormatter`, `_JsonFormatter`, `setup_logging`, and `log_event`
+- [x] 5.2 Run `pytest tests/unit/test_logging_config.py` — verify tests fail (modules do not exist)
+- [x] 5.3 Create `backend/src/tour_guide/log_events.py` — `LogEvents` class with all UPPER_SNAKE_CASE constants
+- [x] 5.4 Create `backend/src/tour_guide/logging_config.py` — `_HumanFormatter`, `_JsonFormatter`, `setup_logging()`, `log_event()` helper
+- [x] 5.5 Run `pytest tests/unit/test_logging_config.py` — verify all tests pass
 
 ## 6. Backend — AppConfig + main.py Wiring
 

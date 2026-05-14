@@ -1,0 +1,25 @@
+__pycache__/
+**/__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+*.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Secrets / local config
+.env
+.env.local
+
+# Tests (not needed in production image)
+tests/
+
+# Build artifacts
+*.pyc
+*.pyo

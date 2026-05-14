@@ -60,9 +60,9 @@
 
 ## 9. Backend — Service Call Sites (narration + qa)
 
-- [ ] 9.1 Update `backend/src/tour_guide/services/narration_service.py` — add `NARRATION_START`, `NARRATION_COMPLETE` log calls with duration tracking (cache hit and miss paths)
-- [ ] 9.2 Update `backend/src/tour_guide/services/qa_service.py` — add `QA_START`, `QA_STT_DONE`, `QA_ANSWER_COMPLETE` log calls with duration tracking
-- [ ] 9.3 Run `pytest tests/ --ignore=tests/smoke` — verify existing tests still pass
+- [x] 9.1 Update `backend/src/tour_guide/services/narration_service.py` — add `NARRATION_START`, `NARRATION_COMPLETE` log calls with duration tracking (cache hit and miss paths)
+- [x] 9.2 Update `backend/src/tour_guide/services/qa_service.py` — add `QA_START`, `QA_STT_DONE`, `QA_ANSWER_COMPLETE` log calls with duration tracking
+- [x] 9.3 Run `pytest tests/ --ignore=tests/smoke` — verify existing tests still pass
 
 ## 10. End-to-End Verification
 

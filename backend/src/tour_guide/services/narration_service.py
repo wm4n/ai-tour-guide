@@ -1,11 +1,17 @@
 """NarrationService — orchestrates LLM streaming, sentence splitting, and TTS synthesis."""
 
 import base64
+import logging
+import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Literal
 
 from tour_guide.cache.narration_cache import NarrationCache
+from tour_guide.log_events import LogEvents
+from tour_guide.logging_config import log_event
+
+logger = logging.getLogger(__name__)
 from tour_guide.models.persona import PersonaConfig
 from tour_guide.models.poi import POIContext
 from tour_guide.pipeline.sentence_splitter import StreamingSentenceBuffer
@@ -94,12 +100,14 @@ class NarrationService:
         """
         confidence = ConfidenceClassifier.classify(poi)
         cache_key = f"{poi.osm.id}|{persona.id}|{lang}|{length}"
+        start = time.monotonic()
 
         # 1. Check cache (if cache is configured and not force-regenerating)
         if self._cache is not None and not force_regenerate:
             cached = self._cache.get(cache_key)
             if cached is not None:
                 cached_audio, _transcript = cached
+                log_event(logger, LogEvents.NARRATION_START, poi_id=poi.osm.id, cache_hit=True)
                 yield MetaEvent(
                     poi_id=poi.osm.id,
                     cache_hit=True,
@@ -109,10 +117,13 @@ class NarrationService:
                     chunk_b64=base64.b64encode(cached_audio).decode(),
                     sentence_idx=0,
                 )
+                elapsed_ms = int((time.monotonic() - start) * 1000)
+                log_event(logger, LogEvents.NARRATION_COMPLETE, poi_id=poi.osm.id, duration_ms=elapsed_ms)
                 yield EndEvent()
                 return
 
         # 2. Cache miss (or no cache / force_regenerate): run full pipeline
+        log_event(logger, LogEvents.NARRATION_START, poi_id=poi.osm.id, cache_hit=False)
         yield MetaEvent(
             poi_id=poi.osm.id,
             cache_hit=False,
@@ -153,6 +164,8 @@ class NarrationService:
                 sentence_idx=sentence_idx,
             )
 
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+        log_event(logger, LogEvents.NARRATION_COMPLETE, poi_id=poi.osm.id, duration_ms=elapsed_ms)
         yield EndEvent()
 
         # 6. Populate cache after EndEvent (if cache is configured)

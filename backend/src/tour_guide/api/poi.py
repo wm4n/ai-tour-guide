@@ -1,13 +1,17 @@
 """POI API endpoint for querying nearby points of interest."""
 
+import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 
 from tour_guide.clients.overpass import OverpassRateLimitError
+from tour_guide.log_events import LogEvents
+from tour_guide.logging_config import log_event
 from tour_guide.services.poi_service import POIService
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -24,8 +28,10 @@ async def poi_nearby(
     persona: str = Query("history_uncle", description="User persona"),
     poi_service: POIService = Depends(get_poi_service),  # noqa: B008
 ):
+    log_event(logger, LogEvents.POI_REQUEST, level="debug", lat=lat, lon=lon, radius=radius, persona=persona)
     try:
         pois = await poi_service.nearby(lat, lon, radius, persona, lang)
+        log_event(logger, LogEvents.POI_LOADED, count=len(pois))
         return {
             "pois": [_serialize_poi(p) for p in pois],
             "queried_at": datetime.now(timezone.utc).isoformat(),  # noqa: UP017
@@ -37,6 +43,8 @@ async def poi_nearby(
             headers={"Retry-After": str(e.retry_after_s)},
         )
     except Exception as e:
+        log_event(logger, LogEvents.API_ERROR, level="error",
+                  endpoint="/poi/nearby", status=503, detail=str(e), exc_info=True)
         raise HTTPException(status_code=503, detail="Upstream service unavailable") from e
 
 

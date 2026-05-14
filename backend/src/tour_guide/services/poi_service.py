@@ -1,15 +1,20 @@
 """POI Service: combines Overpass, Wikipedia, filter, confidence, and cache."""
 
 import datetime
+import logging
 import math
 
 from tour_guide.cache.poi_cache import POICache
 from tour_guide.clients.overpass import OverpassClient
 from tour_guide.clients.wikipedia import WikipediaClient
+from tour_guide.log_events import LogEvents
+from tour_guide.logging_config import log_event
 from tour_guide.models.poi import POI, BBox, Place, POIContext, TagFilter, WikiArticle
 from tour_guide.services.confidence import ConfidenceClassifier
 from tour_guide.services.foodie_filter import filter_places
 from tour_guide.services.poi_filter import filter_poi_nodes
+
+logger = logging.getLogger(__name__)
 
 _DEFAULT_TAG_FILTERS = [
     TagFilter(key="tourism"),
@@ -123,6 +128,7 @@ class POIService:
         region_key = f"region:{lat:.3f}:{lon:.3f}:{radius}:{lang}"
         cached = self._cache.get(region_key)
         if cached is not None:
+            log_event(logger, LogEvents.POI_CACHE_HIT, level="debug", key=region_key)
             return [
                 POI(
                     id=p["id"], name=p["name"], lat=p["lat"], lon=p["lon"],
@@ -145,7 +151,10 @@ class POIService:
 
             wiki = None
             if wiki_title:
-                wiki = await self._wikipedia.summary(wiki_title, wiki_lang)
+                try:
+                    wiki = await self._wikipedia.summary(wiki_title, wiki_lang)
+                except Exception:
+                    log_event(logger, LogEvents.UPSTREAM_FAIL, level="warning", service="wiki", title=wiki_title, lang=wiki_lang)
 
             poi_context = POIContext(osm=node, wiki=wiki)
             confidence = ConfidenceClassifier.classify(poi_context)
@@ -165,6 +174,11 @@ class POIService:
             )
 
         pois.sort(key=lambda p: p.distance_m)
+
+        if pois:
+            log_event(logger, LogEvents.POI_LOADED, count=len(pois), source="osm")
+        else:
+            log_event(logger, LogEvents.POI_EMPTY, level="warning", lat=lat, lon=lon, radius=radius)
 
         self._cache.put(
             region_key,

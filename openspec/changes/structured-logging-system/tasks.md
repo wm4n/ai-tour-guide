@@ -54,9 +54,9 @@
 
 ## 8. Backend — Service Call Sites (poi_service + api/poi)
 
-- [ ] 8.1 Update `backend/src/tour_guide/services/poi_service.py` — add `POI_CACHE_HIT`, `POI_LOADED`, `POI_EMPTY`, `UPSTREAM_FAIL` log calls; replace existing bare `logger.warning` calls
-- [ ] 8.2 Update `backend/src/tour_guide/api/poi.py` — add `POI_REQUEST`, `POI_LOADED`, `API_ERROR` log calls; replace existing bare `logger.exception` call
-- [ ] 8.3 Run `pytest tests/ --ignore=tests/smoke` — verify existing tests still pass
+- [x] 8.1 Update `backend/src/tour_guide/services/poi_service.py` — add `POI_CACHE_HIT`, `POI_LOADED`, `POI_EMPTY`, `UPSTREAM_FAIL` log calls; replace existing bare `logger.warning` calls
+- [x] 8.2 Update `backend/src/tour_guide/api/poi.py` — add `POI_REQUEST`, `POI_LOADED`, `API_ERROR` log calls; replace existing bare `logger.exception` call
+- [x] 8.3 Run `pytest tests/ --ignore=tests/smoke` — verify existing tests still pass
 
 ## 9. Backend — Service Call Sites (narration + qa)
 

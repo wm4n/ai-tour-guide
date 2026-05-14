@@ -8,10 +8,10 @@
 
 ## 2. Flutter — ConsoleTransport
 
-- [ ] 2.1 Create `flutter_app/test/unit/console_transport_test.dart` with all `formatDebug` and `formatRelease` tests
-- [ ] 2.2 Run console_transport tests — verify they fail (file does not exist yet)
-- [ ] 2.3 Create `flutter_app/lib/shared/logging/transports/console_transport.dart` — emoji (debug) / plain (release) formatter
-- [ ] 2.4 Run console_transport tests — verify all pass
+- [x] 2.1 Create `flutter_app/test/unit/console_transport_test.dart` with all `formatDebug` and `formatRelease` tests
+- [x] 2.2 Run console_transport tests — verify they fail (file does not exist yet)
+- [x] 2.3 Create `flutter_app/lib/shared/logging/transports/console_transport.dart` — emoji (debug) / plain (release) formatter
+- [x] 2.4 Run console_transport tests — verify all pass
 
 ## 3. Flutter — AppLogger Singleton + FirebaseTransport Stub
 

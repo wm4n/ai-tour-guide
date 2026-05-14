@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_app/features/session/providers/session_provider.dart';
 import 'package:flutter_app/features/session/widgets/persona_selector.dart';
+import 'package:flutter_app/shared/providers.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -79,6 +81,18 @@ class HomeScreen extends ConsumerWidget {
     if (!context.mounted) return;
     final status = ref.read(sessionProvider).status;
     if (status == SessionStatus.active) {
+      // Check if only whileInUse permission was granted (no background access)
+      final permission =
+          await ref.read(locationServiceProvider).checkPermission();
+      if (!context.mounted) return;
+      if (permission == LocationPermission.whileInUse) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('建議開啟「一律允許」背景定位，以便鎖屏時自動推播景點通知。'),
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
       context.push('/map');
     } else if (status == SessionStatus.idle) {
       showDialog<void>(

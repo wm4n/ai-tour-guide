@@ -15,11 +15,11 @@
 
 ## 3. Flutter — AppLogger Singleton + FirebaseTransport Stub
 
-- [ ] 3.1 Extend `flutter_app/test/unit/app_logger_test.dart` with `AppLogger` routing and level tests
-- [ ] 3.2 Run app_logger tests — verify they fail (AppLogger not yet defined)
-- [ ] 3.3 Create `flutter_app/lib/shared/logging/app_logger.dart` — singleton with `init()`, `info()`, `debug()`, `warn()`, `error()` static methods
-- [ ] 3.4 Create `flutter_app/lib/shared/logging/transports/firebase_transport.dart` — no-op stub with future integration comments
-- [ ] 3.5 Run app_logger tests — verify all pass
+- [x] 3.1 Extend `flutter_app/test/unit/app_logger_test.dart` with `AppLogger` routing and level tests
+- [x] 3.2 Run app_logger tests — verify they fail (AppLogger not yet defined)
+- [x] 3.3 Create `flutter_app/lib/shared/logging/app_logger.dart` — singleton with `init()`, `info()`, `debug()`, `warn()`, `error()` static methods
+- [x] 3.4 Create `flutter_app/lib/shared/logging/transports/firebase_transport.dart` — no-op stub with future integration comments
+- [x] 3.5 Run app_logger tests — verify all pass
 
 ## 4. Flutter — Initialization and Call Sites
 

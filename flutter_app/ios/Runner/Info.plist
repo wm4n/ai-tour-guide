@@ -66,9 +66,17 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+	</array>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>AI Tour Guide 需要存取您的位置以顯示附近景點。</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>AI Tour Guide 需要存取您的位置以自動播報旁白。</string>
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>AI Tour Guide 需要持續存取您的位置，以便在背景自動推播景點通知。</string>
+	<key>MAPS_API_KEY_IOS</key>
+	<string>$(MAPS_API_KEY_IOS)</string>
 </dict>
 </plist>

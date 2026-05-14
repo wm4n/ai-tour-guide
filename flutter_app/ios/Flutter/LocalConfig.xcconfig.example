@@ -1,0 +1,9 @@
+// Copy this file to LocalConfig.xcconfig (do NOT commit the copy to git)
+// and fill in your actual Google Maps API Key for iOS.
+//
+// Usage:
+//   cp flutter_app/ios/Flutter/LocalConfig.xcconfig.example \
+//      flutter_app/ios/Flutter/LocalConfig.xcconfig
+//   # Edit LocalConfig.xcconfig and set your key
+
+MAPS_API_KEY_IOS = your-ios-google-maps-api-key-here

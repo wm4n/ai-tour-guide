@@ -1,0 +1,4 @@
+{
+  "BACKEND_URL": "https://your-service-url.run.app",
+  "API_KEY": "your-shared-api-key-here"
+}

@@ -48,9 +48,9 @@
 
 ## 7. Backend — Client Call Sites (overpass + wikipedia)
 
-- [ ] 7.1 Update `backend/src/tour_guide/clients/overpass.py` — add `OVERPASS_REQUEST`, `OVERPASS_RESPONSE`, `OVERPASS_RETRY` log calls
-- [ ] 7.2 Update `backend/src/tour_guide/clients/wikipedia.py` — add `WIKI_REQUEST`, `WIKI_RESPONSE` log calls
-- [ ] 7.3 Run `pytest tests/ --ignore=tests/smoke` — verify existing tests still pass
+- [x] 7.1 Update `backend/src/tour_guide/clients/overpass.py` — add `OVERPASS_REQUEST`, `OVERPASS_RESPONSE`, `OVERPASS_RETRY` log calls
+- [x] 7.2 Update `backend/src/tour_guide/clients/wikipedia.py` — add `WIKI_REQUEST`, `WIKI_RESPONSE` log calls
+- [x] 7.3 Run `pytest tests/ --ignore=tests/smoke` — verify existing tests still pass
 
 ## 8. Backend — Service Call Sites (poi_service + api/poi)
 

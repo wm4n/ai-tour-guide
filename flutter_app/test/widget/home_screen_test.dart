@@ -13,6 +13,8 @@ class _FakeLocationService implements LocationService {
   final bool hasPermission;
   _FakeLocationService({this.hasPermission = true});
   @override Future<bool> requestPermission() async => hasPermission;
+  @override Future<LocationPermission> checkPermission() async =>
+      LocationPermission.whileInUse;
   @override void start() {}
   @override void stop() {}
   @override Stream<Position> get positionStream => const Stream.empty();

@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:geolocator/geolocator.dart';
 
 abstract class LocationService {
   Future<bool> requestPermission();
+  Future<LocationPermission> checkPermission();
   void start();
   void stop();
   Stream<Position> get positionStream;
@@ -23,13 +25,36 @@ class RealLocationService implements LocationService {
   }
 
   @override
+  Future<LocationPermission> checkPermission() =>
+      Geolocator.checkPermission();
+
+  @override
   void start() {
-    _controller = StreamController<Position>.broadcast();
-    _subscription = Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(
+    final LocationSettings locationSettings;
+    if (Platform.isIOS) {
+      locationSettings = AppleSettings(
         accuracy: LocationAccuracy.high,
         distanceFilter: 10,
-      ),
+        allowBackgroundLocationUpdates: true,
+        activityType: ActivityType.fitness,
+        pauseLocationUpdatesAutomatically: false,
+      );
+    } else {
+      locationSettings = AndroidSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 10,
+        foregroundNotificationConfig: const ForegroundNotificationConfig(
+          notificationText: 'AI Tour Guide 正在使用定位服務',
+          notificationTitle: 'AI Tour Guide',
+          enableWakeLock: true,
+          notificationIcon: AndroidResource(name: 'ic_launcher', defType: 'mipmap'),
+        ),
+      );
+    }
+
+    _controller = StreamController<Position>.broadcast();
+    _subscription = Geolocator.getPositionStream(
+      locationSettings: locationSettings,
     ).listen(
       _controller!.add,
       onError: _controller!.addError,
@@ -61,6 +86,10 @@ class FakeLocationService implements LocationService {
 
   @override
   Future<bool> requestPermission() async => _hasPermission;
+
+  @override
+  Future<LocationPermission> checkPermission() async =>
+      LocationPermission.whileInUse;
 
   @override
   void start() {}

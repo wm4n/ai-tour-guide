@@ -21,5 +21,6 @@ class AppConfig(BaseSettings):
     google_places_api_key: str = Field("", alias="GOOGLE_PLACES_API_KEY")
     api_key: str = Field("", alias="API_KEY")
     log_level: str = Field("INFO", alias="LOG_LEVEL")
+    log_format: str = Field("text", alias="LOG_FORMAT")  # text | json
 
     model_config = {"populate_by_name": True, "env_prefix": ""}

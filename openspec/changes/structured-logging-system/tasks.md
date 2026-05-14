@@ -41,10 +41,10 @@
 
 ## 6. Backend — AppConfig + main.py Wiring
 
-- [ ] 6.1 Update `backend/src/tour_guide/config.py` — add `log_format: str = Field('text', alias='LOG_FORMAT')`
-- [ ] 6.2 Update `backend/src/tour_guide/main.py` — call `setup_logging(level=config.log_level, fmt=config.log_format)` as first line of `create_app()`
-- [ ] 6.3 Update `backend/.env.example` — add `LOG_LEVEL` and `LOG_FORMAT` entries with comments
-- [ ] 6.4 Run `pytest tests/ --ignore=tests/smoke` — verify existing tests still pass
+- [x] 6.1 Update `backend/src/tour_guide/config.py` — add `log_format: str = Field('text', alias='LOG_FORMAT')`
+- [x] 6.2 Update `backend/src/tour_guide/main.py` — call `setup_logging(level=config.log_level, fmt=config.log_format)` as first line of `create_app()`
+- [x] 6.3 Update `backend/.env.example` — add `LOG_LEVEL` and `LOG_FORMAT` entries with comments
+- [x] 6.4 Run `pytest tests/ --ignore=tests/smoke` — verify existing tests still pass
 
 ## 7. Backend — Client Call Sites (overpass + wikipedia)
 

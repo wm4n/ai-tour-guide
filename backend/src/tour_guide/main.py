@@ -15,6 +15,7 @@ from tour_guide.clients.google_places import FakeGooglePlacesClient, RealGoogleP
 from tour_guide.clients.overpass import OverpassClient
 from tour_guide.clients.wikipedia import WikipediaClient
 from tour_guide.config import AppConfig
+from tour_guide.logging_config import setup_logging
 from tour_guide.prompts.loader import PersonaLoader
 from tour_guide.providers.llm import LiteLLMAdapter
 from tour_guide.providers.stt import GeminiSttAdapter
@@ -25,6 +26,7 @@ from tour_guide.services.qa_service import QAService
 
 
 def create_app(config: AppConfig) -> FastAPI:
+    setup_logging(level=config.log_level, fmt=config.log_format)
     http_client = httpx.AsyncClient()
 
     overpass_client = OverpassClient(client=http_client)

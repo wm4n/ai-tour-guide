@@ -66,7 +66,7 @@
 
 ## 10. End-to-End Verification
 
-- [ ] 10.1 Run `flutter test` — verify all Flutter tests pass
-- [ ] 10.2 Run `pytest tests/ --ignore=tests/smoke` — verify all backend tests pass
-- [ ] 10.3 Start backend with `LOG_LEVEL=DEBUG LOG_FORMAT=text` — verify human-readable log output appears on console
-- [ ] 10.4 Start backend with `LOG_FORMAT=json` — verify one-line JSON per event with `event`, `level`, `ts` keys
+- [x] 10.1 Run `flutter test` — verify all Flutter tests pass
+- [x] 10.2 Run `pytest tests/ --ignore=tests/smoke` — verify all backend tests pass
+- [x] 10.3 Start backend with `LOG_LEVEL=DEBUG LOG_FORMAT=text` — verify human-readable log output appears on console
+- [x] 10.4 Start backend with `LOG_FORMAT=json` — verify one-line JSON per event with `event`, `level`, `ts` keys

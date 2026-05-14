@@ -118,6 +118,11 @@ backend/dist/
 **/credentials.json
 service-account*.json
 
+# Plan F — local API key configs (never commit actual keys)
+flutter_app/dart_defines/prod.json
+flutter_app/ios/Flutter/LocalConfig.xcconfig
+scripts/.env
+
 # Cache directories used by backend at runtime
 backend/cache/
 backend/narration_cache/

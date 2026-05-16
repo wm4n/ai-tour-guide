@@ -6,10 +6,10 @@
 
 ## 2. Relax OSM POI Filter
 
-- [ ] 2.1 Add failing unit tests to `backend/tests/unit/test_poi_filter.py` for the new name-based filter rules
-- [ ] 2.2 Update `backend/src/tour_guide/services/poi_filter.py` to require `name` tag instead of `wikipedia`/`wikidata`
-- [ ] 2.3 Update stale tests in `test_poi_filter.py` that described the old wikidata requirement
-- [ ] 2.4 Run all POI filter unit tests and confirm they pass
+- [x] 2.1 Add failing unit tests to `backend/tests/unit/test_poi_filter.py` for the new name-based filter rules
+- [x] 2.2 Update `backend/src/tour_guide/services/poi_filter.py` to require `name` tag instead of `wikipedia`/`wikidata`
+- [x] 2.3 Update stale tests in `test_poi_filter.py` that described the old wikidata requirement
+- [x] 2.4 Run all POI filter unit tests and confirm they pass
 
 ## 3. Add WikipediaClient.search() Method
 

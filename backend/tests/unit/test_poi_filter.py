@@ -24,15 +24,12 @@ class TestFilterPOINodes:
         assert result[0] == node
 
     def test_node_with_tourism_but_no_wiki_excluded(self):
-        """Node with tourism=museum but NO wikipedia/wikidata should be excluded."""
+        """Node with tourism=museum but NO name tag should be excluded (no wiki needed)."""
         node = OsmNode(
             id="osm:node:2",
             lat=25.0455,
             lon=121.5681,
-            tags={
-                "name": "Local Museum",
-                "tourism": "museum",
-            },
+            tags={"tourism": "museum"},  # no name tag
         )
         result = filter_poi_nodes([node])
         assert len(result) == 0
@@ -53,7 +50,7 @@ class TestFilterPOINodes:
         assert len(result) == 0
 
     def test_node_with_historic_and_wikidata_passes(self):
-        """Node with historic=monument AND wikidata=Q12345 should pass."""
+        """Node with historic=monument AND name should pass (wikidata optional)."""
         node = OsmNode(
             id="osm:node:4",
             lat=25.0455,
@@ -74,40 +71,33 @@ class TestFilterPOINodes:
             id="osm:node:10",
             lat=25.0,
             lon=121.5,
-            tags={"tourism": "museum", "wikipedia": "en:Museum"},
+            tags={"name": "Some Museum", "tourism": "museum"},
         )
-        invalid_no_wiki = OsmNode(
+        invalid_no_name = OsmNode(
             id="osm:node:11",
             lat=25.0,
             lon=121.5,
-            tags={"tourism": "cafe"},
+            tags={"tourism": "cafe"},  # no name tag
         )
         invalid_no_category = OsmNode(
             id="osm:node:12",
             lat=25.0,
             lon=121.5,
-            tags={"shop": "book", "wikipedia": "en:Bookstore"},
+            tags={"name": "Bookstore", "shop": "book"},  # no tourism/historic
         )
         valid_historic = OsmNode(
             id="osm:node:13",
             lat=25.0,
             lon=121.5,
-            tags={"historic": "castle", "wikidata": "Q999"},
+            tags={"name": "Old Castle", "historic": "castle"},
         )
 
-        result = filter_poi_nodes(
-            [
-                valid_museum,
-                invalid_no_wiki,
-                invalid_no_category,
-                valid_historic,
-            ]
-        )
+        result = filter_poi_nodes([valid_museum, invalid_no_name, invalid_no_category, valid_historic])
 
         assert len(result) == 2
         assert valid_museum in result
         assert valid_historic in result
-        assert invalid_no_wiki not in result
+        assert invalid_no_name not in result
         assert invalid_no_category not in result
 
     def test_empty_list_returns_empty(self):
@@ -116,12 +106,13 @@ class TestFilterPOINodes:
         assert result == []
 
     def test_node_with_multiple_allowed_keys(self):
-        """Node with both tourism AND historic tags should still pass with wiki."""
+        """Node with both tourism AND historic tags should pass with name."""
         node = OsmNode(
             id="osm:node:14",
             lat=25.0,
             lon=121.5,
             tags={
+                "name": "Historic Attraction",
                 "tourism": "attraction",
                 "historic": "building",
                 "wikipedia": "en:Building",
@@ -130,3 +121,25 @@ class TestFilterPOINodes:
         result = filter_poi_nodes([node])
         assert len(result) == 1
         assert result[0] == node
+
+    def test_node_with_tourism_and_name_but_no_wiki_now_passes(self):
+        """After relaxation: tourism+name node WITHOUT wiki tag should pass."""
+        node = OsmNode(
+            id="osm:node:99",
+            lat=25.0,
+            lon=121.5,
+            tags={"name": "Local Museum", "tourism": "museum"},
+        )
+        result = filter_poi_nodes([node])
+        assert len(result) == 1
+
+    def test_node_with_tourism_but_no_name_excluded(self):
+        """Node with tourism but no name tag should be excluded."""
+        node = OsmNode(
+            id="osm:node:100",
+            lat=25.0,
+            lon=121.5,
+            tags={"tourism": "museum"},
+        )
+        result = filter_poi_nodes([node])
+        assert len(result) == 0

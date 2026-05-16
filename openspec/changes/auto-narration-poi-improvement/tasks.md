@@ -13,9 +13,9 @@
 
 ## 3. Add WikipediaClient.search() Method
 
-- [ ] 3.1 Create `backend/tests/unit/test_wikipedia_client.py` with failing tests for `search()` (title found, no results, zh-TW subdomain mapping, opensearch action params)
-- [ ] 3.2 Add `search(query: str, lang: str) -> str | None` method to `backend/src/tour_guide/clients/wikipedia.py`
-- [ ] 3.3 Run `test_wikipedia_client.py` and confirm all 4 tests pass
+- [x] 3.1 Create `backend/tests/unit/test_wikipedia_client.py` with failing tests for `search()` (title found, no results, zh-TW subdomain mapping, opensearch action params)
+- [x] 3.2 Add `search(query: str, lang: str) -> str | None` method to `backend/src/tour_guide/clients/wikipedia.py`
+- [x] 3.3 Run `test_wikipedia_client.py` and confirm all 4 tests pass
 
 ## 4. Create NominatimClient
 

@@ -7,12 +7,12 @@
 
 ## 2. effectivePositionStreamProvider（新增 providers）
 
-- [ ] 2.1 建立 `test/unit/effective_position_provider_test.dart`，包含 4 個測試：GPS 先到、zh-TW timeout、en timeout、fallback 後 GPS 恢復（Red）
-- [ ] 2.2 執行測試確認失敗
-- [ ] 2.3 在 `lib/features/map/providers/poi_provider.dart` 新增 `sessionLangProvider`（讀取 `sessionProvider.lang`）
-- [ ] 2.4 在同檔新增 `fallbackTimeoutProvider`（預設 `Duration(seconds: 5)`）
-- [ ] 2.5 在同檔新增 `effectivePositionStreamProvider`（StreamController.broadcast + Timer fallback 邏輯，含 `ref.onDispose` 清理）
-- [ ] 2.6 執行測試確認全數通過（Green）
+- [x] 2.1 建立 `test/unit/effective_position_provider_test.dart`，包含 4 個測試：GPS 先到、zh-TW timeout、en timeout、fallback 後 GPS 恢復（Red）
+- [x] 2.2 執行測試確認失敗
+- [x] 2.3 在 `lib/features/map/providers/poi_provider.dart` 新增 `sessionLangProvider`（讀取 `sessionProvider.lang`）
+- [x] 2.4 在同檔新增 `fallbackTimeoutProvider`（預設 `Duration(seconds: 5)`）
+- [x] 2.5 在同檔新增 `effectivePositionStreamProvider`（StreamController.broadcast + Timer fallback 邏輯，含 `ref.onDispose` 清理）
+- [x] 2.6 執行測試確認全數通過（Green）
 
 ## 3. PoiNotifier 切換至 effectivePositionStreamProvider
 

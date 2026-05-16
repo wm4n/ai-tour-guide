@@ -19,9 +19,9 @@
 
 ## 4. Create NominatimClient
 
-- [ ] 4.1 Create `backend/tests/unit/test_nominatim_client.py` with failing tests (suburb+city parse, borough fallback, town fallback, network error → None, non-200 → None)
-- [ ] 4.2 Create `backend/src/tour_guide/clients/nominatim.py` with `NominatimAddress` dataclass and `NominatimClient.reverse()` method
-- [ ] 4.3 Run `test_nominatim_client.py` and confirm all 5 tests pass
+- [x] 4.1 Create `backend/tests/unit/test_nominatim_client.py` with failing tests (suburb+city parse, borough fallback, town fallback, network error → None, non-200 → None)
+- [x] 4.2 Create `backend/src/tour_guide/clients/nominatim.py` with `NominatimAddress` dataclass and `NominatimClient.reverse()` method
+- [x] 4.3 Run `test_nominatim_client.py` and confirm all 5 tests pass
 
 ## 5. Create WikipediaResolver
 

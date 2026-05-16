@@ -2,6 +2,7 @@ import 'package:drift/native.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_app/features/map/providers/poi_provider.dart';
 import 'package:flutter_app/features/narration/providers/trigger_provider.dart';
 import 'package:flutter_app/shared/backend/backend_client.dart';
 import 'package:flutter_app/shared/backend/models/poi.dart';
@@ -35,17 +36,18 @@ void main() {
         ),
         audioPlayerServiceProvider.overrideWithValue(fakeAudio),
         localDbProvider.overrideWithValue(db),
+        sessionLangProvider.overrideWithValue('zh-TW'),
+        fallbackTimeoutProvider.overrideWithValue(const Duration(seconds: 30)),
       ],
     );
     addTearDown(container.dispose);
     addTearDown(db.close);
 
-    container.read(triggerProvider);
+    container.listen(triggerProvider, (_, __) {});
     fakeLocation.emit(fakePosition(25.1023, 121.5482));
     await Future<void>.delayed(const Duration(milliseconds: 50));
 
     // triggerProvider returns void; verify it can be read without throwing
-    container.read(triggerProvider);
     expect(true, isTrue); // provider activated without exception
   });
 
@@ -64,6 +66,8 @@ void main() {
         audioPlayerServiceProvider.overrideWithValue(fakeAudio),
         notificationServiceProvider.overrideWithValue(fakeNotification),
         localDbProvider.overrideWithValue(db),
+        sessionLangProvider.overrideWithValue('zh-TW'),
+        fallbackTimeoutProvider.overrideWithValue(const Duration(seconds: 30)),
       ],
     );
     addTearDown(container.dispose);

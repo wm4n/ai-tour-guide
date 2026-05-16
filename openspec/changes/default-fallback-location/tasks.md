@@ -22,9 +22,9 @@
 
 ## 4. TriggerNotifier 切換至 effectivePositionStreamProvider
 
-- [ ] 4.1 在 `test/unit/trigger_provider_test.dart` 的兩個 `ProviderContainer` 均加入 `sessionLangProvider.overrideWithValue('zh-TW')`（Red）
-- [ ] 4.2 更新 `TriggerNotifier.build()` 中的 `ref.watch` 改用 `effectivePositionStreamProvider`
-- [ ] 4.3 執行測試確認通過（`flutter test test/unit/trigger_provider_test.dart`）
+- [x] 4.1 在 `test/unit/trigger_provider_test.dart` 的兩個 `ProviderContainer` 均加入 `sessionLangProvider.overrideWithValue('zh-TW')`（Red）
+- [x] 4.2 更新 `TriggerNotifier.build()` 中的 `ref.watch` 改用 `effectivePositionStreamProvider`
+- [x] 4.3 執行測試確認通過（`flutter test test/unit/trigger_provider_test.dart`）
 
 ## 5. MapScreen 切換至 effectivePositionStreamProvider
 

@@ -15,7 +15,7 @@ class TriggerNotifier extends Notifier<void> {
 
   @override
   void build() {
-    final positionAsync = ref.watch(positionStreamProvider);
+    final positionAsync = ref.watch(effectivePositionStreamProvider);
     final poisAsync = ref.watch(poiProvider);
 
     positionAsync.whenData((position) {

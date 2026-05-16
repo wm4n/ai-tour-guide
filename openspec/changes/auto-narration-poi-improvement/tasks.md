@@ -31,10 +31,10 @@
 
 ## 6. Add no_data_context to PersonaConfig
 
-- [ ] 6.1 Add failing tests to `backend/tests/unit/test_persona_loader.py` for `no_data_context` field (present and absent in YAML)
-- [ ] 6.2 Add `no_data_context: dict[str, str] = field(default_factory=dict)` to `PersonaConfig` in `backend/src/tour_guide/models/persona.py`
-- [ ] 6.3 Update `backend/src/tour_guide/prompts/loader.py` to parse `no_data_context` from YAML (pass `dict(data.get("no_data_context") or {})`)
-- [ ] 6.4 Run all persona loader tests and confirm they pass
+- [x] 6.1 Add failing tests to `backend/tests/unit/test_persona_loader.py` for `no_data_context` field (present and absent in YAML)
+- [x] 6.2 Add `no_data_context: dict[str, str] = field(default_factory=dict)` to `PersonaConfig` in `backend/src/tour_guide/models/persona.py`
+- [x] 6.3 Update `backend/src/tour_guide/prompts/loader.py` to parse `no_data_context` from YAML (pass `dict(data.get("no_data_context") or {})`)
+- [x] 6.4 Run all persona loader tests and confirm they pass
 
 ## 7. Update All 5 Persona YAMLs
 

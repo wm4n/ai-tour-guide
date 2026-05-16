@@ -63,6 +63,7 @@ def _parse(data: dict[str, Any], path: Path) -> PersonaConfig:
         system_messages=dict(data.get("system_messages") or {}),
         confidence_labels=dict(data.get("confidence_labels") or {}),
         default_trigger_radius_m=int(data.get("default_trigger_radius_m", 100)),
+        no_data_context=dict(data.get("no_data_context") or {}),
     )
 
 

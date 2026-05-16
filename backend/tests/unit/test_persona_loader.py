@@ -226,6 +226,80 @@ qa_template:
         assert config.default_trigger_radius_m == 100
 
 
+class TestPersonaLoaderNoDataContext:
+    """Tests for no_data_context field parsing."""
+
+    def test_persona_without_no_data_context_defaults_to_empty_dict(self, tmp_path):
+        """YAML without no_data_context should default to empty dict."""
+        yaml_content = """
+id: minimal_test
+display_name:
+  zh-TW: 測試
+  en: Test
+voice:
+  zh-TW: zh-TW-YunJheNeural
+  en: en-US-GuyNeural
+voice_style:
+  speaking_rate: 1.0
+  emotion: neutral
+style_profile:
+  embellishment: 0.0
+  preferred_topics: []
+poi_source: osm_wikipedia
+system_prompt:
+  zh-TW: 你是測試
+  en: You are test
+narration_template:
+  zh-TW: "narrate {poi_name} {poi_context} {target_length}"
+  en: "narrate {poi_name} {poi_context} {target_length}"
+qa_template:
+  zh-TW: "answer"
+  en: "answer"
+"""
+        yaml_file = tmp_path / "minimal_test.yaml"
+        yaml_file.write_text(yaml_content)
+        from tour_guide.prompts.loader import PersonaLoader
+        config = PersonaLoader.load_from_path(yaml_file)
+        assert config.no_data_context == {}
+
+    def test_persona_with_no_data_context_loaded_correctly(self, tmp_path):
+        """YAML with no_data_context should parse zh-TW and en values."""
+        yaml_content = """
+id: context_test
+display_name:
+  zh-TW: 測試
+  en: Test
+voice:
+  zh-TW: zh-TW-YunJheNeural
+  en: en-US-GuyNeural
+voice_style:
+  speaking_rate: 1.0
+  emotion: neutral
+style_profile:
+  embellishment: 0.0
+  preferred_topics: []
+poi_source: osm_wikipedia
+system_prompt:
+  zh-TW: 你是測試
+  en: You are test
+narration_template:
+  zh-TW: "narrate {poi_name} {poi_context} {target_length}"
+  en: "narrate {poi_name} {poi_context} {target_length}"
+qa_template:
+  zh-TW: "answer"
+  en: "answer"
+no_data_context:
+  zh-TW: "這附近我也不太熟！"
+  en: "I don't know this area well!"
+"""
+        yaml_file = tmp_path / "context_test.yaml"
+        yaml_file.write_text(yaml_content)
+        from tour_guide.prompts.loader import PersonaLoader
+        config = PersonaLoader.load_from_path(yaml_file)
+        assert config.no_data_context["zh-TW"] == "這附近我也不太熟！"
+        assert config.no_data_context["en"] == "I don't know this area well!"
+
+
 class TestAllPersonaYamls:
     """Smoke tests: each persona YAML loads without error."""
 

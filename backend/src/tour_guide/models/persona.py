@@ -28,3 +28,4 @@ class PersonaConfig:
     system_messages: dict[str, Any] = field(default_factory=dict)
     confidence_labels: dict[str, Any] = field(default_factory=dict)
     default_trigger_radius_m: int = 100  # foodie: 50, others: 100
+    no_data_context: dict[str, str] = field(default_factory=dict)

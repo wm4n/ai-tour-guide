@@ -16,9 +16,9 @@
 
 ## 3. PoiNotifier 切換至 effectivePositionStreamProvider
 
-- [ ] 3.1 在 `test/unit/poi_provider_test.dart` 的 `ProviderContainer` 加入 `sessionLangProvider.overrideWithValue('zh-TW')`（Red）
-- [ ] 3.2 更新 `PoiNotifier.build()` 中的 `ref.listen` 改用 `effectivePositionStreamProvider`
-- [ ] 3.3 執行測試確認通過（`flutter test test/unit/poi_provider_test.dart`）
+- [x] 3.1 在 `test/unit/poi_provider_test.dart` 的 `ProviderContainer` 加入 `sessionLangProvider.overrideWithValue('zh-TW')`（Red）
+- [x] 3.2 更新 `PoiNotifier.build()` 中的 `ref.listen` 改用 `effectivePositionStreamProvider`
+- [x] 3.3 執行測試確認通過（`flutter test test/unit/poi_provider_test.dart`）
 
 ## 4. TriggerNotifier 切換至 effectivePositionStreamProvider
 

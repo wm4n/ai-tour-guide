@@ -27,6 +27,7 @@ void main() {
       overrides: [
         locationServiceProvider.overrideWithValue(fakeLocation),
         backendClientProvider.overrideWithValue(fakeClient),
+        sessionLangProvider.overrideWithValue('zh-TW'),
       ],
     );
     addTearDown(container.dispose);

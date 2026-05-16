@@ -64,7 +64,7 @@ class PoiNotifier extends AsyncNotifier<List<POI>> {
   @override
   Future<List<POI>> build() async {
     ref.listen<AsyncValue<Position>>(
-      positionStreamProvider,
+      effectivePositionStreamProvider,
       (_, next) => next.whenData(_onPosition),
     );
     return [];

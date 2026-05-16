@@ -1,8 +1,10 @@
 """NarrationService — orchestrates LLM streaming, sentence splitting, and TTS synthesis."""
 
 import base64
+import io
 import logging
 import time
+import wave
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Literal
@@ -130,20 +132,39 @@ class NarrationService:
             confidence=confidence,
         )
 
+        voice_id = persona.voice.get(lang, "Charon")
+
+        # 2b. No-data short-circuit: poi has no Wikipedia data — skip LLM entirely
+        if poi.wiki is None:
+            no_data = persona.no_data_context.get(lang, "")
+            if no_data:
+                yield TextEvent(chunk=no_data, sentence_idx=0)
+                audio_bytes = await self._synthesize_all(no_data, voice_id)
+                yield AudioEvent(
+                    chunk_b64=base64.b64encode(audio_bytes).decode(),
+                    sentence_idx=0,
+                )
+                yield EndEvent()
+                return
+
         # 3. Build prompt messages
         raw_messages = PromptBuilder.build(persona, poi, lang, length)
+        for msg in raw_messages:
+            logger.info("LLM input [%s] | poi_id=%s\n%s", msg["role"], poi.osm.id, msg["content"])
         llm_messages = [Message(role=m["role"], content=m["content"]) for m in raw_messages]
         opts = LlmOpts()
 
         # 4. Stream LLM → split sentences → TTS → yield events
         buffer = StreamingSentenceBuffer()
         sentence_idx = 0
-        voice_id = persona.voice.get(lang, "Charon")
         all_audio_chunks: list[bytes] = []
+        all_sentences: list[str] = []
 
         async for chunk in self._llm.chat_stream(llm_messages, opts):
             sentences = buffer.feed(chunk)
             for sentence in sentences:
+                log_event(logger, LogEvents.NARRATION_CHUNK, poi_id=poi.osm.id, sentence_idx=sentence_idx, text=sentence, level="debug")
+                all_sentences.append(sentence)
                 yield TextEvent(chunk=sentence, sentence_idx=sentence_idx)
                 audio_bytes = await self._synthesize_all(sentence, voice_id)
                 all_audio_chunks.append(audio_bytes)
@@ -156,6 +177,8 @@ class NarrationService:
         # 5. Flush remaining buffer content
         remainder = buffer.flush()
         if remainder:
+            log_event(logger, LogEvents.NARRATION_CHUNK, poi_id=poi.osm.id, sentence_idx=sentence_idx, text=remainder, level="debug")
+            all_sentences.append(remainder)
             yield TextEvent(chunk=remainder, sentence_idx=sentence_idx)
             audio_bytes = await self._synthesize_all(remainder, voice_id)
             all_audio_chunks.append(audio_bytes)
@@ -165,12 +188,12 @@ class NarrationService:
             )
 
         elapsed_ms = int((time.monotonic() - start) * 1000)
-        log_event(logger, LogEvents.NARRATION_COMPLETE, poi_id=poi.osm.id, duration_ms=elapsed_ms)
+        log_event(logger, LogEvents.NARRATION_COMPLETE, poi_id=poi.osm.id, duration_ms=elapsed_ms, total_sentences=len(all_sentences), full_text="".join(all_sentences))
         yield EndEvent()
 
         # 6. Populate cache after EndEvent (if cache is configured)
         if self._cache is not None:
-            combined_audio = b"".join(all_audio_chunks)
+            combined_audio = self._combine_wav_chunks(all_audio_chunks)
             self._cache.put(cache_key, combined_audio, "")
 
     async def _synthesize_all(self, text: str, voice_id: str) -> bytes:
@@ -179,3 +202,30 @@ class NarrationService:
         async for audio_bytes in self._tts.synthesize(text, voice_id, TtsOpts()):
             audio_chunks += audio_bytes
         return audio_chunks
+
+    @staticmethod
+    def _combine_wav_chunks(audio_chunks: list[bytes]) -> bytes:
+        """Merge multiple audio files into one.
+
+        WAV (RIFF) chunks are merged by extracting and concatenating PCM frames.
+        Non-WAV chunks (e.g. MP3 from EdgeTTS) are concatenated directly —
+        consecutive MP3 files form a valid multi-segment MP3 that decoders handle correctly.
+        """
+        if not audio_chunks:
+            return b""
+        if audio_chunks[0][:4] == b"RIFF":
+            combined_pcm = b""
+            params = None
+            for chunk in audio_chunks:
+                with wave.open(io.BytesIO(chunk), "rb") as wf:
+                    if params is None:
+                        params = wf.getparams()
+                    combined_pcm += wf.readframes(wf.getnframes())
+            if not combined_pcm or params is None:
+                return b""
+            buf = io.BytesIO()
+            with wave.open(buf, "wb") as wf:
+                wf.setparams(params)
+                wf.writeframes(combined_pcm)
+            return buf.getvalue()
+        return b"".join(audio_chunks)

@@ -47,11 +47,11 @@
 
 ## 8. Add No-Data Short-Circuit to NarrationService
 
-- [ ] 8.1 Create `backend/tests/unit/test_narration_service.py` with failing tests (LLM not called when wiki=None, TextEvent uses no_data_context text, LLM called when wiki is present)
-- [ ] 8.2 Add `voice_id` assignment before the short-circuit block in `backend/src/tour_guide/services/narration_service.py`
-- [ ] 8.3 Add the `if poi.wiki is None` short-circuit block after `MetaEvent` yield and before LLM prompt build
-- [ ] 8.4 Remove the now-duplicate `voice_id` assignment from inside step 4 of the LLM pipeline
-- [ ] 8.5 Run `test_narration_service.py` and confirm all 3 tests pass
+- [x] 8.1 Create `backend/tests/unit/test_narration_service.py` with failing tests (LLM not called when wiki=None, TextEvent uses no_data_context text, LLM called when wiki is present)
+- [x] 8.2 Add `voice_id` assignment before the short-circuit block in `backend/src/tour_guide/services/narration_service.py`
+- [x] 8.3 Add the `if poi.wiki is None` short-circuit block after `MetaEvent` yield and before LLM prompt build
+- [x] 8.4 Remove the now-duplicate `voice_id` assignment from inside step 4 of the LLM pipeline
+- [x] 8.5 Run `test_narration_service.py` and confirm all 3 tests pass
 
 ## 9. Update POIService to Use WikipediaResolver
 

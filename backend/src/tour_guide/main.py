@@ -12,6 +12,7 @@ from tour_guide.api import health, narration, poi, qa
 from tour_guide.cache.narration_cache import NarrationCache
 from tour_guide.cache.poi_cache import POICache
 from tour_guide.clients.google_places import FakeGooglePlacesClient, RealGooglePlacesClient
+from tour_guide.clients.nominatim import NominatimClient
 from tour_guide.clients.overpass import OverpassClient
 from tour_guide.clients.wikipedia import WikipediaClient
 from tour_guide.config import AppConfig
@@ -23,6 +24,7 @@ from tour_guide.providers.tts import EdgeTtsAdapter
 from tour_guide.services.narration_service import NarrationService
 from tour_guide.services.poi_service import POIService
 from tour_guide.services.qa_service import QAService
+from tour_guide.services.wikipedia_resolver import WikipediaResolver
 
 
 def create_app(config: AppConfig) -> FastAPI:
@@ -31,6 +33,8 @@ def create_app(config: AppConfig) -> FastAPI:
 
     overpass_client = OverpassClient(client=http_client)
     wikipedia_client = WikipediaClient(client=http_client)
+    nominatim_client = NominatimClient(client=http_client)
+    wikipedia_resolver = WikipediaResolver(wikipedia=wikipedia_client, nominatim=nominatim_client)
     poi_cache = POICache(config.poi_cache_dir)
     narration_cache = NarrationCache(config.narration_cache_dir)
 
@@ -48,6 +52,7 @@ def create_app(config: AppConfig) -> FastAPI:
         wikipedia=wikipedia_client,
         cache=poi_cache,
         google_places=google_places_client,
+        resolver=wikipedia_resolver,
     )
     narration_service = NarrationService(
         llm=llm_provider,

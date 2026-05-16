@@ -63,8 +63,8 @@
 
 ## 10. Wire DI in main.py
 
-- [ ] 10.1 Add imports for `NominatimClient` and `WikipediaResolver` to `backend/src/tour_guide/main.py`
-- [ ] 10.2 Instantiate `NominatimClient` and `WikipediaResolver` in `create_app()` after `WikipediaClient` is created
-- [ ] 10.3 Pass `resolver=wikipedia_resolver` to `POIService(...)` constructor call
-- [ ] 10.4 Verify app starts without import errors: `python -c "from tour_guide.main import create_app; ..."`
-- [ ] 10.5 Run all backend unit tests and confirm they pass
+- [x] 10.1 Add imports for `NominatimClient` and `WikipediaResolver` to `backend/src/tour_guide/main.py`
+- [x] 10.2 Instantiate `NominatimClient` and `WikipediaResolver` in `create_app()` after `WikipediaClient` is created
+- [x] 10.3 Pass `resolver=wikipedia_resolver` to `POIService(...)` constructor call
+- [x] 10.4 Verify app starts without import errors: `python -c "from tour_guide.main import create_app; ..."`
+- [x] 10.5 Run all backend unit tests and confirm they pass

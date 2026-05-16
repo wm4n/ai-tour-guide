@@ -33,6 +33,6 @@
 
 ## 6. 驗證與收尾
 
-- [ ] 6.1 執行完整單元測試（`cd flutter_app && flutter test test/unit/`）確認全數通過
-- [ ] 6.2 執行 `flutter analyze --no-fatal-infos` 確認無分析錯誤
+- [x] 6.1 執行完整單元測試（`cd flutter_app && flutter test test/unit/`）確認全數通過
+- [x] 6.2 執行 `flutter analyze --no-fatal-infos` 確認無分析錯誤
 - [ ] 6.3 在模擬器上啟動 app，確認 5 秒內地圖相機移至故宮（zh-TW）且 POI 正常載入

@@ -28,8 +28,8 @@
 
 ## 5. MapScreen 切換至 effectivePositionStreamProvider
 
-- [ ] 5.1 將 `map_screen.dart` 中兩處 `positionStreamProvider` 引用改為 `effectivePositionStreamProvider`
-- [ ] 5.2 將 `initialTarget` 的 hardcoded `LatLng(25.1023, 121.5482)` 改為 `LatLng(0, 0)`
+- [x] 5.1 將 `map_screen.dart` 中兩處 `positionStreamProvider` 引用改為 `effectivePositionStreamProvider`
+- [x] 5.2 將 `initialTarget` 的 hardcoded `LatLng(25.1023, 121.5482)` 改為 `LatLng(0, 0)`
 
 ## 6. 驗證與收尾
 

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:flutter_app/features/map/providers/poi_provider.dart';
@@ -9,6 +10,8 @@ import 'package:flutter_app/features/narration/providers/trigger_provider.dart';
 import 'package:flutter_app/features/narration/widgets/narration_sheet.dart';
 import 'package:flutter_app/features/qa/widgets/push_to_talk_button.dart';
 import 'package:flutter_app/features/session/providers/session_provider.dart';
+import 'package:flutter_app/shared/logging/app_logger.dart';
+import 'package:flutter_app/shared/logging/log_events.dart';
 
 class MapScreen extends ConsumerStatefulWidget {
   const MapScreen({super.key});
@@ -19,6 +22,16 @@ class MapScreen extends ConsumerStatefulWidget {
 
 class _MapScreenState extends ConsumerState<MapScreen> {
   GoogleMapController? _mapController;
+  bool _centeredOnUser = false;
+
+  void _centerOnPosition(Position pos) {
+    if (_centeredOnUser) return;
+    if (_mapController == null) return;
+    _centeredOnUser = true;
+    _mapController!.animateCamera(
+      CameraUpdate.newLatLngZoom(LatLng(pos.latitude, pos.longitude), 16),
+    );
+  }
 
   @override
   void initState() {
@@ -30,8 +43,17 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   Widget build(BuildContext context) {
     final poisAsync = ref.watch(poiProvider);
     final position = ref.watch(
-      positionStreamProvider.select((v) => v.valueOrNull),
+      effectivePositionStreamProvider.select((v) => v.valueOrNull),
     );
+
+    // 位置到達時移動 camera（解決廣播串流競態：map 建立時位置可能尚未到達）
+    ref.listen<AsyncValue<Position>>(
+      effectivePositionStreamProvider,
+      (_, next) => next.whenData(_centerOnPosition),
+    );
+
+    // 如果 map 建立時位置已存在，立即移動
+    if (position != null) _centerOnPosition(position);
 
     final markers = <Marker>{};
     poisAsync.whenData((pois) {
@@ -42,12 +64,23 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           icon: poiMarkerHue(poi.confidence),
           infoWindow: InfoWindow(title: poi.name),
           onTap: () {
-                final session = ref.read(sessionProvider);
-                ref.read(narrationProvider.notifier).narrate(
-                  poi,
-                  persona: session.persona,
-                  lang: session.lang,
-                );
+                AppLogger.info(LogEvents.poiTap, {
+                  'poi_id': poi.id,
+                  'poi_name': poi.name,
+                });
+                try {
+                  final session = ref.read(sessionProvider);
+                  ref.read(narrationProvider.notifier).narrate(
+                    poi,
+                    persona: session.persona,
+                    lang: session.lang,
+                  );
+                } catch (e, st) {
+                  AppLogger.error(LogEvents.apiError, {
+                    'context': 'poi_tap',
+                    'poi_id': poi.id,
+                  }, e, st);
+                }
               },
         ));
       }
@@ -55,7 +88,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
     final initialTarget = position != null
         ? LatLng(position.latitude, position.longitude)
-        : const LatLng(25.1023, 121.5482);
+        : const LatLng(0, 0);
 
     return Scaffold(
       appBar: AppBar(
@@ -87,7 +120,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             myLocationEnabled: true,
             myLocationButtonEnabled: true,
             markers: markers,
-            onMapCreated: (c) => _mapController = c,
+            onMapCreated: (c) {
+              _mapController = c;
+              // map 建立後立即嘗試 center（位置可能已在 map 建立前到達）
+              if (position != null) _centerOnPosition(position);
+            },
           ),
           const Align(
             alignment: Alignment.bottomCenter,

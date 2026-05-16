@@ -13,6 +13,7 @@ from tour_guide.models.poi import POI, BBox, Place, POIContext, TagFilter, WikiA
 from tour_guide.services.confidence import ConfidenceClassifier
 from tour_guide.services.foodie_filter import filter_places
 from tour_guide.services.poi_filter import filter_poi_nodes
+from tour_guide.services.wikipedia_resolver import WikipediaResolver
 
 logger = logging.getLogger(__name__)
 
@@ -66,11 +67,13 @@ class POIService:
         wikipedia: WikipediaClient,
         cache: POICache,
         google_places=None,
+        resolver: WikipediaResolver | None = None,
     ):
         self._overpass = overpass
         self._wikipedia = wikipedia
         self._cache = cache
         self._google_places = google_places
+        self._resolver = resolver
 
     async def nearby(
         self,
@@ -140,11 +143,22 @@ class POIService:
             ]
 
         bbox = _lat_lon_to_bbox(lat, lon, radius)
-        raw_nodes = await self._overpass.query(bbox, _DEFAULT_TAG_FILTERS)
+        try:
+            raw_nodes = await self._overpass.query(bbox, _DEFAULT_TAG_FILTERS)
+        except Exception as e:
+            log_event(
+                logger, LogEvents.UPSTREAM_FAIL,
+                level="warning", service="overpass", error=type(e).__name__,
+            )
+            raw_nodes = await self._wikipedia.geosearch(lat, lon, radius, lang)
         filtered = filter_poi_nodes(raw_nodes)
 
+        # Sort by distance and limit to 20 to avoid Wikipedia API floods
+        filtered.sort(key=lambda n: _haversine(lat, lon, n.lat, n.lon))
+        nearest = filtered[:20]
+
         pois: list[POI] = []
-        for node in filtered:
+        for node in nearest:
             wiki_key = node.tags.get("wikipedia", "")
             wiki_title = wiki_key.split(":", 1)[-1] if ":" in wiki_key else wiki_key
             wiki_lang = wiki_key.split(":")[0] if ":" in wiki_key else lang
@@ -154,7 +168,21 @@ class POIService:
                 try:
                     wiki = await self._wikipedia.summary(wiki_title, wiki_lang)
                 except Exception:
-                    log_event(logger, LogEvents.UPSTREAM_FAIL, level="warning", service="wiki", title=wiki_title, lang=wiki_lang)
+                    log_event(
+                        logger, LogEvents.UPSTREAM_FAIL,
+                        level="warning", service="wiki", title=wiki_title, lang=wiki_lang,
+                    )
+
+            if wiki is None and self._resolver is not None:
+                poi_name = node.tags.get("name", "")
+                if poi_name:
+                    try:
+                        wiki = await self._resolver.resolve(poi_name, node.lat, node.lon, lang)
+                    except Exception:
+                        log_event(
+                            logger, LogEvents.UPSTREAM_FAIL,
+                            level="warning", service="wiki_resolver", poi_name=poi_name,
+                        )
 
             poi_context = POIContext(osm=node, wiki=wiki)
             confidence = ConfidenceClassifier.classify(poi_context)

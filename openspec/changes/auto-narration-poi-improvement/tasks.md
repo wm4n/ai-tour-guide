@@ -55,11 +55,11 @@
 
 ## 9. Update POIService to Use WikipediaResolver
 
-- [ ] 9.1 Add `from tour_guide.services.wikipedia_resolver import WikipediaResolver` import to `backend/src/tour_guide/services/poi_service.py`
-- [ ] 9.2 Add optional `resolver: WikipediaResolver | None = None` parameter to `POIService.__init__()`
-- [ ] 9.3 Update `_nearby_osm()`: after `filter_poi_nodes()`, sort by distance and slice to the nearest 20 nodes
-- [ ] 9.4 Update `_nearby_osm()`: after trying the OSM `wikipedia` tag, call `resolver.resolve()` when `wiki is None` and `resolver is not None`
-- [ ] 9.5 Run `tests/integration/test_poi_service.py` and confirm no import errors
+- [x] 9.1 Add `from tour_guide.services.wikipedia_resolver import WikipediaResolver` import to `backend/src/tour_guide/services/poi_service.py`
+- [x] 9.2 Add optional `resolver: WikipediaResolver | None = None` parameter to `POIService.__init__()`
+- [x] 9.3 Update `_nearby_osm()`: after `filter_poi_nodes()`, sort by distance and slice to the nearest 20 nodes
+- [x] 9.4 Update `_nearby_osm()`: after trying the OSM `wikipedia` tag, call `resolver.resolve()` when `wiki is None` and `resolver is not None`
+- [x] 9.5 Run `tests/integration/test_poi_service.py` and confirm no import errors
 
 ## 10. Wire DI in main.py
 

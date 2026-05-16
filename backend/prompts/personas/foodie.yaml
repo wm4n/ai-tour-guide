@@ -3,8 +3,8 @@ display_name:
   zh-TW: 美食家
   en: The Foodie
 voice:
-  zh-TW: Leda
-  en: Leda
+  zh-TW: zh-TW-HsiaoChenNeural
+  en: en-US-AriaNeural
 voice_style:
   speaking_rate: 1.0
   emotion: warm

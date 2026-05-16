@@ -3,8 +3,8 @@ display_name:
   zh-TW: 歷史大叔
   en: The History Uncle
 voice:
-  zh-TW: Charon
-  en: Charon
+  zh-TW: zh-TW-YunJheNeural
+  en: en-US-GuyNeural
 voice_style:
   speaking_rate: 0.95
   emotion: contemplative

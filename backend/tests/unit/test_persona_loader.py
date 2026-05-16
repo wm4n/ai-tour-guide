@@ -29,8 +29,8 @@ class TestPersonaLoaderLoad:
     def test_load_history_uncle_voice(self):
         """Loaded PersonaConfig should have correct voice mapping."""
         config = PersonaLoader.load("history_uncle")
-        assert config.voice["zh-TW"] == "Charon"
-        assert config.voice["en"] == "Charon"
+        assert config.voice["zh-TW"] == "zh-TW-YunJheNeural"
+        assert config.voice["en"] == "en-US-GuyNeural"
 
     def test_load_history_uncle_voice_style(self):
         """Loaded PersonaConfig should have correct VoiceStyle."""

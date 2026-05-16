@@ -3,8 +3,8 @@ display_name:
   zh-TW: 童趣小妹
   en: The Kid Sister
 voice:
-  zh-TW: Kore
-  en: Kore
+  zh-TW: zh-TW-HsiaoYuNeural
+  en: en-US-JennyNeural
 voice_style:
   speaking_rate: 1.0
   emotion: excited

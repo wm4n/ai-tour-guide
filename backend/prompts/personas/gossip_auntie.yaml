@@ -3,8 +3,8 @@ display_name:
   zh-TW: 八卦阿姨
   en: The Gossip Auntie
 voice:
-  zh-TW: Aoede
-  en: Aoede
+  zh-TW: zh-TW-HsiaoChenNeural
+  en: en-US-AriaNeural
 voice_style:
   speaking_rate: 1.0
   emotion: conspiratorial

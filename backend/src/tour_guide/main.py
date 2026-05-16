@@ -19,7 +19,7 @@ from tour_guide.logging_config import setup_logging
 from tour_guide.prompts.loader import PersonaLoader
 from tour_guide.providers.llm import LiteLLMAdapter
 from tour_guide.providers.stt import GeminiSttAdapter
-from tour_guide.providers.tts import GeminiTtsAdapter
+from tour_guide.providers.tts import EdgeTtsAdapter
 from tour_guide.services.narration_service import NarrationService
 from tour_guide.services.poi_service import POIService
 from tour_guide.services.qa_service import QAService
@@ -27,7 +27,7 @@ from tour_guide.services.qa_service import QAService
 
 def create_app(config: AppConfig) -> FastAPI:
     setup_logging(level=config.log_level, fmt=config.log_format)
-    http_client = httpx.AsyncClient()
+    http_client = httpx.AsyncClient(headers={"User-Agent": "ai-tour-guide/1.0 (https://github.com/ai-tour-guide)"})
 
     overpass_client = OverpassClient(client=http_client)
     wikipedia_client = WikipediaClient(client=http_client)
@@ -35,7 +35,7 @@ def create_app(config: AppConfig) -> FastAPI:
     narration_cache = NarrationCache(config.narration_cache_dir)
 
     llm_provider = LiteLLMAdapter(api_key=config.gemini_api_key)
-    tts_provider = GeminiTtsAdapter(api_key=config.gemini_api_key)
+    tts_provider = EdgeTtsAdapter()
     stt_provider = GeminiSttAdapter(api_key=config.gemini_api_key)
 
     if config.google_places_api_key:

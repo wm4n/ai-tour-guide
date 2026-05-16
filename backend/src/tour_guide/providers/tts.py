@@ -1,8 +1,11 @@
 import asyncio
+import io
+import wave
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Protocol
 
+import edge_tts
 from google import genai
 from google.genai import types as genai_types
 
@@ -20,6 +23,16 @@ class TtsProvider(Protocol):
         voice_id: str,
         opts: TtsOpts,
     ) -> AsyncIterator[bytes]: ...
+
+
+def _pcm_to_wav(pcm_bytes: bytes, sample_rate: int = 24000, channels: int = 1, bits_per_sample: int = 16) -> bytes:
+    buf = io.BytesIO()
+    with wave.open(buf, 'wb') as wf:
+        wf.setnchannels(channels)
+        wf.setsampwidth(bits_per_sample // 8)
+        wf.setframerate(sample_rate)
+        wf.writeframes(pcm_bytes)
+    return buf.getvalue()
 
 
 class GeminiTtsAdapter:
@@ -42,6 +55,7 @@ class GeminiTtsAdapter:
                 model="gemini-2.5-flash-preview-tts",
                 contents=text,
                 config=genai_types.GenerateContentConfig(
+                    system_instruction="You are a text-to-speech engine. Read the provided text aloud exactly as written. Do not generate any additional text or commentary.",
                     response_modalities=["AUDIO"],
                     speech_config=genai_types.SpeechConfig(
                         voice_config=genai_types.VoiceConfig(
@@ -61,4 +75,19 @@ class GeminiTtsAdapter:
         loop = asyncio.get_event_loop()
         audio_bytes = await loop.run_in_executor(None, _synthesize_sync)
         if audio_bytes:
-            yield audio_bytes
+            yield _pcm_to_wav(audio_bytes)
+
+
+class EdgeTtsAdapter:
+    """TTS provider using Microsoft Edge TTS (free, no API key required)."""
+
+    async def synthesize(
+        self,
+        text: str,
+        voice_id: str,
+        opts: TtsOpts,
+    ) -> AsyncIterator[bytes]:
+        communicate = edge_tts.Communicate(text, voice_id)
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                yield chunk["data"]

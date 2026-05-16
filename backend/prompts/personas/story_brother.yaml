@@ -3,8 +3,8 @@ display_name:
   zh-TW: 故事大哥哥
   en: The Storyteller
 voice:
-  zh-TW: Puck
-  en: Puck
+  zh-TW: zh-TW-YunJheNeural
+  en: en-US-TonyNeural
 voice_style:
   speaking_rate: 1.05
   emotion: enthusiastic

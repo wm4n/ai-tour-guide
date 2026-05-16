@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 
 abstract class AudioPlayerService {
   Future<void> enqueueBytes(Uint8List bytes);
+  Future<void> reset();
   Future<void> pause();
   Future<void> resume();
   Future<void> skip();
@@ -35,8 +36,22 @@ class RealAudioPlayerService implements AudioPlayerService {
     await _init();
     final file = File('${_tempDir.path}/narration_${_chunkIndex++}.mp3');
     await file.writeAsBytes(bytes);
+    final newIndex = _playlist.length;
     await _playlist.add(AudioSource.uri(Uri.file(file.path)));
-    if (!_player.playing) await _player.play();
+    if (_player.processingState == ProcessingState.completed) {
+      // Player finished previous items; seek to newly added item and resume.
+      await _player.seek(Duration.zero, index: newIndex);
+      await _player.play();
+    } else if (!_player.playing) {
+      await _player.play();
+    }
+  }
+
+  @override
+  Future<void> reset() async {
+    await _player.stop();
+    await _playlist.clear();
+    _chunkIndex = 0;
   }
 
   @override
@@ -83,6 +98,11 @@ class FakeAudioPlayerService implements AudioPlayerService {
   Future<void> enqueueBytes(Uint8List bytes) async {
     enqueuedChunks.add(bytes);
     _controller.add(true);
+  }
+
+  @override
+  Future<void> reset() async {
+    enqueuedChunks.clear();
   }
 
   @override

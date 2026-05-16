@@ -4,14 +4,10 @@ import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:flutter_app/features/map/providers/poi_provider.dart';
-import 'package:flutter_app/features/map/widgets/poi_marker.dart';
-import 'package:flutter_app/features/narration/providers/narration_provider.dart';
 import 'package:flutter_app/features/narration/providers/trigger_provider.dart';
 import 'package:flutter_app/features/narration/widgets/narration_sheet.dart';
 import 'package:flutter_app/features/qa/widgets/push_to_talk_button.dart';
 import 'package:flutter_app/features/session/providers/session_provider.dart';
-import 'package:flutter_app/shared/logging/app_logger.dart';
-import 'package:flutter_app/shared/logging/log_events.dart';
 
 class MapScreen extends ConsumerStatefulWidget {
   const MapScreen({super.key});
@@ -41,50 +37,16 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final poisAsync = ref.watch(poiProvider);
     final position = ref.watch(
       effectivePositionStreamProvider.select((v) => v.valueOrNull),
     );
 
-    // 位置到達時移動 camera（解決廣播串流競態：map 建立時位置可能尚未到達）
     ref.listen<AsyncValue<Position>>(
       effectivePositionStreamProvider,
       (_, next) => next.whenData(_centerOnPosition),
     );
 
-    // 如果 map 建立時位置已存在，立即移動
     if (position != null) _centerOnPosition(position);
-
-    final markers = <Marker>{};
-    poisAsync.whenData((pois) {
-      for (final poi in pois) {
-        markers.add(Marker(
-          markerId: MarkerId(poi.id),
-          position: LatLng(poi.lat, poi.lon),
-          icon: poiMarkerHue(poi.confidence),
-          infoWindow: InfoWindow(title: poi.name),
-          onTap: () {
-                AppLogger.info(LogEvents.poiTap, {
-                  'poi_id': poi.id,
-                  'poi_name': poi.name,
-                });
-                try {
-                  final session = ref.read(sessionProvider);
-                  ref.read(narrationProvider.notifier).narrate(
-                    poi,
-                    persona: session.persona,
-                    lang: session.lang,
-                  );
-                } catch (e, st) {
-                  AppLogger.error(LogEvents.apiError, {
-                    'context': 'poi_tap',
-                    'poi_id': poi.id,
-                  }, e, st);
-                }
-              },
-        ));
-      }
-    });
 
     final initialTarget = position != null
         ? LatLng(position.latitude, position.longitude)
@@ -119,10 +81,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             ),
             myLocationEnabled: true,
             myLocationButtonEnabled: true,
-            markers: markers,
             onMapCreated: (c) {
               _mapController = c;
-              // map 建立後立即嘗試 center（位置可能已在 map 建立前到達）
               if (position != null) _centerOnPosition(position);
             },
           ),

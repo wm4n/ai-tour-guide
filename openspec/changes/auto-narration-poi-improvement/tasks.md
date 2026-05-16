@@ -25,9 +25,9 @@
 
 ## 5. Create WikipediaResolver
 
-- [ ] 5.1 Create `backend/tests/unit/test_wikipedia_resolver.py` with failing tests for all fallback levels (direct match, suburb fallback, suburb skipped when None, city fallback, all-fail → None, Nominatim failure → None)
-- [ ] 5.2 Create `backend/src/tour_guide/services/wikipedia_resolver.py` with `WikipediaResolver.resolve()` implementing the 4-level fallback chain
-- [ ] 5.3 Run `test_wikipedia_resolver.py` and confirm all tests pass
+- [x] 5.1 Create `backend/tests/unit/test_wikipedia_resolver.py` with failing tests for all fallback levels (direct match, suburb fallback, suburb skipped when None, city fallback, all-fail → None, Nominatim failure → None)
+- [x] 5.2 Create `backend/src/tour_guide/services/wikipedia_resolver.py` with `WikipediaResolver.resolve()` implementing the 4-level fallback chain
+- [x] 5.3 Run `test_wikipedia_resolver.py` and confirm all tests pass
 
 ## 6. Add no_data_context to PersonaConfig
 

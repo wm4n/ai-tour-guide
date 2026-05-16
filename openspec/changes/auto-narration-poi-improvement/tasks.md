@@ -38,12 +38,12 @@
 
 ## 7. Update All 5 Persona YAMLs
 
-- [ ] 7.1 Update `backend/prompts/personas/story_brother.yaml` — append scene-opening rule to `narration_template` and add `no_data_context`
-- [ ] 7.2 Update `backend/prompts/personas/history_uncle.yaml` — append historical-sentence opening rule and add `no_data_context`
-- [ ] 7.3 Update `backend/prompts/personas/gossip_auntie.yaml` — append conspiratorial-whisper opening rule and add `no_data_context`
-- [ ] 7.4 Update `backend/prompts/personas/kid_sister.yaml` — append curious-observation opening rule and add `no_data_context`
-- [ ] 7.5 Update `backend/prompts/personas/foodie.yaml` — append sensory-description opening rule and add `no_data_context`
-- [ ] 7.6 Run `test_persona_loader.py::TestAllPersonaYamls` and confirm all 5 personas load without errors
+- [x] 7.1 Update `backend/prompts/personas/story_brother.yaml` — append scene-opening rule to `narration_template` and add `no_data_context`
+- [x] 7.2 Update `backend/prompts/personas/history_uncle.yaml` — append historical-sentence opening rule and add `no_data_context`
+- [x] 7.3 Update `backend/prompts/personas/gossip_auntie.yaml` — append conspiratorial-whisper opening rule and add `no_data_context`
+- [x] 7.4 Update `backend/prompts/personas/kid_sister.yaml` — append curious-observation opening rule and add `no_data_context`
+- [x] 7.5 Update `backend/prompts/personas/foodie.yaml` — append sensory-description opening rule and add `no_data_context`
+- [x] 7.6 Run `test_persona_loader.py::TestAllPersonaYamls` and confirm all 5 personas load without errors
 
 ## 8. Add No-Data Short-Circuit to NarrationService
 

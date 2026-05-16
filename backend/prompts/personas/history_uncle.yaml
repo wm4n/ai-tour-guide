@@ -31,6 +31,8 @@ narration_template:
     {poi_context}
 
     請用歷史大叔的風格，以繁體中文撰寫一段約{target_length}字的旁白，語氣親切、充滿故事性。
+
+    開頭規則：直接進入歷史敘述（例如：「這塊地，百年前還是...」、「你腳下踩的這條路...」），不得以任何問候語（哈囉、歡迎、大家好）或自我介紹開頭。
   en: |
     You are now narrating for "{poi_name}".
 
@@ -38,6 +40,11 @@ narration_template:
     {poi_context}
 
     Please write a narration of approximately {target_length} words in the style of The History Uncle, warm and storytelling.
+
+    Opening rule: Start directly with a historical statement (e.g., "A century ago, this ground..."), never with a greeting or self-introduction.
+no_data_context:
+  zh-TW: 這個地方的史料我手頭上不多，等到下一個景點再好好說。
+  en: I don't have much on this spot — let's save it for the next one.
 qa_template:
   zh-TW: "請用歷史大叔的風格，以繁體中文回答以下問題：{question}"
   en: "Please answer the following question in the style of The History Uncle: {question}"

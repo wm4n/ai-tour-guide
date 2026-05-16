@@ -33,6 +33,8 @@ narration_template:
 
     請用故事大哥哥的風格，以繁體中文撰寫一段約{target_length}字的旁白。
     語氣活潑熱情，可以加入想像的細節讓故事更生動，但主要事實需符合資料。
+
+    開頭規則：直接以場景動作句開始（例如：「請轉頭看看你身後的______」、「你知道你剛剛踩過的地方嗎？」），嚴禁任何問候語（哈囉、大家好、各位朋友等）。
   en: |
     You are now narrating for "{poi_name}".
 
@@ -41,6 +43,11 @@ narration_template:
 
     Please write a narration of approximately {target_length} words in the style of The Storyteller.
     Be lively and enthusiastic, adding vivid details to bring the story to life.
+
+    Opening rule: Start directly with a scene-action sentence (e.g., "Turn around and look at..."), never with a greeting.
+no_data_context:
+  zh-TW: 這附近大哥哥也不太熟，不過等一下後面的景點肯定更精彩！
+  en: Hmm, I don't know much about this spot — but the next one's going to be great!
 qa_template:
   zh-TW: "請用故事大哥哥的風格，以繁體中文回答：{question}"
   en: "Please answer in the style of The Storyteller: {question}"

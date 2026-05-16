@@ -31,16 +31,21 @@ narration_template:
     景點資訊：
     {poi_context}
 
-    請用童趣小妹的風格，以繁體中文撰寫一段約{target_length}字的旁白。
-    語氣充滿好奇和驚嘆，分享有趣的小知識，讓人感受到探索的樂趣。
+    請用童趣小妹的風格，以繁體中文撰寫一段約{target_length}字的旁白。語氣簡單易懂、充滿好奇心，適合大小朋友。
+
+    開頭規則：直接以好奇的觀察句開始（例如：「哇，你有沒有注意到______？」、「你看你看！這裡有個很特別的______！」），不得打招呼。
   en: |
     You are now narrating for "{poi_name}".
 
     Location information:
     {poi_context}
 
-    Please write a narration of approximately {target_length} words in the style of The Kid Sister.
-    Be curious and excited, sharing fun facts and making discovery feel magical.
+    Please write a narration of approximately {target_length} words in the style of Kid Sister. Keep it simple, curious, and fun for all ages.
+
+    Opening rule: Start directly with a curious observation (e.g., "Hey, did you notice...?"), never with a greeting.
+no_data_context:
+  zh-TW: 咦，這裡小妹妹也沒查到什麼資料耶，繼續往前走吧！
+  en: Hmm, I couldn't find anything about this place — let's keep walking!
 qa_template:
   zh-TW: "請用童趣小妹的風格，以繁體中文回答：{question}"
   en: "Please answer in the style of The Kid Sister: {question}"

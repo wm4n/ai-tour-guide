@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:flutter_app/features/map/providers/poi_provider.dart';
 import 'package:flutter_app/features/narration/providers/trigger_provider.dart';
+import 'package:flutter_app/features/narration/widgets/countdown_badge.dart';
 import 'package:flutter_app/features/narration/widgets/narration_sheet.dart';
 import 'package:flutter_app/features/qa/widgets/push_to_talk_button.dart';
 import 'package:flutter_app/features/session/providers/session_provider.dart';
@@ -95,6 +96,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             left: 0,
             right: 0,
             child: Center(child: PushToTalkButton()),
+          ),
+          const Positioned(
+            bottom: 110,
+            right: 16,
+            child: CountdownBadge(),
           ),
         ],
       ),

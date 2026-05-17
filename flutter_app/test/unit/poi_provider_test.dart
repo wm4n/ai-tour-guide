@@ -1,8 +1,10 @@
+import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_app/features/map/providers/poi_provider.dart';
 import 'package:flutter_app/shared/backend/backend_client.dart';
 import 'package:flutter_app/shared/backend/models/poi.dart';
+import 'package:flutter_app/shared/db/local_db.dart';
 import 'package:flutter_app/shared/location/location_service.dart';
 import 'package:flutter_app/shared/providers.dart';
 
@@ -23,14 +25,17 @@ void main() {
       () async {
     final fakeLocation = FakeLocationService();
     const fakeClient = FakeBackendClient(nearbyPois: fakePois);
+    final db = LocalDb.forTesting(NativeDatabase.memory());
     final container = ProviderContainer(
       overrides: [
         locationServiceProvider.overrideWithValue(fakeLocation),
         backendClientProvider.overrideWithValue(fakeClient),
         sessionLangProvider.overrideWithValue('zh-TW'),
+        localDbProvider.overrideWithValue(db),
       ],
     );
     addTearDown(container.dispose);
+    addTearDown(db.close);
 
     // Initialize the provider so the stream listener is set up
     container.read(poiProvider);

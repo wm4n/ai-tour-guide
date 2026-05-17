@@ -86,7 +86,18 @@ async def narrate(
         previous=request.previous_selection,
     )
 
-    # Step 2: Find selected candidate and build POIContext
+    # Step 2: If selector returned None, all candidates are trivial — stream skip event
+    if selected_id is None:
+        async def skip_stream():
+            yield encode_event("skip", {"min_displacement_m": 1500.0})
+
+        return StreamingResponse(
+            skip_stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    # Step 3: Find selected candidate and build POIContext
     selected = next((c for c in request.candidates if c.poi_id == selected_id), request.candidates[0])
     tags = dict(selected.poi_tags)
     if selected.poi_name and "name" not in tags:

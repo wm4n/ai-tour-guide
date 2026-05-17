@@ -179,7 +179,8 @@ class RealBackendClient implements BackendClient {
         'audio' => AudioEvent.fromJson(sse.data),
         'end' => const EndEvent(),
         'error' => ErrorEvent.fromJson(sse.data),
-        _ => ErrorEvent(code: 'unknown', message: 'unknown event: ${sse.type}'),
+        'skip' => SkipEvent.fromJson(sse.data),
+        _ => null,
       };
 
   QaEvent? _toQaEvent(SseEvent sse) => switch (sse.type) {

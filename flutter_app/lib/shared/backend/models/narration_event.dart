@@ -71,3 +71,12 @@ class ErrorEvent extends NarrationEvent {
         retryAfterS: (json['retry_after_s'] as num? ?? 0).toInt(),
       );
 }
+
+class SkipEvent extends NarrationEvent {
+  final double minDisplacementM;
+  const SkipEvent({this.minDisplacementM = 1500.0});
+
+  factory SkipEvent.fromJson(Map<String, dynamic> json) => SkipEvent(
+        minDisplacementM: (json['min_displacement_m'] as num?)?.toDouble() ?? 1500.0,
+      );
+}

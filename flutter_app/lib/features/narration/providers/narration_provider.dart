@@ -16,6 +16,7 @@ class NarrationState {
   final NarrationStatus status;
   final POI? currentPoi;
   final String subtitle;
+  final String scriptBuffer;
   final double progress;
   final String? confidence;
   final String? errorMessage;
@@ -24,6 +25,7 @@ class NarrationState {
     required this.status,
     this.currentPoi,
     this.subtitle = '',
+    this.scriptBuffer = '',
     this.progress = 0,
     this.confidence,
     this.errorMessage,
@@ -33,6 +35,7 @@ class NarrationState {
     NarrationStatus? status,
     POI? currentPoi,
     String? subtitle,
+    String? scriptBuffer,
     double? progress,
     String? confidence,
     String? errorMessage,
@@ -41,6 +44,7 @@ class NarrationState {
         status: status ?? this.status,
         currentPoi: currentPoi ?? this.currentPoi,
         subtitle: subtitle ?? this.subtitle,
+        scriptBuffer: scriptBuffer ?? this.scriptBuffer,
         progress: progress ?? this.progress,
         confidence: confidence ?? this.confidence,
         errorMessage: errorMessage ?? this.errorMessage,
@@ -59,52 +63,89 @@ class NarrationNotifier extends StateNotifier<NarrationState> {
   String _currentPersona = 'history_uncle';
   String _currentLang = 'zh-TW';
   DateTime? _narrationStartedAt;
+  List<POI> _candidates = [];
 
-  Future<void> narrate(
-    POI poi, {
+  Future<void> narrate({
+    required List<POI> candidates,
     required String persona,
     required String lang,
+    PreviousSelection? previousSelection,
   }) async {
     _currentPersona = persona;
     _currentLang = lang;
+    _candidates = candidates;
     await _sub?.cancel();
+    await _audio.reset();
     _audioChunkCount = 0;
     _narrationStartedAt = DateTime.now();
-    AppLogger.info(LogEvents.narrationStart, {'poi_id': poi.id});
-    state = NarrationState(
-      status: NarrationStatus.loading,
-      currentPoi: poi,
-    );
+    AppLogger.info(LogEvents.narrationStart, {'candidate_count': candidates.length});
+    state = const NarrationState(status: NarrationStatus.loading, scriptBuffer: '');
 
     _sub = _client
         .narrate(
-          poiId: poi.id,
+          candidates: candidates,
           persona: persona,
           lang: lang,
           length: 'medium',
+          previousSelection: previousSelection,
         )
         .listen(
-          (event) => _handle(event, poi),
-          onError: (Object e) => state = state.copyWith(
-            status: NarrationStatus.error,
-            errorMessage: e.toString(),
-          ),
+          _handle,
+          onError: (Object e, StackTrace st) {
+            AppLogger.error(LogEvents.apiError, {
+              'context': 'narration_stream',
+            }, e, st);
+            state = state.copyWith(
+              status: NarrationStatus.error,
+              errorMessage: e.toString(),
+            );
+          },
+          onDone: () {
+            if (state.status == NarrationStatus.loading) {
+              AppLogger.warn(LogEvents.apiError, {'context': 'narration_stream_empty'});
+            }
+          },
         );
   }
 
-  void _handle(NarrationEvent event, POI poi) {
+  void _handle(NarrationEvent event) {
     switch (event) {
-      case MetaEvent(:final confidence):
+      case MetaEvent(:final poiId, :final poiName, :final confidence):
+        final selectedPoi = _candidates.firstWhere(
+          (p) => p.id == poiId,
+          orElse: () => _candidates.isNotEmpty
+              ? _candidates.first
+              : POI(
+                  id: poiId,
+                  name: poiName,
+                  lat: 0,
+                  lon: 0,
+                  tags: {},
+                  distanceM: 0,
+                  confidence: confidence,
+                ),
+        );
+        AppLogger.info(LogEvents.narrationStart, {'poi_id': poiId, 'poi_name': poiName});
         state = state.copyWith(
           status: NarrationStatus.playing,
+          currentPoi: selectedPoi,
           confidence: confidence,
         );
-      case TextEvent(:final chunk):
-        state = state.copyWith(subtitle: state.subtitle + chunk);
+      case TextEvent(:final chunk, :final sentenceIdx):
+        AppLogger.debug(LogEvents.narrationChunk, {
+          'poi_id': state.currentPoi?.id ?? '',
+          'sentence_idx': sentenceIdx,
+          'chunk': chunk,
+          'type': 'text',
+        });
+        state = state.copyWith(
+          subtitle: state.subtitle + chunk,
+          scriptBuffer: state.scriptBuffer + chunk,
+        );
       case AudioEvent(:final chunkB64):
         _audioChunkCount++;
         AppLogger.debug(LogEvents.narrationChunk, {
-          'poi_id': poi.id,
+          'poi_id': state.currentPoi?.id ?? '',
           'chunk_index': _audioChunkCount,
         });
         final bytes = base64.decode(chunkB64);
@@ -116,12 +157,14 @@ class NarrationNotifier extends StateNotifier<NarrationState> {
         final durationMs = _narrationStartedAt != null
             ? DateTime.now().difference(_narrationStartedAt!).inMilliseconds
             : 0;
+        final poi = state.currentPoi;
         AppLogger.info(LogEvents.narrationComplete, {
-          'poi_id': poi.id,
+          'poi_id': poi?.id ?? '',
           'duration_ms': durationMs,
+          'total_chars': state.subtitle.length,
         });
         _narrationStartedAt = null;
-        _recordNarration(poi);
+        if (poi != null) _recordNarration(poi);
         state = state.copyWith(
           status: NarrationStatus.idle,
           progress: 1.0,

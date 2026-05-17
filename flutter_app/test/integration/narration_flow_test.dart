@@ -62,7 +62,7 @@ void main() {
         (_, next) => states.add(next),
       );
       await container.read(narrationProvider.notifier).narrate(
-        _testPoi,
+        candidates: [_testPoi],
         persona: 'history_uncle',
         lang: 'zh-TW',
       );
@@ -85,7 +85,7 @@ void main() {
       );
       addTearDown(container.dispose);
       await container.read(narrationProvider.notifier).narrate(
-        _testPoi,
+        candidates: [_testPoi],
         persona: 'history_uncle',
         lang: 'zh-TW',
       );
@@ -97,7 +97,7 @@ void main() {
       final container = _makeContainer();
       addTearDown(container.dispose);
       await container.read(narrationProvider.notifier).narrate(
-        _testPoi,
+        candidates: [_testPoi],
         persona: 'history_uncle',
         lang: 'zh-TW',
       );

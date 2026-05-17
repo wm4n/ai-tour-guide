@@ -6,23 +6,47 @@ import 'package:flutter_app/features/narration/providers/narration_provider.dart
 import 'package:flutter_app/features/session/providers/session_provider.dart';
 import 'package:flutter_app/shared/backend/backend_client.dart';
 import 'package:flutter_app/shared/backend/models/poi.dart';
+import 'package:flutter_app/shared/location/haversine.dart';
+import 'package:flutter_app/shared/location/location_service.dart';
 import 'package:flutter_app/shared/providers.dart';
+import 'package:flutter_app/shared/settings/settings_provider.dart';
 import 'package:flutter_app/shared/logging/app_logger.dart';
 import 'package:flutter_app/shared/logging/log_events.dart';
+import 'package:geolocator/geolocator.dart';
 
 class TriggerState {
   final bool isCountingDown;
   final Duration countdownRemaining;
+  final bool isWaitingForDisplacement;
+  final double? skipLat;
+  final double? skipLon;
+  final double movedMeters;
 
   const TriggerState({
     this.isCountingDown = false,
     this.countdownRemaining = Duration.zero,
+    this.isWaitingForDisplacement = false,
+    this.skipLat,
+    this.skipLon,
+    this.movedMeters = 0,
   });
 
-  TriggerState copyWith({bool? isCountingDown, Duration? countdownRemaining}) =>
+  TriggerState copyWith({
+    bool? isCountingDown,
+    Duration? countdownRemaining,
+    bool? isWaitingForDisplacement,
+    double? skipLat,
+    double? skipLon,
+    double? movedMeters,
+  }) =>
       TriggerState(
         isCountingDown: isCountingDown ?? this.isCountingDown,
         countdownRemaining: countdownRemaining ?? this.countdownRemaining,
+        isWaitingForDisplacement:
+            isWaitingForDisplacement ?? this.isWaitingForDisplacement,
+        skipLat: skipLat ?? this.skipLat,
+        skipLon: skipLon ?? this.skipLon,
+        movedMeters: movedMeters ?? this.movedMeters,
       );
 }
 
@@ -35,8 +59,7 @@ class TriggerNotifier extends Notifier<TriggerState> {
   String _lastSelectedPoiName = '';
   String _lastScript = '';
   bool _hasEverFired = false;
-
-  static const _countdownDuration = Duration(seconds: 90);
+  StreamSubscription<Position>? _locationSub;
 
   @override
   TriggerState build() {
@@ -44,13 +67,15 @@ class TriggerNotifier extends Notifier<TriggerState> {
       poiProvider,
       (_, next) => next.whenData((pois) {
         _latestPois = pois;
-        AppLogger.info(LogEvents.triggerEval, {'layer': 'pois_updated', 'count': pois.length});
+        AppLogger.info(
+            LogEvents.triggerEval, {'layer': 'pois_updated', 'count': pois.length});
         // Fire immediately on first POI load if never played
         if (!_hasEverFired && pois.isNotEmpty && !state.isCountingDown) {
           final narState = ref.read(narrationProvider);
           if (narState.status == NarrationStatus.idle) {
             _doCandidatesRequest().catchError((Object e, StackTrace st) {
-              AppLogger.error(LogEvents.apiError, {'context': 'initial_trigger'}, e, st);
+              AppLogger.error(
+                  LogEvents.apiError, {'context': 'initial_trigger'}, e, st);
             });
           }
         }
@@ -65,32 +90,43 @@ class TriggerNotifier extends Notifier<TriggerState> {
           _sessionPlayedIds.add(next.currentPoi!.id);
           _hasEverFired = true;
         }
-        // Start countdown when narration completes
-        if (prev?.status == NarrationStatus.playing && next.status == NarrationStatus.idle) {
+        // Start countdown when narration completes normally
+        if (prev?.status == NarrationStatus.playing &&
+            next.status == NarrationStatus.idle) {
           _lastSelectedPoiId = next.currentPoi?.id;
           _lastSelectedPoiName = next.currentPoi?.name ?? '';
           _lastScript = next.scriptBuffer;
           _startCountdown();
         }
         // Also start countdown on error to avoid getting stuck
-        if ((prev?.status == NarrationStatus.loading || prev?.status == NarrationStatus.playing) &&
+        if ((prev?.status == NarrationStatus.loading ||
+                prev?.status == NarrationStatus.playing) &&
             next.status == NarrationStatus.error) {
           _startCountdown();
+        }
+        // Handle skip: switch to displacement-wait mode
+        if (next.lastEventWasSkip && !(prev?.lastEventWasSkip ?? false)) {
+          _handleSkip();
         }
       },
     );
 
     ref.onDispose(() {
       _cooldownTimer?.cancel();
+      _locationSub?.cancel();
     });
 
     return const TriggerState();
   }
 
   void _startCountdown() {
+    _locationSub?.cancel();
+    _locationSub = null;
     _cooldownTimer?.cancel();
-    _cooldownUntil = DateTime.now().add(_countdownDuration);
-    state = const TriggerState(isCountingDown: true, countdownRemaining: _countdownDuration);
+    final seconds = ref.read(appSettingsProvider).countdownSeconds;
+    final duration = Duration(seconds: seconds);
+    _cooldownUntil = DateTime.now().add(duration);
+    state = TriggerState(isCountingDown: true, countdownRemaining: duration);
 
     _cooldownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       final remaining = _cooldownUntil!.difference(DateTime.now());
@@ -100,7 +136,8 @@ class TriggerNotifier extends Notifier<TriggerState> {
         _cooldownUntil = null;
         state = const TriggerState();
         _doCandidatesRequest().catchError((Object e, StackTrace st) {
-          AppLogger.error(LogEvents.apiError, {'context': 'countdown_expired'}, e, st);
+          AppLogger.error(
+              LogEvents.apiError, {'context': 'countdown_expired'}, e, st);
         });
       } else {
         state = TriggerState(isCountingDown: true, countdownRemaining: remaining);
@@ -116,6 +153,55 @@ class TriggerNotifier extends Notifier<TriggerState> {
     _doCandidatesRequest().catchError((Object e, StackTrace st) {
       AppLogger.error(LogEvents.apiError, {'context': 'countdown_skip'}, e, st);
     });
+  }
+
+  void _handleSkip() {
+    _cooldownTimer?.cancel();
+    _cooldownTimer = null;
+    _cooldownUntil = null;
+    AppLogger.info(
+        LogEvents.triggerSkip, {'reason': 'poi_trivial_waiting_displacement'});
+    state = const TriggerState(isWaitingForDisplacement: true);
+    _startDisplacementWatch();
+  }
+
+  void _startDisplacementWatch() {
+    _locationSub?.cancel();
+    double? originLat;
+    double? originLon;
+
+    _locationSub =
+        ref.read(locationServiceProvider).positionStream.listen((pos) {
+      if (!state.isWaitingForDisplacement) {
+        _locationSub?.cancel();
+        _locationSub = null;
+        return;
+      }
+      if (originLat == null) {
+        originLat = pos.latitude;
+        originLon = pos.longitude;
+        state = state.copyWith(
+            skipLat: originLat, skipLon: originLon, movedMeters: 0);
+        return;
+      }
+      final dist =
+          haversine(originLat!, originLon!, pos.latitude, pos.longitude);
+      final threshold = ref.read(appSettingsProvider).skipDisplacementM;
+      state = state.copyWith(movedMeters: dist);
+      if (dist >= threshold) {
+        _clearDisplacementWatch();
+        _doCandidatesRequest().catchError((Object e, StackTrace st) {
+          AppLogger.error(
+              LogEvents.apiError, {'context': 'displacement_trigger'}, e, st);
+        });
+      }
+    });
+  }
+
+  void _clearDisplacementWatch() {
+    _locationSub?.cancel();
+    _locationSub = null;
+    state = const TriggerState();
   }
 
   Future<void> _doCandidatesRequest() async {
@@ -139,7 +225,8 @@ class TriggerNotifier extends Notifier<TriggerState> {
     }
 
     final available = _latestPois
-        .where((p) => !_sessionPlayedIds.contains(p.id) && !cooldownIds.contains(p.id))
+        .where((p) =>
+            !_sessionPlayedIds.contains(p.id) && !cooldownIds.contains(p.id))
         .toList();
 
     if (available.isEmpty) {
@@ -162,11 +249,11 @@ class TriggerNotifier extends Notifier<TriggerState> {
     });
 
     ref.read(narrationProvider.notifier).narrate(
-      candidates: available,
-      persona: session.persona,
-      lang: session.lang,
-      previousSelection: previous,
-    );
+          candidates: available,
+          persona: session.persona,
+          lang: session.lang,
+          previousSelection: previous,
+        );
   }
 }
 

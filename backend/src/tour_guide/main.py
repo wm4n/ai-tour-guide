@@ -22,6 +22,7 @@ from tour_guide.providers.llm import LiteLLMAdapter
 from tour_guide.providers.stt import GeminiSttAdapter
 from tour_guide.providers.tts import EdgeTtsAdapter
 from tour_guide.services.narration_service import NarrationService
+from tour_guide.services.poi_selector import POISelectorService
 from tour_guide.services.poi_service import POIService
 from tour_guide.services.qa_service import QAService
 from tour_guide.services.wikipedia_resolver import WikipediaResolver
@@ -59,6 +60,7 @@ def create_app(config: AppConfig) -> FastAPI:
         tts=tts_provider,
         cache=narration_cache,
     )
+    poi_selector_service = POISelectorService(llm=llm_provider)
     qa_service = QAService(
         stt=stt_provider,
         llm=llm_provider,
@@ -91,6 +93,7 @@ def create_app(config: AppConfig) -> FastAPI:
 
     app.dependency_overrides[poi.get_poi_service] = lambda: poi_service
     app.dependency_overrides[narration.get_narration_service] = lambda: narration_service
+    app.dependency_overrides[narration.get_poi_selector_service] = lambda: poi_selector_service
     app.dependency_overrides[narration.get_persona_registry] = lambda: persona_registry
     app.dependency_overrides[qa.get_qa_service] = lambda: qa_service
     app.dependency_overrides[qa.get_persona_registry] = lambda: persona_registry

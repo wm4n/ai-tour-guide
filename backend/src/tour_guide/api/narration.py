@@ -11,6 +11,7 @@ from tour_guide.api.sse import encode_event
 from tour_guide.models.persona import PersonaConfig
 from tour_guide.models.poi import OsmNode, POIContext, WikiArticle
 from tour_guide.services.narration_service import NarrationService
+from tour_guide.services.poi_selector import POISelectorService
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -50,6 +51,10 @@ def get_persona_registry() -> dict[str, PersonaConfig]:
     raise NotImplementedError("Override with dependency")
 
 
+def get_poi_selector_service() -> POISelectorService:
+    raise NotImplementedError("Override with dependency")
+
+
 def _event_to_dict(event) -> dict:
     d = dataclasses.asdict(event)
     d.pop("type", None)
@@ -60,8 +65,11 @@ def _event_to_dict(event) -> dict:
 async def narrate(
     request: NarrationRequest,
     narration_service: NarrationService = Depends(get_narration_service),  # noqa: B008
+    poi_selector: POISelectorService = Depends(get_poi_selector_service),  # noqa: B008
     persona_registry: dict = Depends(get_persona_registry),  # noqa: B008
 ):
+    if not request.candidates:
+        raise HTTPException(status_code=400, detail="candidates list must not be empty")
     if request.persona not in persona_registry:
         raise HTTPException(
             status_code=400,
@@ -70,29 +78,39 @@ async def narrate(
         )
     persona: PersonaConfig = persona_registry[request.persona]
 
-    # Build POI context from frontend-provided data
-    tags = dict(request.poi_tags)
-    if request.poi_name and "name" not in tags:
-        tags["name"] = request.poi_name
+    # Step 1: LLM selects best POI from candidates
+    selected_id = await poi_selector.select(
+        candidates=request.candidates,
+        persona=persona,
+        lang=request.lang,
+        previous=request.previous_selection,
+    )
+
+    # Step 2: Find selected candidate and build POIContext
+    selected = next((c for c in request.candidates if c.poi_id == selected_id), request.candidates[0])
+    tags = dict(selected.poi_tags)
+    if selected.poi_name and "name" not in tags:
+        tags["name"] = selected.poi_name
 
     wiki: WikiArticle | None = None
-    if request.wiki_title and request.wiki_extract:
+    if selected.wiki_title and selected.wiki_extract:
         wiki = WikiArticle(
-            title=request.wiki_title,
-            extract=request.wiki_extract,
-            url=request.wiki_url or "",
-            lang=request.wiki_lang or request.lang,
+            title=selected.wiki_title,
+            extract=selected.wiki_extract,
+            url="",
+            lang=request.lang,
         )
 
     poi_context = POIContext(
-        osm=OsmNode(id=request.poi_id, lat=request.poi_lat, lon=request.poi_lon, tags=tags),
+        osm=OsmNode(id=selected.poi_id, lat=selected.poi_lat, lon=selected.poi_lon, tags=tags),
         wiki=wiki,
     )
     logger.info(
-        "narration request | poi_id=%s | poi_name=%s | has_wiki=%s",
-        request.poi_id,
-        tags.get("name", request.poi_id),
+        "narration request | selected_poi_id=%s | poi_name=%s | has_wiki=%s | candidates=%d",
+        selected.poi_id,
+        tags.get("name", selected.poi_id),
         wiki is not None,
+        len(request.candidates),
     )
 
     async def generate():
@@ -108,7 +126,7 @@ async def narrate(
                 data = _event_to_dict(event)
                 yield encode_event(event_type, data)
         except Exception as e:
-            logger.exception("narration pipeline failed for poi_id=%s", request.poi_id)
+            logger.exception("narration pipeline failed for poi_id=%s", selected.poi_id)
             yield encode_event(
                 "error",
                 {"code": "internal_error", "message": str(e), "retry_after_s": 0},

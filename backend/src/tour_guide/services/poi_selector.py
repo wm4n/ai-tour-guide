@@ -21,8 +21,8 @@ class POISelectorService:
         persona: PersonaConfig,
         lang: str,
         previous=None,  # PreviousSelection | None
-    ) -> str:
-        """Return the poi_id of the best candidate. Falls back to candidates[0] on error."""
+    ) -> str | None:
+        """Return poi_id of best candidate, or None if all candidates are trivial (SKIP)."""
         if not candidates:
             raise ValueError("candidates list is empty")
 
@@ -50,11 +50,17 @@ class POISelectorService:
             f"- Prefer POIs with Wikipedia data\n"
             f"- Prefer closer POIs over farther ones when quality is similar\n"
             f"- Avoid choosing the same theme as the previous narration\n"
-            f"- Reply with ONLY the poi_id of the selected POI, nothing else"
+            f"- If ALL candidates are trivial (maps/signs/boards/bus stops with no Wikipedia), "
+            f"reply with SKIP\n"
+            f"- Trivial examples: names containing 地圖/map/導覽圖/公車/巴士/bus/signboard/"
+            f"information board, AND no Wikipedia data\n"
+            f"- Worth narrating: has Wikipedia data, OR is a named attraction/monument/"
+            f"building/park/temple\n"
+            f"- Reply with ONLY the poi_id or ONLY the word SKIP — nothing else"
         )
 
         messages = [
-            Message(role="system", content="You are a tour guide POI selector. Output only the poi_id."),
+            Message(role="system", content="You are a tour guide POI selector. Output only the poi_id or SKIP."),
             Message(role="user", content=user_content),
         ]
         opts = LlmOpts(temperature=0.1, max_tokens=64)
@@ -63,6 +69,15 @@ class POISelectorService:
         async for chunk in self._llm.chat_stream(messages, opts):
             result += chunk
         selected_id = result.strip()
+
+        if selected_id == "SKIP":
+            log_event(
+                logger,
+                LogEvents.POI_SELECTION_SKIP,
+                candidate_count=len(candidates),
+                has_previous=previous is not None,
+            )
+            return None
 
         valid_ids = {c.poi_id for c in candidates}
         if selected_id not in valid_ids:

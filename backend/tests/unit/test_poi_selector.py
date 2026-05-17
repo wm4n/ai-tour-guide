@@ -77,3 +77,26 @@ async def test_selector_includes_previous_selection_context(fake_persona):
     user_msg = next(m for m in captured_messages if m.role == "user")
     assert "舊景點" in user_msg.content
     assert "上次講了很多關於歷史" in user_msg.content
+
+
+@pytest.mark.asyncio
+async def test_selector_returns_none_when_llm_says_skip(fake_persona):
+    candidates = [
+        POICandidate(poi_id="node/1", poi_name="地圖map", distance_m=30, wiki_extract=None),
+        POICandidate(poi_id="node/2", poi_name="導覽圖", distance_m=50, wiki_extract=None),
+    ]
+    llm = make_fake_llm("SKIP")
+    service = POISelectorService(llm=llm)
+    selected = await service.select(candidates=candidates, persona=fake_persona, lang="zh-TW")
+    assert selected is None
+
+
+@pytest.mark.asyncio
+async def test_selector_falls_back_to_first_on_invalid_not_skip(fake_persona):
+    candidates = [
+        POICandidate(poi_id="node/A", poi_name="故宮", distance_m=50, wiki_extract="info"),
+    ]
+    llm = make_fake_llm("bad_id_that_is_not_skip")
+    service = POISelectorService(llm=llm)
+    selected = await service.select(candidates=candidates, persona=fake_persona, lang="zh-TW")
+    assert selected == "node/A"

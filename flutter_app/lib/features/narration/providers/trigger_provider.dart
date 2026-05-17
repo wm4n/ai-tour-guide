@@ -7,7 +7,6 @@ import 'package:flutter_app/features/session/providers/session_provider.dart';
 import 'package:flutter_app/shared/backend/backend_client.dart';
 import 'package:flutter_app/shared/backend/models/poi.dart';
 import 'package:flutter_app/shared/location/haversine.dart';
-import 'package:flutter_app/shared/location/location_service.dart';
 import 'package:flutter_app/shared/providers.dart';
 import 'package:flutter_app/shared/settings/settings_provider.dart';
 import 'package:flutter_app/shared/logging/app_logger.dart';

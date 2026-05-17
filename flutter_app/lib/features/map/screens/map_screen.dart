@@ -9,6 +9,7 @@ import 'package:flutter_app/features/narration/widgets/countdown_badge.dart';
 import 'package:flutter_app/features/narration/widgets/narration_sheet.dart';
 import 'package:flutter_app/features/qa/widgets/push_to_talk_button.dart';
 import 'package:flutter_app/features/session/providers/session_provider.dart';
+import 'package:flutter_app/features/settings/settings_screen.dart';
 
 class MapScreen extends ConsumerStatefulWidget {
   const MapScreen({super.key});
@@ -64,6 +65,13 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           ],
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.settings, color: Colors.white),
+            tooltip: '設定',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const SettingsScreen()),
+            ),
+          ),
           TextButton(
             onPressed: () async {
               await ref.read(sessionProvider.notifier).stop();

@@ -1,11 +1,23 @@
 import 'dart:convert';
-import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import 'package:flutter_app/shared/backend/models/poi.dart';
 import 'package:flutter_app/shared/backend/models/narration_event.dart';
 import 'package:flutter_app/shared/backend/models/qa_event.dart';
 import 'package:flutter_app/shared/backend/sse_parser.dart';
+
+class PreviousSelection {
+  final String poiId;
+  final String poiName;
+  final String script;
+
+  const PreviousSelection({
+    required this.poiId,
+    required this.poiName,
+    required this.script,
+  });
+}
 
 abstract class BackendClient {
   Future<List<POI>> fetchNearby({
@@ -17,10 +29,11 @@ abstract class BackendClient {
   });
 
   Stream<NarrationEvent> narrate({
-    required String poiId,
+    required List<POI> candidates,
     required String persona,
     required String lang,
     required String length,
+    PreviousSelection? previousSelection,
     bool forceRegenerate = false,
   });
 
@@ -73,24 +86,49 @@ class RealBackendClient implements BackendClient {
 
   @override
   Stream<NarrationEvent> narrate({
-    required String poiId,
+    required List<POI> candidates,
     required String persona,
     required String lang,
     required String length,
+    PreviousSelection? previousSelection,
     bool forceRegenerate = false,
   }) async* {
-    final request =
-        http.Request('POST', Uri.parse('$baseUrl/narration'));
-    request.headers['Content-Type'] = 'application/json';
-    request.headers['Accept'] = 'text/event-stream';
-    request.headers.addAll(_authHeaders);
-    request.body = jsonEncode({
-      'poi_id': poiId,
+    final candidatesJson = candidates.map((poi) => <String, dynamic>{
+      'poi_id': poi.id,
+      'poi_name': poi.name,
+      'poi_lat': poi.lat,
+      'poi_lon': poi.lon,
+      'distance_m': poi.distanceM,
+      'poi_tags': poi.tags,
+      if (poi.wiki != null) ...{
+        'wiki_title': poi.wiki!.title,
+        'wiki_extract': poi.wiki!.extract,
+      },
+    }).toList();
+
+    final body = <String, dynamic>{
+      'candidates': candidatesJson,
       'persona': persona,
       'lang': lang,
       'length': length,
       'force_regenerate': forceRegenerate,
-    });
+      if (previousSelection != null) 'previous_selection': {
+        'poi_id': previousSelection.poiId,
+        'poi_name': previousSelection.poiName,
+        'script': previousSelection.script,
+      },
+    };
+
+    debugPrint(
+      '[LLM Input] candidates=${candidates.length} | persona=$persona | lang=$lang'
+      '${previousSelection != null ? " | has_previous=true" : ""}',
+    );
+
+    final request = http.Request('POST', Uri.parse('$baseUrl/narration'));
+    request.headers['Content-Type'] = 'application/json';
+    request.headers['Accept'] = 'text/event-stream';
+    request.headers.addAll(_authHeaders);
+    request.body = jsonEncode(body);
     final response = await _http.send(request);
     if (response.statusCode != 200) {
       throw Exception('narrate failed: HTTP ${response.statusCode}');
@@ -177,10 +215,11 @@ class FakeBackendClient implements BackendClient {
 
   @override
   Stream<NarrationEvent> narrate({
-    required String poiId,
+    required List<POI> candidates,
     required String persona,
     required String lang,
     required String length,
+    PreviousSelection? previousSelection,
     bool forceRegenerate = false,
   }) async* {
     for (final event in scriptedEvents) {

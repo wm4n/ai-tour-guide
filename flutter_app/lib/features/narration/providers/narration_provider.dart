@@ -20,6 +20,7 @@ class NarrationState {
   final double progress;
   final String? confidence;
   final String? errorMessage;
+  final bool lastEventWasSkip;
 
   const NarrationState({
     required this.status,
@@ -29,6 +30,7 @@ class NarrationState {
     this.progress = 0,
     this.confidence,
     this.errorMessage,
+    this.lastEventWasSkip = false,
   });
 
   NarrationState copyWith({
@@ -39,6 +41,7 @@ class NarrationState {
     double? progress,
     String? confidence,
     String? errorMessage,
+    bool? lastEventWasSkip,
   }) =>
       NarrationState(
         status: status ?? this.status,
@@ -48,6 +51,7 @@ class NarrationState {
         progress: progress ?? this.progress,
         confidence: confidence ?? this.confidence,
         errorMessage: errorMessage ?? this.errorMessage,
+        lastEventWasSkip: lastEventWasSkip ?? this.lastEventWasSkip,
       );
 }
 
@@ -173,6 +177,12 @@ class NarrationNotifier extends StateNotifier<NarrationState> {
         state = state.copyWith(
           status: NarrationStatus.error,
           errorMessage: message,
+        );
+      case SkipEvent():
+        AppLogger.info(LogEvents.narrationSkip, {'reason': 'poi_trivial'});
+        state = state.copyWith(
+          status: NarrationStatus.idle,
+          lastEventWasSkip: true,
         );
     }
   }

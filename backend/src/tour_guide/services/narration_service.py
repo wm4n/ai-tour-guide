@@ -31,6 +31,7 @@ from tour_guide.services.confidence import ConfidenceClassifier
 class MetaEvent:
     type: Literal["meta"] = "meta"
     poi_id: str = ""
+    poi_name: str = ""
     cache_hit: bool = False
     confidence: str = "low"
     estimated_duration_s: int = 0
@@ -103,6 +104,7 @@ class NarrationService:
         confidence = ConfidenceClassifier.classify(poi)
         cache_key = f"{poi.osm.id}|{persona.id}|{lang}|{length}"
         start = time.monotonic()
+        poi_name = poi.osm.tags.get("name", poi.osm.id)
 
         # 1. Check cache (if cache is configured and not force-regenerating)
         if self._cache is not None and not force_regenerate:
@@ -112,6 +114,7 @@ class NarrationService:
                 log_event(logger, LogEvents.NARRATION_START, poi_id=poi.osm.id, cache_hit=True)
                 yield MetaEvent(
                     poi_id=poi.osm.id,
+                    poi_name=poi_name,
                     cache_hit=True,
                     confidence=confidence,
                 )
@@ -128,6 +131,7 @@ class NarrationService:
         log_event(logger, LogEvents.NARRATION_START, poi_id=poi.osm.id, cache_hit=False)
         yield MetaEvent(
             poi_id=poi.osm.id,
+            poi_name=poi_name,
             cache_hit=False,
             confidence=confidence,
         )

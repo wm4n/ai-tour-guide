@@ -59,6 +59,10 @@ class TriggerNotifier extends Notifier<TriggerState> {
   String _lastScript = '';
   bool _hasEverFired = false;
   StreamSubscription<Position>? _locationSub;
+  Position? _currentPosition;
+  Position? _lastTriggerPosition;
+  Set<String> _lastCandidateIds = {};
+  StreamSubscription<Position>? _positionTrackSub;
 
   @override
   TriggerState build() {
@@ -110,9 +114,14 @@ class TriggerNotifier extends Notifier<TriggerState> {
       },
     );
 
+    _positionTrackSub = ref.read(locationServiceProvider).positionStream.listen((pos) {
+      _currentPosition = pos;
+    });
+
     ref.onDispose(() {
       _cooldownTimer?.cancel();
       _locationSub?.cancel();
+      _positionTrackSub?.cancel();
     });
 
     return const TriggerState();
@@ -232,6 +241,35 @@ class TriggerNotifier extends Notifier<TriggerState> {
       AppLogger.info(LogEvents.triggerSkip, {'reason': 'no_candidates_available'});
       return;
     }
+
+    // Dedup guard: skip if user hasn't moved AND POI list is nearly identical
+    if (_lastTriggerPosition != null &&
+        _currentPosition != null &&
+        _lastCandidateIds.isNotEmpty) {
+      final moved = haversine(
+        _lastTriggerPosition!.latitude,
+        _lastTriggerPosition!.longitude,
+        _currentPosition!.latitude,
+        _currentPosition!.longitude,
+      );
+      final currentIds = available.map((p) => p.id).toSet();
+      final intersectionSize = currentIds.intersection(_lastCandidateIds).length;
+      final unionSize = currentIds.union(_lastCandidateIds).length;
+      final jaccard = unionSize > 0 ? intersectionSize / unionSize : 0.0;
+
+      if (moved < 30 && jaccard >= 0.8) {
+        AppLogger.info(LogEvents.triggerSkip, {
+          'reason': 'poi_unchanged',
+          'moved_m': moved,
+          'jaccard': jaccard,
+        });
+        return;
+      }
+    }
+
+    // Update tracking before calling narrate
+    _lastTriggerPosition = _currentPosition;
+    _lastCandidateIds = available.map((p) => p.id).toSet();
 
     final session = ref.read(sessionProvider);
     final previous = _lastSelectedPoiId != null

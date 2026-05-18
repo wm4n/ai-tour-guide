@@ -62,11 +62,11 @@
 
 ## 7. Frontend — TriggerProvider POI Dedup Guard (Issue 4)
 
-- [ ] 7.1 Write failing unit test: trigger skips `narrate()` when user hasn't moved and POIs are unchanged (second countdown fires but `callCount` stays at 1)
-- [ ] 7.2 Run test to verify it fails (`callCount` is 2)
-- [ ] 7.3 Add `Position? _currentPosition`, `Position? _lastTriggerPosition`, `Set<String> _lastCandidateIds = {}`, and `StreamSubscription<Position>? _positionTrackSub` fields to `TriggerNotifier`
-- [ ] 7.4 In `build()`, subscribe to `locationServiceProvider.positionStream` to continuously update `_currentPosition`; cancel `_positionTrackSub` in `ref.onDispose()`
-- [ ] 7.5 In `_doCandidatesRequest()`, add dedup guard before `narrate()` call: skip if `_lastTriggerPosition != null && moved < 30m && Jaccard >= 0.8`; log `triggerSkip` with `reason: "poi_unchanged"`
-- [ ] 7.6 After dedup guard passes, update `_lastTriggerPosition = _currentPosition` and `_lastCandidateIds = available.map((p) => p.id).toSet()`
-- [ ] 7.7 Run all trigger provider tests to verify they pass
-- [ ] 7.8 Run full Flutter test suite to verify no regressions
+- [x] 7.1 Write failing unit test: trigger skips `narrate()` when user hasn't moved and POIs are unchanged (second countdown fires but `callCount` stays at 1)
+- [x] 7.2 Run test to verify it fails (`callCount` is 2)
+- [x] 7.3 Add `Position? _currentPosition`, `Position? _lastTriggerPosition`, `Set<String> _lastCandidateIds = {}`, and `StreamSubscription<Position>? _positionTrackSub` fields to `TriggerNotifier`
+- [x] 7.4 In `build()`, subscribe to `locationServiceProvider.positionStream` to continuously update `_currentPosition`; cancel `_positionTrackSub` in `ref.onDispose()`
+- [x] 7.5 In `_doCandidatesRequest()`, add dedup guard before `narrate()` call: skip if `_lastTriggerPosition != null && moved < 30m && Jaccard >= 0.8`; log `triggerSkip` with `reason: "poi_unchanged"`
+- [x] 7.6 After dedup guard passes, update `_lastTriggerPosition = _currentPosition` and `_lastCandidateIds = available.map((p) => p.id).toSet()`
+- [x] 7.7 Run all trigger provider tests to verify they pass
+- [x] 7.8 Run full Flutter test suite to verify no regressions

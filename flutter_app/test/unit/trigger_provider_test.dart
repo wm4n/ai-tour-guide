@@ -217,6 +217,57 @@ void main() {
     expect(state.isCountingDown, isFalse);
   });
 
+  test('TriggerProvider skips narrate() when POIs unchanged and user did not move', () async {
+    final fakeLocation = FakeLocationService();
+    final fakeAudio = FakeAudioPlayerService();
+    final db = LocalDb.forTesting(NativeDatabase.memory());
+
+    // Same POI, same position → second countdown should not call narrate()
+    const narrationEvents = [
+      MetaEvent(poiId: 'osm:node:1', cacheHit: false, confidence: 'high'),
+      EndEvent(),
+    ];
+    final trackingClient = _CountingBackendClient(
+      nearbyPois: const [_poi],
+      firstEvents: narrationEvents,
+      subsequentEvents: narrationEvents,
+    );
+
+    final container = ProviderContainer(
+      overrides: [
+        locationServiceProvider.overrideWithValue(fakeLocation),
+        backendClientProvider.overrideWithValue(trackingClient),
+        audioPlayerServiceProvider.overrideWithValue(fakeAudio),
+        localDbProvider.overrideWithValue(db),
+        sessionLangProvider.overrideWithValue('zh-TW'),
+        fallbackTimeoutProvider.overrideWithValue(const Duration(seconds: 30)),
+        appSettingsProvider.overrideWith(
+          () => _FakeSettingsNotifier(
+            const AppSettings(skipDisplacementM: 500, countdownSeconds: 1),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(db.close);
+
+    container.listen(triggerProvider, (_, __) {});
+    container.listen(narrationProvider, (_, __) {});
+
+    // Emit position and let first narration fire
+    fakeLocation.emit(fakePosition(25.1023, 121.5482));
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+
+    final firstCallCount = trackingClient.callCount;
+    expect(firstCallCount, 1); // First trigger always fires
+
+    // Wait for 1-second countdown to expire and check if second call is skipped
+    await Future<void>.delayed(const Duration(seconds: 2));
+
+    // No movement emitted — same position, same POIs → guard should skip
+    expect(trackingClient.callCount, firstCallCount); // No second call
+  });
+
   test('displacement exceeding threshold re-triggers narration', () async {
     final fakeLocation = FakeLocationService();
     final fakeAudio = FakeAudioPlayerService();

@@ -49,16 +49,16 @@
 
 ## 6. Frontend — Audio-Deferred Idle Transition (Issue 5)
 
-- [ ] 6.1 Write failing unit test: `NarrationStatus stays playing after EndEvent until audio stops` in `narration_provider_test.dart`
-- [ ] 6.2 Run test to verify it fails (status transitions to `idle` immediately after `EndEvent`)
-- [ ] 6.3 Add `StreamSubscription<bool>? _audioSub` and `bool _sseStreamEnded = false` fields to `NarrationNotifier`
-- [ ] 6.4 In `narrate()`, reset `_sseStreamEnded = false` and cancel `_audioSub` at the start of each call
-- [ ] 6.5 Replace the `EndEvent` case in `_handle()`: set `_sseStreamEnded = true`, subscribe to `_audio.isPlayingStream` via `_audioSub`; transition to `idle` only when `isPlaying == false && _sseStreamEnded`
-- [ ] 6.6 Cancel `_audioSub` and reset `_sseStreamEnded` in `skip()` method
-- [ ] 6.7 Cancel `_audioSub` in `dispose()` method
-- [ ] 6.8 Also cancel `_audioSub` in the no-data dedup early-return path (from Task 5)
-- [ ] 6.9 Run audio-deferred idle test to verify it passes
-- [ ] 6.10 Run full Flutter unit test suite to verify no regressions
+- [x] 6.1 Write failing unit test: `NarrationStatus stays playing after EndEvent until audio stops` in `narration_provider_test.dart`
+- [x] 6.2 Run test to verify it fails (status transitions to `idle` immediately after `EndEvent`)
+- [x] 6.3 Add `StreamSubscription<bool>? _audioSub` and `bool _sseStreamEnded = false` fields to `NarrationNotifier`
+- [x] 6.4 In `narrate()`, reset `_sseStreamEnded = false` and cancel `_audioSub` at the start of each call
+- [x] 6.5 Replace the `EndEvent` case in `_handle()`: set `_sseStreamEnded = true`, subscribe to `_audio.isPlayingStream` via `_audioSub`; transition to `idle` only when `isPlaying == false && _sseStreamEnded`
+- [x] 6.6 Cancel `_audioSub` and reset `_sseStreamEnded` in `skip()` method
+- [x] 6.7 Cancel `_audioSub` in `dispose()` method
+- [x] 6.8 Also cancel `_audioSub` in the no-data dedup early-return path (from Task 5)
+- [x] 6.9 Run audio-deferred idle test to verify it passes
+- [x] 6.10 Run full Flutter unit test suite to verify no regressions
 
 ## 7. Frontend — TriggerProvider POI Dedup Guard (Issue 4)
 

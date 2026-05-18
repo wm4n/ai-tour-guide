@@ -38,8 +38,10 @@ class RealAudioPlayerService implements AudioPlayerService {
     await file.writeAsBytes(bytes);
     final newIndex = _playlist.length;
     await _playlist.add(AudioSource.uri(Uri.file(file.path)));
-    if (_player.processingState == ProcessingState.completed) {
-      // Player finished previous items; seek to newly added item and resume.
+    // After reset() → stop() + clear(), processingState becomes idle (not
+    // completed), so we must seek explicitly for the first chunk to ensure
+    // the player is positioned correctly after the cleared playlist state.
+    if (_player.processingState == ProcessingState.completed || newIndex == 0) {
       await _player.seek(Duration.zero, index: newIndex);
       await _player.play();
     } else if (!_player.playing) {
@@ -92,31 +94,38 @@ class RealAudioPlayerService implements AudioPlayerService {
 class FakeAudioPlayerService implements AudioPlayerService {
   final List<Uint8List> enqueuedChunks = [];
   bool isDucked = false;
+  bool _isPlaying = false;
   final _controller = StreamController<bool>.broadcast();
 
   @override
   Future<void> enqueueBytes(Uint8List bytes) async {
     enqueuedChunks.add(bytes);
+    _isPlaying = true;
     _controller.add(true);
   }
 
   @override
   Future<void> reset() async {
     enqueuedChunks.clear();
+    _isPlaying = false;
+    _controller.add(false);
   }
 
   @override
   Future<void> pause() async {
+    _isPlaying = false;
     _controller.add(false);
   }
 
   @override
   Future<void> resume() async {
+    _isPlaying = true;
     _controller.add(true);
   }
 
   @override
   Future<void> skip() async {
+    _isPlaying = false;
     _controller.add(false);
   }
 
@@ -131,7 +140,11 @@ class FakeAudioPlayerService implements AudioPlayerService {
   }
 
   @override
-  Stream<bool> get isPlayingStream => _controller.stream;
+  Stream<bool> get isPlayingStream async* {
+    // Emit current state immediately on subscribe, then follow live events
+    yield _isPlaying;
+    yield* _controller.stream;
+  }
 
   @override
   Future<void> dispose() async => _controller.close();

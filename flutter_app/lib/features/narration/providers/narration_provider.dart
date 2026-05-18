@@ -63,6 +63,8 @@ class NarrationNotifier extends StateNotifier<NarrationState> {
   final AudioPlayerService _audio;
   final LocalDb _db;
   StreamSubscription<NarrationEvent>? _sub;
+  StreamSubscription<bool>? _audioSub;
+  bool _sseStreamEnded = false;
   int _audioChunkCount = 0;
   String _currentPersona = 'history_uncle';
   String _currentLang = 'zh-TW';
@@ -79,6 +81,9 @@ class NarrationNotifier extends StateNotifier<NarrationState> {
     _currentPersona = persona;
     _currentLang = lang;
     _candidates = candidates;
+    _sseStreamEnded = false;
+    _audioSub?.cancel();
+    _audioSub = null;
     await _sub?.cancel();
     await _audio.reset();
     _audioChunkCount = 0;
@@ -118,6 +123,9 @@ class NarrationNotifier extends StateNotifier<NarrationState> {
       case MetaEvent(:final poiId, :final poiName, :final confidence, :final isNoData):
         if (isNoData && _lastWasNoData) {
           _lastWasNoData = true;
+          _audioSub?.cancel();
+          _audioSub = null;
+          _sseStreamEnded = false;
           _sub?.cancel();
           _sub = null;
           state = state.copyWith(
@@ -181,10 +189,20 @@ class NarrationNotifier extends StateNotifier<NarrationState> {
         });
         _narrationStartedAt = null;
         if (poi != null) _recordNarration(poi);
-        state = state.copyWith(
-          status: NarrationStatus.idle,
-          progress: 1.0,
-        );
+        _sseStreamEnded = true;
+        // Defer idle until audio playback finishes
+        _audioSub?.cancel();
+        _audioSub = _audio.isPlayingStream.listen((isPlaying) {
+          if (!isPlaying && _sseStreamEnded && state.status != NarrationStatus.paused) {
+            _audioSub?.cancel();
+            _audioSub = null;
+            _sseStreamEnded = false;
+            state = state.copyWith(
+              status: NarrationStatus.idle,
+              progress: 1.0,
+            );
+          }
+        });
       case ErrorEvent(:final message):
         state = state.copyWith(
           status: NarrationStatus.error,
@@ -225,6 +243,9 @@ class NarrationNotifier extends StateNotifier<NarrationState> {
   }
 
   Future<void> skip() async {
+    _audioSub?.cancel();
+    _audioSub = null;
+    _sseStreamEnded = false;
     AppLogger.warn(LogEvents.narrationSkip, {
       'poi_id': state.currentPoi?.id ?? '',
       'reason': 'user_skip',
@@ -237,6 +258,7 @@ class NarrationNotifier extends StateNotifier<NarrationState> {
   @override
   void dispose() {
     _sub?.cancel();
+    _audioSub?.cancel();
     super.dispose();
   }
 }

@@ -8,14 +8,14 @@
 
 ## 2. Persona YAML Rewrite — Remove Self-Naming (Issue 1)
 
-- [ ] 2.1 Update `test_prompt_builder.py` assertion to not depend on third-person role label in `system_prompt`
-- [ ] 2.2 Run existing prompt builder tests to confirm baseline passes
-- [ ] 2.3 Rewrite `backend/prompts/personas/story_brother.yaml` — first-person `system_prompt`, add `{distance_hint}` to `narration_template`, first-person `confidence_labels` and `no_data_context`
-- [ ] 2.4 Rewrite `backend/prompts/personas/history_uncle.yaml` — same changes as above
-- [ ] 2.5 Rewrite `backend/prompts/personas/kid_sister.yaml` — same changes as above
-- [ ] 2.6 Rewrite `backend/prompts/personas/gossip_auntie.yaml` — same changes as above
-- [ ] 2.7 Rewrite `backend/prompts/personas/foodie.yaml` — same changes as above
-- [ ] 2.8 Run persona loader + prompt builder tests to verify they still pass (KeyError on `{distance_hint}` expected until Task 3 is complete — note in test output)
+- [x] 2.1 Update `test_prompt_builder.py` assertion to not depend on third-person role label in `system_prompt`
+- [x] 2.2 Run existing prompt builder tests to confirm baseline passes
+- [x] 2.3 Rewrite `backend/prompts/personas/story_brother.yaml` — first-person `system_prompt`, add `{distance_hint}` to `narration_template`, first-person `confidence_labels` and `no_data_context`
+- [x] 2.4 Rewrite `backend/prompts/personas/history_uncle.yaml` — same changes as above
+- [x] 2.5 Rewrite `backend/prompts/personas/kid_sister.yaml` — same changes as above
+- [x] 2.6 Rewrite `backend/prompts/personas/gossip_auntie.yaml` — same changes as above
+- [x] 2.7 Rewrite `backend/prompts/personas/foodie.yaml` — same changes as above
+- [x] 2.8 Run persona loader + prompt builder tests to verify they still pass (KeyError on `{distance_hint}` expected until Task 3 is complete — note in test output)
 
 ## 3. Backend — distance_m in POIContext and PromptBuilder (Issue 2)
 

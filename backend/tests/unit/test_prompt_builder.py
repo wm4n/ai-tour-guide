@@ -194,8 +194,8 @@ class TestPromptBuilderBuild:
         system_messages = [m for m in messages if m.get("role") == "system"]
         system_content = system_messages[0].get("content", "")
 
-        # Should contain text from the system prompt
-        assert "歷史大叔" in system_content
+        # Should contain text from the system prompt (first-person, no third-person role label)
+        assert "歷史" in system_content or "台灣" in system_content
         assert "繁體中文" in system_content
 
     def test_build_english_language(self, history_uncle_persona, poi_with_wiki):

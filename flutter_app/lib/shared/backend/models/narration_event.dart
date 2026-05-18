@@ -8,6 +8,7 @@ class MetaEvent extends NarrationEvent {
   final bool cacheHit;
   final String confidence;
   final int estimatedDurationS;
+  final bool isNoData;
 
   const MetaEvent({
     required this.poiId,
@@ -15,6 +16,7 @@ class MetaEvent extends NarrationEvent {
     required this.cacheHit,
     required this.confidence,
     this.estimatedDurationS = 0,
+    this.isNoData = false,
   });
 
   factory MetaEvent.fromJson(Map<String, dynamic> json) => MetaEvent(
@@ -23,6 +25,7 @@ class MetaEvent extends NarrationEvent {
         cacheHit: json['cache_hit'] as bool,
         confidence: json['confidence'] as String,
         estimatedDurationS: (json['estimated_duration_s'] as num? ?? 0).toInt(),
+        isNoData: json['is_no_data'] as bool? ?? false,
       );
 }
 

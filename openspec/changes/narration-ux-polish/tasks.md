@@ -39,13 +39,13 @@
 
 ## 5. Frontend — MetaEvent isNoData + Consecutive No-Data Dedup (Issue 3)
 
-- [ ] 5.1 Add `isNoData: bool` field to `MetaEvent` in `flutter_app/lib/shared/backend/models/narration_event.dart`, parse from `is_no_data` JSON key with `?? false` default
-- [ ] 5.2 Write failing unit test for no-data dedup in `narration_provider_test.dart` (second consecutive no-data → `NarrationStatus.idle` without audio)
-- [ ] 5.3 Run test to verify it fails (second narration still plays)
-- [ ] 5.4 Add `bool _lastWasNoData = false` field to `NarrationNotifier`
-- [ ] 5.5 Update `_handle(MetaEvent)` to check `isNoData && _lastWasNoData` — if true, cancel `_sub`, set state to `idle`, return early; otherwise update `_lastWasNoData = isNoData` and continue
-- [ ] 5.6 Run narration provider tests to verify dedup test passes
-- [ ] 5.7 Run full Flutter unit test suite to verify no regressions
+- [x] 5.1 Add `isNoData: bool` field to `MetaEvent` in `flutter_app/lib/shared/backend/models/narration_event.dart`, parse from `is_no_data` JSON key with `?? false` default
+- [x] 5.2 Write failing unit test for no-data dedup in `narration_provider_test.dart` (second consecutive no-data → `NarrationStatus.idle` without audio)
+- [x] 5.3 Run test to verify it fails (second narration still plays)
+- [x] 5.4 Add `bool _lastWasNoData = false` field to `NarrationNotifier`
+- [x] 5.5 Update `_handle(MetaEvent)` to check `isNoData && _lastWasNoData` — if true, cancel `_sub`, set state to `idle`, return early; otherwise update `_lastWasNoData = isNoData` and continue
+- [x] 5.6 Run narration provider tests to verify dedup test passes
+- [x] 5.7 Run full Flutter unit test suite to verify no regressions
 
 ## 6. Frontend — Audio-Deferred Idle Transition (Issue 5)
 

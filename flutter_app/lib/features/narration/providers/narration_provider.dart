@@ -68,6 +68,7 @@ class NarrationNotifier extends StateNotifier<NarrationState> {
   String _currentLang = 'zh-TW';
   DateTime? _narrationStartedAt;
   List<POI> _candidates = [];
+  bool _lastWasNoData = false;
 
   Future<void> narrate({
     required List<POI> candidates,
@@ -114,7 +115,18 @@ class NarrationNotifier extends StateNotifier<NarrationState> {
 
   void _handle(NarrationEvent event) {
     switch (event) {
-      case MetaEvent(:final poiId, :final poiName, :final confidence):
+      case MetaEvent(:final poiId, :final poiName, :final confidence, :final isNoData):
+        if (isNoData && _lastWasNoData) {
+          _lastWasNoData = true;
+          _sub?.cancel();
+          _sub = null;
+          state = state.copyWith(
+            status: NarrationStatus.idle,
+            lastEventWasSkip: false,
+          );
+          return;
+        }
+        _lastWasNoData = isNoData;
         final selectedPoi = _candidates.firstWhere(
           (p) => p.id == poiId,
           orElse: () => _candidates.isNotEmpty

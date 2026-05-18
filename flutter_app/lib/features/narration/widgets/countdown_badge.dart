@@ -34,11 +34,13 @@ class CountdownBadge extends ConsumerWidget {
         child: Stack(
           alignment: Alignment.center,
           children: [
-            CircularProgressIndicator(
-              value: progress.clamp(0.0, 1.0),
-              strokeWidth: 3,
-              color: Colors.white,
-              backgroundColor: Colors.white24,
+            SizedBox.expand(
+              child: CircularProgressIndicator(
+                value: progress.clamp(0.0, 1.0),
+                strokeWidth: 3,
+                color: Colors.white,
+                backgroundColor: Colors.white24,
+              ),
             ),
             Column(
               mainAxisSize: MainAxisSize.min,
@@ -87,11 +89,13 @@ class _DisplacementBadge extends ConsumerWidget {
       child: Stack(
         alignment: Alignment.center,
         children: [
-          CircularProgressIndicator(
-            value: progress,
-            strokeWidth: 3,
-            color: Colors.white70,
-            backgroundColor: Colors.white24,
+          SizedBox.expand(
+            child: CircularProgressIndicator(
+              value: progress,
+              strokeWidth: 3,
+              color: Colors.white70,
+              backgroundColor: Colors.white24,
+            ),
           ),
           Column(
             mainAxisSize: MainAxisSize.min,

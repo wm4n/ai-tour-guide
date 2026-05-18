@@ -1,12 +1,4 @@
-# Capability: Trigger Engine
-
-## Purpose
-
-Manages narration triggering through countdown timers and manual user interactions. After each narration completes, a 90-second countdown begins, during which the user can either wait for auto-trigger or tap the CountdownBadge to skip ahead. Also provides a manual bypass path for map marker taps.
-
----
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Countdown-based narration trigger
 After each narration completes, `TriggerNotifier` SHALL start a configurable countdown timer. When the countdown expires, `TriggerNotifier` SHALL automatically send a new narration request with all currently available (non-excluded) candidates. If a narration error occurs, the countdown SHALL also start to avoid a stuck state. Before calling `narrate()`, `TriggerNotifier` SHALL apply a dedup guard: if the user has not moved more than 30m since the last `narrate()` call AND the Jaccard similarity of the current candidate POI IDs versus the previous set is ≥ 0.8, the request SHALL be skipped, a `triggerSkip` log event with `reason: "poi_unchanged"` SHALL be emitted, and `_startCountdown()` SHALL be called to restart the heartbeat cycle. `_startCountdown()` SHALL NOT reset `_lastTriggerPosition` or `_lastCandidateIds`, preserving dedup state across countdown cycles.
@@ -82,19 +74,6 @@ The app SHALL display a circular countdown badge in the bottom-right corner of t
 
 ---
 
-### Requirement: First-run auto-trigger on POI load
-On the first POI load in a session (before any narration has played), `TriggerNotifier` SHALL automatically trigger narration when POIs become available and narration is idle.
-
-#### Scenario: Narration fires on first POI load
-- **WHEN** `poiProvider` emits a non-empty list for the first time and no narration has ever played in this session
-- **THEN** `TriggerNotifier` calls `_doCandidatesRequest()` immediately without waiting for countdown
-
-#### Scenario: Subsequent POI updates do not re-trigger automatically
-- **WHEN** `poiProvider` emits updated POIs after narration has already played once
-- **THEN** `TriggerNotifier` does NOT trigger narration (waits for countdown to expire)
-
----
-
 ### Requirement: Candidates list excludes session-played and cooled-down POIs
 Before sending a narration request, `TriggerNotifier` SHALL filter out POIs that have been played in the current session (in-memory set) or are within the 24-hour DB cooldown window. If no candidates remain, `TriggerNotifier` SHALL call `_startCountdown()` to continue the heartbeat cycle.
 
@@ -110,28 +89,8 @@ Before sending a narration request, `TriggerNotifier` SHALL filter out POIs that
 - **WHEN** all POIs in `_latestPois` are excluded by session or cooldown
 - **THEN** `_doCandidatesRequest()` logs `triggerSkip` with reason "no_candidates_available" and calls `_startCountdown()` to continue the heartbeat
 
----
+## REMOVED Requirements
 
-### Requirement: previous_selection passed on subsequent requests
-`TriggerNotifier` SHALL track the last selected POI's id, name, and full script buffer after each narration completes, and include them as `PreviousSelection` in every subsequent narration request within the session.
-
-#### Scenario: PreviousSelection sent on second request
-- **WHEN** a second narration request is triggered after the first has completed
-- **THEN** `BackendClient.narrate()` is called with `previousSelection` containing the first narration's `poi_id`, `poi_name`, and `scriptBuffer`
-
-#### Scenario: No PreviousSelection on first request
-- **WHEN** the very first narration request is triggered in a session
-- **THEN** `BackendClient.narrate()` is called with `previousSelection == null`
-
----
-
-### Requirement: Manual trigger bypasses countdown
-The app SHALL allow direct invocation of narration without going through the countdown timer. Users may tap the CountdownBadge to skip the countdown and trigger narration immediately. The manual map marker tap path SHALL remain unchanged.
-
-#### Scenario: User taps CountdownBadge during countdown
-- **WHEN** user taps the CountdownBadge while countdown is active
-- **THEN** the countdown timer is cancelled and `TriggerNotifier.skipCountdown()` triggers a new narration request immediately
-
-#### Scenario: User taps marker while POI is in cooldown
-- **WHEN** user taps a POI marker on the map
-- **THEN** narration is triggered regardless of cooldown or dedup state
+### Requirement: Displacement-wait mode after SkipEvent
+**Reason**: Displacement-wait は実際の都市旅遊場景中幾乎永遠無法滿足（500m 門檻），導致系統卡死。改為呼叫 `_startCountdown()` 讓倒數成為 heartbeat，行為更可預測。
+**Migration**: SkipEvent 不再進入 displacement-wait 模式。系統改為重啟倒數計時，並在 countdown 到期後重試旁白（若 dedup guard 未阻擋）。`TriggerState` 移除 `isWaitingForDisplacement`、`skipLat`、`skipLon`、`movedMeters` 欄位。`_handleSkip()`、`_startDisplacementWatch()`、`_clearDisplacementWatch()` 方法和 `_locationSub` 欄位一併刪除。

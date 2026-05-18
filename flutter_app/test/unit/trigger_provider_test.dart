@@ -178,7 +178,7 @@ void main() {
     expect(state.isCountingDown, isFalse);
   });
 
-  test('SkipEvent sets isWaitingForDisplacement and clears countdown', () async {
+  test('SkipEvent restarts countdown instead of displacement-wait', () async {
     final fakeLocation = FakeLocationService();
     final fakeAudio = FakeAudioPlayerService();
     final db = LocalDb.forTesting(NativeDatabase.memory());
@@ -213,8 +213,7 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 200));
 
     final state = container.read(triggerProvider);
-    expect(state.isWaitingForDisplacement, isTrue);
-    expect(state.isCountingDown, isFalse);
+    expect(state.isCountingDown, isTrue);
   });
 
   test('TriggerProvider skips narrate() when POIs unchanged and user did not move', () async {
@@ -268,53 +267,92 @@ void main() {
     expect(trackingClient.callCount, firstCallCount); // No second call
   });
 
-  test('displacement exceeding threshold re-triggers narration', () async {
+  test('countdown restarts when all nearby POIs have been played', () async {
     final fakeLocation = FakeLocationService();
     final fakeAudio = FakeAudioPlayerService();
     final db = LocalDb.forTesting(NativeDatabase.memory());
-
-    final fakeClient = _CountingBackendClient(
-      nearbyPois: const [_poi],
-      firstEvents: const [SkipEvent()],
-      subsequentEvents: const [EndEvent()],
-    );
-
     final container = ProviderContainer(
       overrides: [
         locationServiceProvider.overrideWithValue(fakeLocation),
-        backendClientProvider.overrideWithValue(fakeClient),
+        backendClientProvider.overrideWithValue(
+          const FakeBackendClient(
+            nearbyPois: [_poi],
+            scriptedEvents: [
+              MetaEvent(poiId: 'osm:node:1', cacheHit: false, confidence: 'high'),
+              EndEvent(),
+            ],
+          ),
+        ),
         audioPlayerServiceProvider.overrideWithValue(fakeAudio),
         localDbProvider.overrideWithValue(db),
         sessionLangProvider.overrideWithValue('zh-TW'),
         fallbackTimeoutProvider.overrideWithValue(const Duration(seconds: 30)),
         appSettingsProvider.overrideWith(
           () => _FakeSettingsNotifier(
-            const AppSettings(skipDisplacementM: 100, countdownSeconds: 90),
+            const AppSettings(skipDisplacementM: 500, countdownSeconds: 1),
           ),
         ),
       ],
     );
     addTearDown(container.dispose);
     addTearDown(db.close);
-
     container.listen(triggerProvider, (_, __) {});
     container.listen(narrationProvider, (_, __) {});
-
-    // Trigger first narration (will get SkipEvent)
     fakeLocation.emit(fakePosition(25.1023, 121.5482));
     await Future<void>.delayed(const Duration(milliseconds: 200));
-
-    expect(container.read(triggerProvider).isWaitingForDisplacement, isTrue);
-
-    // Emit origin position (first position after displacement watch starts)
-    fakeLocation.emit(fakePosition(25.1023, 121.5482));
-    await Future<void>.delayed(const Duration(milliseconds: 50));
-
-    // Move > 100m
-    fakeLocation.emit(fakePosition(25.1033, 121.5492)); // ~150m
-    await Future<void>.delayed(const Duration(milliseconds: 200));
-
-    expect(container.read(triggerProvider).isWaitingForDisplacement, isFalse);
-    expect(fakeClient.callCount, greaterThan(1));
+    await Future<void>.delayed(const Duration(seconds: 2));
+    final state = container.read(triggerProvider);
+    expect(state.isCountingDown, isTrue,
+        reason: 'countdown should restart when available.isEmpty');
   });
+
+  test('countdown restarts when dedup guard blocks (stationary, similar POIs)', () async {
+    const pois = [
+      POI(id: 'osm:node:1', name: 'POI 1', lat: 25.10, lon: 121.54, tags: {}, distanceM: 50, confidence: 'high'),
+      POI(id: 'osm:node:2', name: 'POI 2', lat: 25.10, lon: 121.54, tags: {}, distanceM: 60, confidence: 'high'),
+      POI(id: 'osm:node:3', name: 'POI 3', lat: 25.10, lon: 121.54, tags: {}, distanceM: 70, confidence: 'high'),
+      POI(id: 'osm:node:4', name: 'POI 4', lat: 25.10, lon: 121.54, tags: {}, distanceM: 80, confidence: 'high'),
+      POI(id: 'osm:node:5', name: 'POI 5', lat: 25.10, lon: 121.54, tags: {}, distanceM: 90, confidence: 'high'),
+    ];
+    const firstNarrationEvents = [
+      MetaEvent(poiId: 'osm:node:1', cacheHit: false, confidence: 'high'),
+      EndEvent(),
+    ];
+    final fakeLocation = FakeLocationService();
+    final fakeAudio = FakeAudioPlayerService();
+    final db = LocalDb.forTesting(NativeDatabase.memory());
+    final trackingClient = _CountingBackendClient(
+      nearbyPois: pois,
+      firstEvents: firstNarrationEvents,
+      subsequentEvents: firstNarrationEvents,
+    );
+    final container = ProviderContainer(
+      overrides: [
+        locationServiceProvider.overrideWithValue(fakeLocation),
+        backendClientProvider.overrideWithValue(trackingClient),
+        audioPlayerServiceProvider.overrideWithValue(fakeAudio),
+        localDbProvider.overrideWithValue(db),
+        sessionLangProvider.overrideWithValue('zh-TW'),
+        fallbackTimeoutProvider.overrideWithValue(const Duration(seconds: 30)),
+        appSettingsProvider.overrideWith(
+          () => _FakeSettingsNotifier(
+            const AppSettings(skipDisplacementM: 500, countdownSeconds: 1),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(db.close);
+    container.listen(triggerProvider, (_, __) {});
+    container.listen(narrationProvider, (_, __) {});
+    fakeLocation.emit(fakePosition(25.10, 121.54));
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+    expect(trackingClient.callCount, 1);
+    await Future<void>.delayed(const Duration(seconds: 2));
+    expect(trackingClient.callCount, 1, reason: 'dedup should prevent second narration');
+    final state = container.read(triggerProvider);
+    expect(state.isCountingDown, isTrue,
+        reason: 'countdown should restart after dedup guard blocks');
+  });
+
 }

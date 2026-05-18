@@ -1,12 +1,47 @@
-# Capability: Narration Stream
+## ADDED Requirements
 
-## Purpose
+### Requirement: POIContext carries distance_m
+The backend `POIContext` data model SHALL include a `distance_m: float` field (defaults to `0.0`) representing the distance in metres from the user's current position to the POI at the time of narration selection.
 
-Handles real-time SSE streaming from the narration backend, FIFO audio chunk queuing and playback, subtitle display in the NarrationSheet, and graceful error handling.
+#### Scenario: distance_m defaults to zero
+- **WHEN** `POIContext` is constructed without `distance_m`
+- **THEN** `poi_context.distance_m == 0.0`
+
+#### Scenario: narration API passes distance_m from selected POI
+- **WHEN** the narration API endpoint constructs `POIContext` for the selected POI
+- **THEN** `poi_context.distance_m` equals `selected.distance_m`
 
 ---
 
-## Requirements
+### Requirement: PromptBuilder injects distance_hint
+`PromptBuilder.build()` SHALL derive a natural-language distance hint from `poi.distance_m` and inject it as `{distance_hint}` into the persona's `narration_template`. The binning rules (for `zh-TW`) are:
+
+| distance_m range | zh-TW hint | en hint |
+|---|---|---|
+| < 30 | `就在你附近` | `right here` |
+| 30 – 150 | `前方不遠處` | `not far ahead` |
+| 150 – 500 | `這附近` | `nearby` |
+| > 500 | `這一帶` | `in this area` |
+
+#### Scenario: distance < 30m maps to closest hint
+- **WHEN** `poi.distance_m == 15.0` and `lang == "zh-TW"`
+- **THEN** the user message in the prompt contains `就在你附近`
+
+#### Scenario: distance 30–150m maps to medium-close hint
+- **WHEN** `poi.distance_m == 80.0` and `lang == "zh-TW"`
+- **THEN** the user message contains `前方不遠處`
+
+#### Scenario: distance 150–500m maps to area hint
+- **WHEN** `poi.distance_m == 250.0` and `lang == "zh-TW"`
+- **THEN** the user message contains `這附近`
+
+#### Scenario: distance > 500m maps to widest hint
+- **WHEN** `poi.distance_m == 800.0` and `lang == "zh-TW"`
+- **THEN** the user message contains `這一帶`
+
+---
+
+## MODIFIED Requirements
 
 ### Requirement: SSE stream parsing
 The app SHALL parse `POST /narration` SSE responses into typed events: `meta`, `text`, `audio`, `end`, `error`. The `MetaEvent` SHALL include a `poiName` field (string, defaults to empty string) parsed from `poi_name` in the SSE JSON data. The `MetaEvent` SHALL also include an `isNoData: bool` field (defaults to `false`) parsed from `is_no_data` in the SSE JSON data. The backend SHALL set `is_no_data: true` in the `MetaEvent` when the selected POI has no Wikipedia article.
@@ -61,77 +96,6 @@ The app SHALL parse `POST /narration` SSE responses into typed events: `meta`, `
 
 ---
 
-### Requirement: Multi-candidate narrate() API in BackendClient
-The `BackendClient.narrate()` method SHALL accept `List<POI> candidates` and optional `PreviousSelection? previousSelection` instead of a single POI. The client SHALL serialize all candidates into the `candidates` JSON array.
-
-#### Scenario: narrate() serializes all candidates
-- **WHEN** `BackendClient.narrate()` is called with a list of 5 POIs
-- **THEN** the HTTP request body SHALL contain `candidates` array with all 5 POI entries
-
-#### Scenario: narrate() includes previous_selection when provided
-- **WHEN** `PreviousSelection` with `poiId`, `poiName`, and `script` is passed
-- **THEN** request body SHALL include `previous_selection` object with all three fields
-
-#### Scenario: narrate() omits previous_selection when null
-- **WHEN** `previousSelection` is null
-- **THEN** request body SHALL NOT include `previous_selection` key
-
----
-
-### Requirement: POIContext carries distance_m
-The backend `POIContext` data model SHALL include a `distance_m: float` field (defaults to `0.0`) representing the distance in metres from the user's current position to the POI at the time of narration selection.
-
-#### Scenario: distance_m defaults to zero
-- **WHEN** `POIContext` is constructed without `distance_m`
-- **THEN** `poi_context.distance_m == 0.0`
-
-#### Scenario: narration API passes distance_m from selected POI
-- **WHEN** the narration API endpoint constructs `POIContext` for the selected POI
-- **THEN** `poi_context.distance_m` equals `selected.distance_m`
-
----
-
-### Requirement: PromptBuilder injects distance_hint
-`PromptBuilder.build()` SHALL derive a natural-language distance hint from `poi.distance_m` and inject it as `{distance_hint}` into the persona's `narration_template`. The binning rules (for `zh-TW`) are:
-
-| distance_m range | zh-TW hint | en hint |
-|---|---|---|
-| < 30 | `就在你附近` | `right here` |
-| 30 – 150 | `前方不遠處` | `not far ahead` |
-| 150 – 500 | `這附近` | `nearby` |
-| > 500 | `這一帶` | `in this area` |
-
-#### Scenario: distance < 30m maps to closest hint
-- **WHEN** `poi.distance_m == 15.0` and `lang == "zh-TW"`
-- **THEN** the user message in the prompt contains `就在你附近`
-
-#### Scenario: distance 30–150m maps to medium-close hint
-- **WHEN** `poi.distance_m == 80.0` and `lang == "zh-TW"`
-- **THEN** the user message contains `前方不遠處`
-
-#### Scenario: distance 150–500m maps to area hint
-- **WHEN** `poi.distance_m == 250.0` and `lang == "zh-TW"`
-- **THEN** the user message contains `這附近`
-
-#### Scenario: distance > 500m maps to widest hint
-- **WHEN** `poi.distance_m == 800.0` and `lang == "zh-TW"`
-- **THEN** the user message contains `這一帶`
-
----
-
-### Requirement: Script accumulation in NarrationNotifier
-`NarrationState` SHALL include a `scriptBuffer` field that accumulates all `TextEvent` chunks during a narration session. The buffer SHALL reset to empty string at the start of each new `narrate()` call.
-
-#### Scenario: scriptBuffer accumulates text chunks
-- **WHEN** three `TextEvent`s with chunks "A", "B", "C" are received in sequence
-- **THEN** `NarrationState.scriptBuffer` equals "ABC" after the third event
-
-#### Scenario: scriptBuffer resets on new narrate() call
-- **WHEN** `NarrationNotifier.narrate()` is called for a second time
-- **THEN** `scriptBuffer` is reset to empty string before streaming starts
-
----
-
 ### Requirement: NarrationNotifier resolves POI from MetaEvent
 `NarrationNotifier` SHALL resolve the played POI by matching `MetaEvent.poiId` against the candidates list. If no match is found, it SHALL fall back to `candidates.first`. When `MetaEvent.isNoData == true` and the previous narration also had `isNoData == true` (i.e., `_lastWasNoData == true`), `NarrationNotifier` SHALL immediately cancel the SSE subscription, skip audio playback, and transition to `idle` without recording a narration history entry.
 
@@ -183,37 +147,3 @@ The app SHALL decode each audio chunk and enqueue it for continuous playback usi
 #### Scenario: Audio already done when EndEvent arrives
 - **WHEN** `EndEvent` arrives and `isPlayingStream` is already emitting `false`
 - **THEN** `NarrationState.status` transitions to `idle` immediately
-
----
-
-### Requirement: NarrationSheet subtitle and controls
-The NarrationSheet SHALL be a DraggableScrollableSheet showing a collapsed MiniBar and an expanded subtitle/controls view.
-
-#### Scenario: Collapsed mini bar
-- **WHEN** NarrationSheet is in collapsed state
-- **THEN** shows POI name, distance, ▶/⏸ button, and ⏭ skip button
-
-#### Scenario: Expanded subtitle view
-- **WHEN** NarrationSheet is dragged up to expanded state
-- **THEN** shows POI name, confidence badge, scrolling subtitle text, progress bar, and ⏸/⏭/🔁 controls
-
-#### Scenario: Subtitle accumulates text chunks
-- **WHEN** `TextEvent`s arrive during narration
-- **THEN** each chunk is appended to the subtitle display in real time
-
----
-
-### Requirement: Narration error handling
-The app SHALL handle backend errors gracefully during narration.
-
-#### Scenario: Gemini 429 rate limit
-- **WHEN** SSE stream yields an `ErrorEvent` with `code: "RATE_LIMITED"` and `retry_after_s: N`
-- **THEN** NarrationProvider enters error state and MapScreen shows a countdown snackbar
-
-#### Scenario: SSE stream disconnects mid-stream
-- **WHEN** the HTTP connection drops while SSE events are still expected
-- **THEN** AudioPlayer finishes playing already-enqueued chunks, then stops; a snackbar informs the user
-
-#### Scenario: Backend 5xx or no response
-- **WHEN** `POST /narration` returns 5xx or times out
-- **THEN** BackendClient retries 3 times (1s/2s/4s backoff); on final failure NarrationProvider enters error state

@@ -16,36 +16,19 @@ import 'package:geolocator/geolocator.dart';
 class TriggerState {
   final bool isCountingDown;
   final Duration countdownRemaining;
-  final bool isWaitingForDisplacement;
-  final double? skipLat;
-  final double? skipLon;
-  final double movedMeters;
 
   const TriggerState({
     this.isCountingDown = false,
     this.countdownRemaining = Duration.zero,
-    this.isWaitingForDisplacement = false,
-    this.skipLat,
-    this.skipLon,
-    this.movedMeters = 0,
   });
 
   TriggerState copyWith({
     bool? isCountingDown,
     Duration? countdownRemaining,
-    bool? isWaitingForDisplacement,
-    double? skipLat,
-    double? skipLon,
-    double? movedMeters,
   }) =>
       TriggerState(
         isCountingDown: isCountingDown ?? this.isCountingDown,
         countdownRemaining: countdownRemaining ?? this.countdownRemaining,
-        isWaitingForDisplacement:
-            isWaitingForDisplacement ?? this.isWaitingForDisplacement,
-        skipLat: skipLat ?? this.skipLat,
-        skipLon: skipLon ?? this.skipLon,
-        movedMeters: movedMeters ?? this.movedMeters,
       );
 }
 
@@ -58,7 +41,6 @@ class TriggerNotifier extends Notifier<TriggerState> {
   String _lastSelectedPoiName = '';
   String _lastScript = '';
   bool _hasEverFired = false;
-  StreamSubscription<Position>? _locationSub;
   Position? _currentPosition;
   Position? _lastTriggerPosition;
   Set<String> _lastCandidateIds = {};
@@ -107,9 +89,10 @@ class TriggerNotifier extends Notifier<TriggerState> {
             next.status == NarrationStatus.error) {
           _startCountdown();
         }
-        // Handle skip: switch to displacement-wait mode
+        // Handle skip: restart countdown
         if (next.lastEventWasSkip && !(prev?.lastEventWasSkip ?? false)) {
-          _handleSkip();
+          AppLogger.info(LogEvents.triggerSkip, {'reason': 'poi_trivial_restart_countdown'});
+          _startCountdown();
         }
       },
     );
@@ -120,7 +103,6 @@ class TriggerNotifier extends Notifier<TriggerState> {
 
     ref.onDispose(() {
       _cooldownTimer?.cancel();
-      _locationSub?.cancel();
       _positionTrackSub?.cancel();
     });
 
@@ -128,8 +110,6 @@ class TriggerNotifier extends Notifier<TriggerState> {
   }
 
   void _startCountdown() {
-    _locationSub?.cancel();
-    _locationSub = null;
     _cooldownTimer?.cancel();
     final seconds = ref.read(appSettingsProvider).countdownSeconds;
     final duration = Duration(seconds: seconds);
@@ -157,59 +137,12 @@ class TriggerNotifier extends Notifier<TriggerState> {
     _cooldownTimer?.cancel();
     _cooldownTimer = null;
     _cooldownUntil = null;
+    _lastTriggerPosition = null;
+    _lastCandidateIds = {};
     state = const TriggerState();
     _doCandidatesRequest().catchError((Object e, StackTrace st) {
       AppLogger.error(LogEvents.apiError, {'context': 'countdown_skip'}, e, st);
     });
-  }
-
-  void _handleSkip() {
-    _cooldownTimer?.cancel();
-    _cooldownTimer = null;
-    _cooldownUntil = null;
-    AppLogger.info(
-        LogEvents.triggerSkip, {'reason': 'poi_trivial_waiting_displacement'});
-    state = const TriggerState(isWaitingForDisplacement: true);
-    _startDisplacementWatch();
-  }
-
-  void _startDisplacementWatch() {
-    _locationSub?.cancel();
-    double? originLat;
-    double? originLon;
-
-    _locationSub =
-        ref.read(locationServiceProvider).positionStream.listen((pos) {
-      if (!state.isWaitingForDisplacement) {
-        _locationSub?.cancel();
-        _locationSub = null;
-        return;
-      }
-      if (originLat == null) {
-        originLat = pos.latitude;
-        originLon = pos.longitude;
-        state = state.copyWith(
-            skipLat: originLat, skipLon: originLon, movedMeters: 0);
-        return;
-      }
-      final dist =
-          haversine(originLat!, originLon!, pos.latitude, pos.longitude);
-      final threshold = ref.read(appSettingsProvider).skipDisplacementM;
-      state = state.copyWith(movedMeters: dist);
-      if (dist >= threshold) {
-        _clearDisplacementWatch();
-        _doCandidatesRequest().catchError((Object e, StackTrace st) {
-          AppLogger.error(
-              LogEvents.apiError, {'context': 'displacement_trigger'}, e, st);
-        });
-      }
-    });
-  }
-
-  void _clearDisplacementWatch() {
-    _locationSub?.cancel();
-    _locationSub = null;
-    state = const TriggerState();
   }
 
   Future<void> _doCandidatesRequest() async {
@@ -239,6 +172,7 @@ class TriggerNotifier extends Notifier<TriggerState> {
 
     if (available.isEmpty) {
       AppLogger.info(LogEvents.triggerSkip, {'reason': 'no_candidates_available'});
+      _startCountdown();
       return;
     }
 
@@ -263,6 +197,7 @@ class TriggerNotifier extends Notifier<TriggerState> {
           'moved_m': moved,
           'jaccard': jaccard,
         });
+        _startCountdown();
         return;
       }
     }

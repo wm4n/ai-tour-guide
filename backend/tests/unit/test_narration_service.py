@@ -101,6 +101,43 @@ async def test_no_data_short_circuit_uses_no_data_text(fake_persona, poi_no_wiki
 
 
 @pytest.mark.asyncio
+async def test_no_data_meta_event_has_is_no_data_true(fake_persona, poi_no_wiki):
+    """MetaEvent yielded for wiki-None POI must have is_no_data=True."""
+    fake_llm = make_fake_llm([])
+    fake_tts = make_fake_tts()
+
+    service = NarrationService(llm=fake_llm, tts=fake_tts, cache=None)
+    events = []
+    async for event in service.narrate(poi_no_wiki, fake_persona, lang="zh-TW", length="medium"):
+        events.append(event)
+
+    meta_events = [e for e in events if isinstance(e, MetaEvent)]
+    assert len(meta_events) == 1
+    assert meta_events[0].is_no_data is True
+
+
+@pytest.mark.asyncio
+async def test_normal_meta_event_has_is_no_data_false(fake_persona):
+    """MetaEvent yielded for POI with wiki must have is_no_data=False."""
+    from tour_guide.models.poi import WikiArticle
+    osm = OsmNode(id="osm:node:2", lat=25.0, lon=121.5, tags={"name": "故宮"})
+    wiki = WikiArticle(title="故宮", extract="故宮是...", url="", lang="zh-TW")
+    poi = POIContext(osm=osm, wiki=wiki)
+
+    fake_llm = make_fake_llm(["故宮是一個博物館。"])
+    fake_tts = make_fake_tts()
+
+    service = NarrationService(llm=fake_llm, tts=fake_tts, cache=None)
+    events = []
+    async for event in service.narrate(poi, fake_persona, lang="zh-TW", length="medium"):
+        events.append(event)
+
+    meta_events = [e for e in events if isinstance(e, MetaEvent)]
+    assert len(meta_events) == 1
+    assert meta_events[0].is_no_data is False
+
+
+@pytest.mark.asyncio
 async def test_no_data_fallback_not_triggered_when_wiki_exists(fake_persona):
     """When wiki is present, normal LLM path is used (LLM is called)."""
     from tour_guide.models.poi import WikiArticle

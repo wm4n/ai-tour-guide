@@ -30,12 +30,12 @@
 
 ## 4. Backend — is_no_data Flag on MetaEvent (Issue 3)
 
-- [ ] 4.1 Write failing unit test: `test_no_data_meta_event_has_is_no_data_true` in `test_narration_service.py`
-- [ ] 4.2 Write failing unit test: `test_normal_meta_event_has_is_no_data_false` in `test_narration_service.py`
-- [ ] 4.3 Run tests to verify they fail with `AttributeError: 'MetaEvent' object has no attribute 'is_no_data'`
-- [ ] 4.4 Add `is_no_data: bool = False` field to `MetaEvent` dataclass in `narration_service.py`
-- [ ] 4.5 Update `NarrationService.narrate()` to set `is_no_data = poi.wiki is None` and pass it to `MetaEvent()`
-- [ ] 4.6 Run narration service tests to verify all pass
+- [x] 4.1 Write failing unit test: `test_no_data_meta_event_has_is_no_data_true` in `test_narration_service.py`
+- [x] 4.2 Write failing unit test: `test_normal_meta_event_has_is_no_data_false` in `test_narration_service.py`
+- [x] 4.3 Run tests to verify they fail with `AttributeError: 'MetaEvent' object has no attribute 'is_no_data'`
+- [x] 4.4 Add `is_no_data: bool = False` field to `MetaEvent` dataclass in `narration_service.py`
+- [x] 4.5 Update `NarrationService.narrate()` to set `is_no_data = poi.wiki is None` and pass it to `MetaEvent()`
+- [x] 4.6 Run narration service tests to verify all pass
 
 ## 5. Frontend — MetaEvent isNoData + Consecutive No-Data Dedup (Issue 3)
 

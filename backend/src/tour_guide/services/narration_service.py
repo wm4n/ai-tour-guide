@@ -35,6 +35,7 @@ class MetaEvent:
     cache_hit: bool = False
     confidence: str = "low"
     estimated_duration_s: int = 0
+    is_no_data: bool = False
 
 
 @dataclass
@@ -129,11 +130,13 @@ class NarrationService:
 
         # 2. Cache miss (or no cache / force_regenerate): run full pipeline
         log_event(logger, LogEvents.NARRATION_START, poi_id=poi.osm.id, cache_hit=False)
+        is_no_data = poi.wiki is None
         yield MetaEvent(
             poi_id=poi.osm.id,
             poi_name=poi_name,
             cache_hit=False,
             confidence=confidence,
+            is_no_data=is_no_data,
         )
 
         voice_id = persona.voice.get(lang, "Charon")

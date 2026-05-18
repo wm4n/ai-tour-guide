@@ -19,14 +19,14 @@
 
 ## 3. Backend — distance_m in POIContext and PromptBuilder (Issue 2)
 
-- [ ] 3.1 Write failing unit tests for `distance_hint` binning in `test_prompt_builder.py` (4 distance ranges × zh-TW)
-- [ ] 3.2 Run tests to verify they fail with `KeyError: 'distance_hint'`
-- [ ] 3.3 Add `distance_m: float = 0.0` field to `POIContext` in `backend/src/tour_guide/models/poi.py`
-- [ ] 3.4 Add `DISTANCE_HINTS` class variable and `_distance_hint()` static method to `PromptBuilder`
-- [ ] 3.5 Update `PromptBuilder.build()` to compute `distance_hint` and pass it to `narration_template.format()`
-- [ ] 3.6 Update `backend/src/tour_guide/api/narration.py` to pass `distance_m=selected.distance_m` when constructing `POIContext`
-- [ ] 3.7 Run all prompt builder tests to verify they pass
-- [ ] 3.8 Run full backend unit test suite to verify nothing is broken
+- [x] 3.1 Write failing unit tests for `distance_hint` binning in `test_prompt_builder.py` (4 distance ranges × zh-TW)
+- [x] 3.2 Run tests to verify they fail with `KeyError: 'distance_hint'`
+- [x] 3.3 Add `distance_m: float = 0.0` field to `POIContext` in `backend/src/tour_guide/models/poi.py`
+- [x] 3.4 Add `DISTANCE_HINTS` class variable and `_distance_hint()` static method to `PromptBuilder`
+- [x] 3.5 Update `PromptBuilder.build()` to compute `distance_hint` and pass it to `narration_template.format()`
+- [x] 3.6 Update `backend/src/tour_guide/api/narration.py` to pass `distance_m=selected.distance_m` when constructing `POIContext`
+- [x] 3.7 Run all prompt builder tests to verify they pass
+- [x] 3.8 Run full backend unit test suite to verify nothing is broken
 
 ## 4. Backend — is_no_data Flag on MetaEvent (Issue 3)
 

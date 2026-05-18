@@ -115,6 +115,7 @@ async def narrate(
     poi_context = POIContext(
         osm=OsmNode(id=selected.poi_id, lat=selected.poi_lat, lon=selected.poi_lon, tags=tags),
         wiki=wiki,
+        distance_m=selected.distance_m,
     )
     logger.info(
         "narration request | selected_poi_id=%s | poi_name=%s | has_wiki=%s | candidates=%d",

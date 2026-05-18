@@ -198,6 +198,46 @@ class TestPromptBuilderBuild:
         assert "歷史" in system_content or "台灣" in system_content
         assert "繁體中文" in system_content
 
+    def test_build_distance_hint_nearby_when_close(self, history_uncle_persona):
+        """distance_m < 30 → '就在你附近' appears in user message."""
+        osm = OsmNode(id="osm:node:1", lat=25.0, lon=121.5, tags={"name": "近景點"})
+        poi = POIContext(osm=osm, wiki=None, distance_m=15.0)
+        messages = PromptBuilder.build(
+            persona=history_uncle_persona, poi=poi, lang="zh-TW", length="medium"
+        )
+        user_content = " ".join(m["content"] for m in messages if m["role"] == "user")
+        assert "就在你附近" in user_content
+
+    def test_build_distance_hint_not_far_when_medium(self, history_uncle_persona):
+        """distance_m 30–150 → '前方不遠處' appears in user message."""
+        osm = OsmNode(id="osm:node:2", lat=25.0, lon=121.5, tags={"name": "中景點"})
+        poi = POIContext(osm=osm, wiki=None, distance_m=80.0)
+        messages = PromptBuilder.build(
+            persona=history_uncle_persona, poi=poi, lang="zh-TW", length="medium"
+        )
+        user_content = " ".join(m["content"] for m in messages if m["role"] == "user")
+        assert "前方不遠處" in user_content
+
+    def test_build_distance_hint_this_area_when_far(self, history_uncle_persona):
+        """distance_m 150–500 → '這附近' appears in user message."""
+        osm = OsmNode(id="osm:node:3", lat=25.0, lon=121.5, tags={"name": "遠景點"})
+        poi = POIContext(osm=osm, wiki=None, distance_m=250.0)
+        messages = PromptBuilder.build(
+            persona=history_uncle_persona, poi=poi, lang="zh-TW", length="medium"
+        )
+        user_content = " ".join(m["content"] for m in messages if m["role"] == "user")
+        assert "這附近" in user_content
+
+    def test_build_distance_hint_in_this_area_when_very_far(self, history_uncle_persona):
+        """distance_m > 500 → '這一帶' appears in user message."""
+        osm = OsmNode(id="osm:node:4", lat=25.0, lon=121.5, tags={"name": "超遠景點"})
+        poi = POIContext(osm=osm, wiki=None, distance_m=800.0)
+        messages = PromptBuilder.build(
+            persona=history_uncle_persona, poi=poi, lang="zh-TW", length="medium"
+        )
+        user_content = " ".join(m["content"] for m in messages if m["role"] == "user")
+        assert "這一帶" in user_content
+
     def test_build_english_language(self, history_uncle_persona, poi_with_wiki):
         """Should work with English language."""
         messages = PromptBuilder.build(

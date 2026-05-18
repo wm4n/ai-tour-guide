@@ -16,6 +16,29 @@ class PromptBuilder:
         "long": "350",
     }
 
+    DISTANCE_HINTS: ClassVar[dict[str, list[tuple[float, str]]]] = {
+        "zh-TW": [
+            (30.0, "就在你附近"),
+            (150.0, "前方不遠處"),
+            (500.0, "這附近"),
+            (float("inf"), "這一帶"),
+        ],
+        "en": [
+            (30.0, "right here"),
+            (150.0, "not far ahead"),
+            (500.0, "nearby"),
+            (float("inf"), "in this area"),
+        ],
+    }
+
+    @staticmethod
+    def _distance_hint(distance_m: float, lang: str) -> str:
+        bins = PromptBuilder.DISTANCE_HINTS.get(lang, PromptBuilder.DISTANCE_HINTS["en"])
+        for threshold, label in bins:
+            if distance_m < threshold:
+                return label
+        return bins[-1][1]
+
     @staticmethod
     def build(
         persona: PersonaConfig,
@@ -54,11 +77,15 @@ class PromptBuilder:
         system_prompt_text = persona.system_prompt.get(lang, "")
         narration_template_text = persona.narration_template.get(lang, "")
 
+        # Compute distance hint from POI context
+        distance_hint = PromptBuilder._distance_hint(poi.distance_m, lang)
+
         # Fill in narration template variables
         user_prompt_text = narration_template_text.format(
             poi_name=poi_name,
             poi_context=poi_context_str,
             target_length=target_length,
+            distance_hint=distance_hint,
         )
 
         # Build message list

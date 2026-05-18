@@ -21,6 +21,7 @@ class WikiArticle:
 class POIContext:
     osm: OsmNode
     wiki: WikiArticle | None = None
+    distance_m: float = 0.0
 
 
 @dataclass

@@ -74,6 +74,10 @@ class TriggerNotifier extends Notifier<TriggerState> {
         if (prev?.currentPoi == null && next.currentPoi != null) {
           _sessionPlayedIds.add(next.currentPoi!.id);
           _hasEverFired = true;
+          // Clear dedup guard so remaining POIs can be narrated after this one finishes.
+          // The available list has shrunk (one POI consumed), so Jaccard would falsely
+          // indicate "no change" and skip the next request without this reset.
+          _lastCandidateIds = {};
         }
         // Start countdown when narration completes normally
         if (prev?.status == NarrationStatus.playing &&

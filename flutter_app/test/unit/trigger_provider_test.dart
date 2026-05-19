@@ -306,7 +306,11 @@ void main() {
         reason: 'countdown should restart when available.isEmpty');
   });
 
-  test('countdown restarts when dedup guard blocks (stationary, similar POIs)', () async {
+  test('narrate() fires again after narration even if stationary', () async {
+    // Regression: 5 POIs, backend plays node:1 → _sessionPlayedIds = {node:1}
+    // Next countdown: available = {2,3,4,5}, _lastCandidateIds = {1,2,3,4,5}
+    // Before fix: Jaccard = 4/5 = 0.8 ≥ 0.8 → SKIP (bug!)
+    // After fix: _lastCandidateIds cleared on playback → Jaccard not computed → fires
     const pois = [
       POI(id: 'osm:node:1', name: 'POI 1', lat: 25.10, lon: 121.54, tags: {}, distanceM: 50, confidence: 'high'),
       POI(id: 'osm:node:2', name: 'POI 2', lat: 25.10, lon: 121.54, tags: {}, distanceM: 60, confidence: 'high'),
@@ -314,9 +318,16 @@ void main() {
       POI(id: 'osm:node:4', name: 'POI 4', lat: 25.10, lon: 121.54, tags: {}, distanceM: 80, confidence: 'high'),
       POI(id: 'osm:node:5', name: 'POI 5', lat: 25.10, lon: 121.54, tags: {}, distanceM: 90, confidence: 'high'),
     ];
+    // First narration plays node:1 → _sessionPlayedIds={1}, _lastCandidateIds cleared.
+    // Second narration (subsequent) returns SkipEvent → no playback → _lastCandidateIds
+    // gets set to {2,3,4,5} and NOT cleared (no MetaEvent). Third countdown: same
+    // available {2,3,4,5} with no movement → dedup guard blocks → callCount stays 2.
     const firstNarrationEvents = [
       MetaEvent(poiId: 'osm:node:1', cacheHit: false, confidence: 'high'),
       EndEvent(),
+    ];
+    const subsequentEvents = [
+      SkipEvent(),
     ];
     final fakeLocation = FakeLocationService();
     final fakeAudio = FakeAudioPlayerService();
@@ -324,7 +335,55 @@ void main() {
     final trackingClient = _CountingBackendClient(
       nearbyPois: pois,
       firstEvents: firstNarrationEvents,
-      subsequentEvents: firstNarrationEvents,
+      subsequentEvents: subsequentEvents,
+    );
+    final container = ProviderContainer(
+      overrides: [
+        locationServiceProvider.overrideWithValue(fakeLocation),
+        backendClientProvider.overrideWithValue(trackingClient),
+        audioPlayerServiceProvider.overrideWithValue(fakeAudio),
+        localDbProvider.overrideWithValue(db),
+        sessionLangProvider.overrideWithValue('zh-TW'),
+        fallbackTimeoutProvider.overrideWithValue(const Duration(seconds: 30)),
+        appSettingsProvider.overrideWith(
+          () => _FakeSettingsNotifier(
+            const AppSettings(skipDisplacementM: 500, countdownSeconds: 1),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(db.close);
+    container.listen(triggerProvider, (_, __) {});
+    container.listen(narrationProvider, (_, __) {});
+    fakeLocation.emit(fakePosition(25.10, 121.54));
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+    expect(trackingClient.callCount, 1, reason: 'first narration should fire');
+    // Wait for countdown + narration to complete → second call should fire (dedup cleared)
+    // Then third countdown: SkipEvent was returned, available unchanged → dedup blocks → stays 2
+    await Future<void>.delayed(const Duration(seconds: 3));
+    expect(trackingClient.callCount, 2,
+        reason: 'dedup guard must not block when POI was played (available list changed)');
+  });
+
+  test('dedup guard blocks second narrate() after backend SKIP with unchanged POIs', () async {
+    // Scenario: backend returns SkipEvent (no playback) → _lastCandidateIds is NOT cleared
+    // → second countdown ends with same available list and no movement → dedup blocks
+    const pois = [
+      POI(id: 'osm:node:1', name: 'POI 1', lat: 25.10, lon: 121.54, tags: {}, distanceM: 50, confidence: 'high'),
+      POI(id: 'osm:node:2', name: 'POI 2', lat: 25.10, lon: 121.54, tags: {}, distanceM: 60, confidence: 'high'),
+      POI(id: 'osm:node:3', name: 'POI 3', lat: 25.10, lon: 121.54, tags: {}, distanceM: 70, confidence: 'high'),
+      POI(id: 'osm:node:4', name: 'POI 4', lat: 25.10, lon: 121.54, tags: {}, distanceM: 80, confidence: 'high'),
+      POI(id: 'osm:node:5', name: 'POI 5', lat: 25.10, lon: 121.54, tags: {}, distanceM: 90, confidence: 'high'),
+    ];
+    const skipEvent = [SkipEvent()];
+    final fakeLocation = FakeLocationService();
+    final fakeAudio = FakeAudioPlayerService();
+    final db = LocalDb.forTesting(NativeDatabase.memory());
+    final trackingClient = _CountingBackendClient(
+      nearbyPois: pois,
+      firstEvents: skipEvent,
+      subsequentEvents: skipEvent,
     );
     final container = ProviderContainer(
       overrides: [
@@ -349,7 +408,7 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 200));
     expect(trackingClient.callCount, 1);
     await Future<void>.delayed(const Duration(seconds: 2));
-    expect(trackingClient.callCount, 1, reason: 'dedup should prevent second narration');
+    expect(trackingClient.callCount, 1, reason: 'dedup should prevent second narration after SKIP with unchanged POIs');
     final state = container.read(triggerProvider);
     expect(state.isCountingDown, isTrue,
         reason: 'countdown should restart after dedup guard blocks');

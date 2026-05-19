@@ -134,3 +134,9 @@ tmp/
 # Backend runtime narration artifacts (generated during testing)
 backend/osm_*.audio
 backend/osm_*.meta.json
+
+# Backend Overpass/POI query cache files
+backend/region_*.json
+
+# Claude Code superpowers plugin (local dev tooling)
+.superpowers/

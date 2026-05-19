@@ -130,3 +130,7 @@ backend/narration_cache/
 # Local testing artifacts
 tmp/
 *.tmp
+
+# Backend runtime narration artifacts (generated during testing)
+backend/osm_*.audio
+backend/osm_*.meta.json

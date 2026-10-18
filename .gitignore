@@ -99,16 +99,16 @@ coverage/
 **/linux/flutter/generated_plugins.cmake
 
 # Backend (Python)
-backend/__pycache__/
-backend/.venv/
-backend/venv/
-backend/*.egg-info/
-backend/.pytest_cache/
-backend/.mypy_cache/
-backend/.ruff_cache/
-backend/htmlcov/
-backend/.coverage
-backend/dist/
+legacy/backend/__pycache__/
+legacy/backend/.venv/
+legacy/backend/venv/
+legacy/backend/*.egg-info/
+legacy/backend/.pytest_cache/
+legacy/backend/.mypy_cache/
+legacy/backend/.ruff_cache/
+legacy/backend/htmlcov/
+legacy/backend/.coverage
+legacy/backend/dist/
 
 # Secrets / local config
 .env
@@ -119,24 +119,37 @@ backend/dist/
 service-account*.json
 
 # Plan F — local API key configs (never commit actual keys)
-flutter_app/dart_defines/prod.json
-flutter_app/ios/Flutter/LocalConfig.xcconfig
+legacy/flutter_app/dart_defines/prod.json
+legacy/flutter_app/ios/Flutter/LocalConfig.xcconfig
 scripts/.env
 
 # Cache directories used by backend at runtime
-backend/cache/
-backend/narration_cache/
+legacy/backend/cache/
+legacy/backend/narration_cache/
 
 # Local testing artifacts
 tmp/
 *.tmp
 
 # Backend runtime narration artifacts (generated during testing)
-backend/osm_*.audio
-backend/osm_*.meta.json
+legacy/backend/osm_*.audio
+legacy/backend/osm_*.meta.json
 
 # Backend Overpass/POI query cache files
-backend/region_*.json
+legacy/backend/region_*.json
 
 # Claude Code superpowers plugin (local dev tooling)
 .superpowers/
+
+# Buddy Host (v2)
+host/.venv/
+host/.pytest_cache/
+host/.ruff_cache/
+host/__pycache__/
+host/**/__pycache__/
+host/out/
+host/cache/
+host/logs/
+
+# 絕不入 repo：機密與參考聲音一律放 ~/.buddy-host/
+.buddy-host/

@@ -1,4 +1,8 @@
-# Workflow Orchestration
+## MUST rules
+
+- Always use Traditional Chinese to respond to user prompts, unless explicitly asked to use another language.
+
+## Workflow Orchestration
 
 ### 1. Brainstorming Default
 
@@ -19,6 +23,7 @@
 - Write rules for yourself that prevent the same mistake
 - Ruthlessly iterate on these lessons until mistake rate drops
 - Review lessons at session start for relevant project
+- Remember user's preferences in `tasks/preferences.md` and suggest improved solutions to them for similar tasks
 
 ### 4. Verification Before Done
 

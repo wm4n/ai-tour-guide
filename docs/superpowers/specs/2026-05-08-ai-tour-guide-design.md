@@ -7,7 +7,7 @@
 | 適用範圍 | v1（自用、無登入、全球通用式 AI tour guide） |
 | 後續文件 | Implementation plan（待建立） |
 
-## 實作進度（2026-05-13 更新）
+## 實作進度（2026-05-14 更新）
 
 | Plan | 內容 | 狀態 |
 |---|---|---|
@@ -15,11 +15,13 @@
 | **B** | Flutter App MVP — 地圖、POI marker、旁白播放 | ✅ 完成 |
 | **C** | Persona 系統（5 個）+ 雙語旁白（zh-TW / en） | ✅ 完成 |
 | **D** | Push-to-talk Q&A（`/qa` SSE endpoint） | ✅ 完成 |
-| **E** | 食家 persona + Google Places | 未開始 |
-| **F** | 背景定位 + 部署上線 | 未開始 |
+| **E** | 食家 persona + Google Places | ✅ 完成 |
+| **F** | 背景定位 + Cloud Run 部署上線 | ✅ 完成 |
 
 Plan C 實作細節見：`docs/superpowers/specs/2026-05-12-plan-c-persona-i18n-design.md`
 Plan D 實作細節見：`docs/superpowers/specs/2026-05-13-plan-d-push-to-talk-design.md`
+Plan E 實作細節見：`docs/superpowers/specs/2026-05-13-plan-e-foodie-google-places-design.md`
+Plan F 實作細節見：`docs/superpowers/specs/2026-05-14-plan-f-background-location-deploy-design.md`
 
 ---
 

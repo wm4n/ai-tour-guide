@@ -30,6 +30,28 @@ class FakeWikiClient:
         return self._article
 
 
+class FailingWikiClient:
+    async def summary(self, title, lang):
+        raise ConnectionError("Wikipedia unreachable")
+
+
+class FailingOverpassClient:
+    async def query(self, bbox, tags):
+        raise ConnectionError("Overpass unavailable")
+
+
+class FakeWikiWithGeosearch:
+    def __init__(self, article, geosearch_nodes):
+        self._article = article
+        self._geosearch_nodes = geosearch_nodes
+
+    async def summary(self, title, lang):
+        return self._article
+
+    async def geosearch(self, lat, lon, radius_m, lang):
+        return self._geosearch_nodes
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -107,6 +129,21 @@ class TestPOIServiceNearby:
         assert pois_second[0].wiki is not None  # wiki correctly deserialized from cache
 
 
+class TestPOIServiceWikipediaResilience:
+    """Wikipedia failures should not fail the entire nearby() call."""
+
+    async def test_wikipedia_failure_returns_pois_without_wiki(self, tmp_path, sample_node):
+        """If Wikipedia is unreachable, POIs are still returned with wiki=None."""
+        overpass = FakeOverpassClient([sample_node])
+        cache = POICache(cache_dir=tmp_path / "cache")
+
+        service = POIService(overpass=overpass, wikipedia=FailingWikiClient(), cache=cache)
+        pois = await service.nearby(25.1023, 121.5482, 500, "history_uncle", "zh-TW")
+
+        assert len(pois) >= 1
+        assert pois[0].wiki is None  # degraded gracefully
+
+
 class TestPOIServiceFoodieRouting:
     """Tests for POIService persona-aware routing."""
 
@@ -179,3 +216,27 @@ class TestPOIServiceFoodieRouting:
         assert pois[0].wiki is None
         assert pois[0].place_types == ["restaurant"]
         assert pois[0].vicinity == "信義區"
+
+
+class TestPOIServiceOverpassFallback:
+    """When Overpass fails, POIService falls back to Wikipedia geosearch."""
+
+    async def test_overpass_failure_falls_back_to_wikipedia_geosearch(
+        self, tmp_path, sample_node, sample_article
+    ):
+        """Overpass failure triggers Wikipedia geosearch fallback; POIs are returned."""
+        wiki = FakeWikiWithGeosearch(
+            article=sample_article,
+            geosearch_nodes=[sample_node],
+        )
+        cache = POICache(cache_dir=tmp_path / "cache")
+
+        service = POIService(
+            overpass=FailingOverpassClient(),
+            wikipedia=wiki,
+            cache=cache,
+        )
+        pois = await service.nearby(25.1023, 121.5482, 500, "history_uncle", "zh-TW")
+
+        assert len(pois) >= 1
+        assert pois[0].wiki is not None  # wiki fetched from geosearch node's wikipedia tag

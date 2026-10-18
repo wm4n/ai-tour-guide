@@ -4,10 +4,10 @@ WORKDIR /app
 
 # Install dependencies first for layer caching
 COPY pyproject.toml ./
-RUN pip install --no-cache-dir .
-
-# Copy source code
 COPY src/ ./src/
+COPY prompts/ ./prompts/
+
+RUN pip install --no-cache-dir .
 
 # Cloud Run injects PORT; default to 8080 if not set
 ENV PORT=8080

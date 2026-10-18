@@ -31,7 +31,7 @@ class GeminiSttAdapter:
             client = genai.Client(api_key=self._api_key)
             lang_hint = "繁體中文" if lang == "zh-TW" else "English"
             response = client.models.generate_content(
-                model="gemini-2.0-flash",
+                model="gemini-2.5-flash",
                 contents=[
                     {
                         "parts": [

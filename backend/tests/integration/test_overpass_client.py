@@ -7,7 +7,7 @@ import respx
 from tour_guide.clients.overpass import OverpassClient, OverpassRateLimitError
 from tour_guide.models.poi import BBox, OsmNode, TagFilter
 
-OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+OVERPASS_URL = "https://overpass.kumi.systems/api/interpreter"
 
 SAMPLE_BBOX = BBox(min_lat=25.0, min_lon=121.5, max_lat=25.2, max_lon=121.6)
 SAMPLE_TAGS = [TagFilter(key="tourism")]

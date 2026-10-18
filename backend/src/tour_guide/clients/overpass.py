@@ -20,17 +20,17 @@ class OverpassRateLimitError(Exception):
 
 
 class OverpassClient:
-    OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+    OVERPASS_URL = "https://overpass.kumi.systems/api/interpreter"
 
     def __init__(self, client: httpx.AsyncClient | None = None):
-        self._client = client or httpx.AsyncClient()
+        self._client = client or httpx.AsyncClient(timeout=30.0)
 
     def _build_query(self, bbox: BBox, tags: list[TagFilter]) -> str:
         conditions = "\n".join(
-            f'  node["{t.key}"]({bbox.min_lat},{bbox.min_lon},{bbox.max_lat},{bbox.max_lon});'
+            f'  nwr["{t.key}"]({bbox.min_lat},{bbox.min_lon},{bbox.max_lat},{bbox.max_lon});'
             for t in tags
         )
-        return f"[out:json];\n(\n{conditions}\n);\nout body;"
+        return f"[out:json];\n(\n{conditions}\n);\nout center;"
 
     async def query(self, bbox: BBox, tags: list[TagFilter]) -> list[OsmNode]:
         query = self._build_query(bbox, tags)
@@ -51,15 +51,20 @@ class OverpassClient:
                     raise httpx.HTTPStatusError("503", request=resp.request, response=resp)
                 resp.raise_for_status()
                 data = resp.json()
-                nodes = [
-                    OsmNode(
+                nodes = []
+                for el in data.get("elements", []):
+                    if "lat" in el and "lon" in el:
+                        lat, lon = el["lat"], el["lon"]
+                    elif "center" in el:
+                        lat, lon = el["center"]["lat"], el["center"]["lon"]
+                    else:
+                        continue
+                    nodes.append(OsmNode(
                         id=f"osm:{el['type']}:{el['id']}",
-                        lat=el["lat"],
-                        lon=el["lon"],
+                        lat=lat,
+                        lon=lon,
                         tags=el.get("tags", {}),
-                    )
-                    for el in data.get("elements", [])
-                ]
+                    ))
                 elapsed_ms = int((time.monotonic() - start) * 1000)
                 log_event(
                     logger, LogEvents.OVERPASS_RESPONSE,

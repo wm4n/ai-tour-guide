@@ -71,7 +71,7 @@ gcloud run deploy "${SERVICE_NAME}" \
   --max-instances 10 \
   --memory 512Mi \
   --cpu 1 \
-  --set-secrets "API_KEY=${SECRET_NAME}:latest" \
+  --set-secrets "API_KEY=${SECRET_NAME}:latest,GEMINI_API_KEY=gemini-api-key:latest" \
   --project "${PROJECT_ID}" \
   --quiet
 

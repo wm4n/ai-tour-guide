@@ -159,7 +159,9 @@ class NarrationService:
         for msg in raw_messages:
             logger.info("LLM input [%s] | poi_id=%s\n%s", msg["role"], poi.osm.id, msg["content"])
         llm_messages = [Message(role=m["role"], content=m["content"]) for m in raw_messages]
-        opts = LlmOpts()
+        # Gemini 2.5 Flash thinking tokens count against max_tokens; narration
+        # needs ~200+ output tokens on top of thinking overhead (~2000 tokens).
+        opts = LlmOpts(max_tokens=8192)
 
         # 4. Stream LLM → split sentences → TTS → yield events
         buffer = StreamingSentenceBuffer()

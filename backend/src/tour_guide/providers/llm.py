@@ -13,7 +13,7 @@ class Message:
 
 @dataclass
 class LlmOpts:
-    model: str = "gemini/gemini-2.0-flash"
+    model: str = "gemini/gemini-2.5-flash"
     temperature: float = 0.7
     max_tokens: int = 2048
 
@@ -29,7 +29,7 @@ class LlmProvider(Protocol):
 class LiteLLMAdapter:
     """Real LLM provider using LiteLLM with Gemini Flash."""
 
-    def __init__(self, api_key: str, model: str = "gemini/gemini-2.0-flash"):
+    def __init__(self, api_key: str, model: str = "gemini/gemini-2.5-flash"):
         self._api_key = api_key
         self._model = model
 

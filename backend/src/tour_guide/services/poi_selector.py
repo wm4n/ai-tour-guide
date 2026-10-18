@@ -63,12 +63,15 @@ class POISelectorService:
             Message(role="system", content="You are a tour guide POI selector. Output only the poi_id or SKIP."),
             Message(role="user", content=user_content),
         ]
-        opts = LlmOpts(temperature=0.1, max_tokens=64)
+        # max_tokens must be large enough for Gemini 2.5 Flash: thinking tokens count
+        # toward the maxOutputTokens budget, so a low limit truncates the actual answer.
+        opts = LlmOpts(temperature=0.1, max_tokens=2048)
 
         result = ""
         async for chunk in self._llm.chat_stream(messages, opts):
             result += chunk
         selected_id = result.strip()
+        logger.debug("POI selector raw LLM output: %r", selected_id)
 
         if selected_id == "SKIP":
             log_event(
@@ -81,10 +84,13 @@ class POISelectorService:
 
         valid_ids = {c.poi_id for c in candidates}
         if selected_id not in valid_ids:
+            # Prefer a candidate with wiki data as fallback; otherwise use first candidate
+            wiki_candidates = [c for c in candidates if c.wiki_extract]
+            fallback = wiki_candidates[0] if wiki_candidates else candidates[0]
             logger.warning(
-                "POI selector returned invalid id '%s', falling back to first candidate", selected_id
+                "POI selector returned invalid id %r, falling back to %s", selected_id, fallback.poi_id
             )
-            selected_id = candidates[0].poi_id
+            selected_id = fallback.poi_id
 
         log_event(
             logger,

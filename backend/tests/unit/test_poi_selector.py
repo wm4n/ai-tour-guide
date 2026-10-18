@@ -100,3 +100,16 @@ async def test_selector_falls_back_to_first_on_invalid_not_skip(fake_persona):
     service = POISelectorService(llm=llm)
     selected = await service.select(candidates=candidates, persona=fake_persona, lang="zh-TW")
     assert selected == "node/A"
+
+
+@pytest.mark.asyncio
+async def test_selector_fallback_prefers_wiki_candidate_over_first(fake_persona):
+    """When LLM returns invalid id, fallback should pick a wiki candidate, not always first."""
+    candidates = [
+        POICandidate(poi_id="node/A", poi_name="路標", distance_m=10, wiki_extract=None),
+        POICandidate(poi_id="node/B", poi_name="故宮", distance_m=200, wiki_extract="故宮介紹"),
+    ]
+    llm = make_fake_llm("osm:node")  # truncated id like seen in prod
+    service = POISelectorService(llm=llm)
+    selected = await service.select(candidates=candidates, persona=fake_persona, lang="zh-TW")
+    assert selected == "node/B"

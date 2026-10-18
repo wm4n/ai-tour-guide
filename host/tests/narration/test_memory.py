@@ -25,3 +25,10 @@ def test_swap_used_in_megabytes():
 def test_swap_used_in_gigabytes_and_zero():
     assert parse_swap_used_bytes("total = 3.00G  used = 1.50G  free = 1.50G") == int(1.5 * 1024**3)
     assert parse_swap_used_bytes("total = 0.00M  used = 0.00M  free = 0.00M") == 0
+
+
+def test_unexpected_vm_stat_output_is_a_clear_error():
+    import pytest
+
+    with pytest.raises(ValueError, match="vm_stat"):
+        parse_vm_stat_used_bytes("something else entirely")

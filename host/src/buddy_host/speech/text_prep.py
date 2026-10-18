@@ -79,6 +79,15 @@ def _clock(match: re.Match[str]) -> str:
 
 
 _NUM = r"\d+(?:\.\d+)?"
+# 「1000年歷史」是長度不是年份
+_DURATION_AFTER = "(?:歷史|的歷史|以上|多|之久)"
+
+
+def _slash_date(match: re.Match[str]) -> str:
+    month, day = int(match[1]), int(match[2])
+    if 1 <= month <= 12 and 1 <= day <= 31:
+        return f"{_cardinal(month, liang=False)}月{_cardinal(day, liang=False)}日"
+    return match[0]
 
 
 def _any_number(raw: str) -> str:
@@ -90,7 +99,13 @@ def numbers_to_chinese(text: str) -> str:
     text = re.sub(r"(?<=\d),(?=\d{3}(?!\d))", "", text)
     text = re.sub(r"(?<!\d)(\d{1,2}):(\d{2})(?!\d)", _clock, text)
     text = re.sub(rf"({_NUM})\s*%", lambda m: "百分之" + _any_number(m[1]), text)
-    text = re.sub(r"(?<!\d)(\d{4})(?=年)", lambda m: _by_digit(m[1]), text)
+    text = re.sub(
+        r"(?<!\d)(\d{4})\s*[～~〜–]\s*(\d{4})(?=年)",
+        lambda m: _by_digit(m[1]) + "到" + _by_digit(m[2]),
+        text,
+    )
+    text = re.sub(rf"(?<!\d)(\d{{4}})(?=年(?!{_DURATION_AFTER}))", lambda m: _by_digit(m[1]), text)
+    text = re.sub(r"(?<![\d/])(\d{1,2})/(\d{1,2})(?![\d/])", _slash_date, text)
     text = re.sub(
         r"(?<!\d)(\d{1,2})(?=[月日號])", lambda m: _cardinal(int(m[1]), liang=False), text
     )

@@ -114,3 +114,29 @@ async def test_client_errors_are_not_retried():
 
     assert response.status_code == 404
     assert len(calls) == 1
+
+
+async def test_retry_after_header_is_honoured_when_longer_than_the_backoff():
+    responses = iter(
+        [
+            httpx2.Response(429, headers={"Retry-After": "7"}),
+            httpx2.Response(200, json={}),
+        ]
+    )
+    sleeps: list[float] = []
+
+    def handler(request):
+        return next(responses)
+
+    await make_http(handler, sleeps).request("GET", "https://example.test/x")
+
+    assert sleeps == [7]
+
+
+async def test_absurd_retry_after_is_capped():
+    responses = iter([httpx2.Response(503, headers={"Retry-After": "3600"}), httpx2.Response(200)])
+    sleeps: list[float] = []
+
+    await make_http(lambda r: next(responses), sleeps).request("GET", "https://example.test/x")
+
+    assert sleeps == [30]

@@ -8,7 +8,10 @@ from dataclasses import dataclass
 
 
 def parse_vm_stat_used_bytes(output: str) -> int:
-    page_size = int(re.search(r"page size of (\d+) bytes", output).group(1))  # type: ignore[union-attr]
+    match = re.search(r"page size of (\d+) bytes", output)
+    if match is None:
+        raise ValueError(f"無法解析 vm_stat 輸出：{output[:80]!r}")
+    page_size = int(match.group(1))
 
     def pages(label: str) -> int:
         match = re.search(rf"{label}:\s+(\d+)\.", output)

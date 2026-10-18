@@ -161,3 +161,25 @@ class TestChunks:
 
     def test_empty(self):
         assert chunk_sentences([], limit=90) == []
+
+
+class TestSpecReviewEdgeCases:
+    def test_four_digit_duration_is_a_quantity_not_a_year(self):
+        assert numbers_to_chinese("1000年歷史") == "一千年歷史"
+        assert numbers_to_chinese("兩千年以上") == "兩千年以上"
+        assert numbers_to_chinese("2000年以上") == "兩千年以上"
+        assert numbers_to_chinese("1800年的歷史") == "一千八百年的歷史"
+
+    def test_year_followed_by_other_words_is_still_a_year(self):
+        assert numbers_to_chinese("2004年開始") == "二零零四年開始"
+        assert numbers_to_chinese("1895年以來") == "一八九五年以來"
+
+    def test_year_range_reads_both_ends_as_years(self):
+        assert numbers_to_chinese("1895～1945年") == "一八九五到一九四五年"
+
+    def test_slash_date(self):
+        assert numbers_to_chinese("10/18開放") == "十月十八日開放"
+        assert numbers_to_chinese("1/6休園") == "一月六日休園"
+
+    def test_slash_that_is_not_a_date_is_left_alone(self):
+        assert numbers_to_chinese("50/60") == "五十/六十"

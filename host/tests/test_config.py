@@ -54,3 +54,31 @@ def test_default_home_is_dot_buddy_host(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.delenv("BUDDY_HOST_HOME", raising=False)
 
     assert default_home() == Path.home() / ".buddy-host"
+
+
+@pytest.mark.parametrize(
+    "host",
+    [
+        "127.0.0.1",
+        "::1",
+        "localhost",
+        "100.64.0.1",
+        "100.100.100.100",
+        "100.127.255.254",
+        "fd7a:115c:a1e0::1",
+    ],
+)
+def test_tailscale_and_loopback_listen_hosts_are_accepted(tmp_path: Path, host: str):
+    write_config(tmp_path, f'listen_host = "{host}"\n')
+
+    assert load_config(tmp_path).listen_host == host
+
+
+@pytest.mark.parametrize(
+    "host", ["192.168.1.5", "10.0.0.2", "100.128.0.1", "8.8.8.8", "mac.example.com"]
+)
+def test_other_interfaces_are_rejected(tmp_path: Path, host: str):
+    write_config(tmp_path, f'listen_host = "{host}"\n')
+
+    with pytest.raises(ConfigError, match="Tailscale"):
+        load_config(tmp_path)

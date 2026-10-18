@@ -228,3 +228,78 @@ async def test_one_failing_script_does_not_lose_the_others(tmp_path):
     prepared = await preparer.prepare(HERE)
 
     assert [p.name for p in prepared] == ["B"]
+
+
+async def test_policy_and_quota_errors_stop_the_whole_preparation(tmp_path):
+    import pytest
+
+    from buddy_host.llm.claude_cli import QuotaExceededError
+    from buddy_host.llm.models import ForbiddenModelError
+
+    for error in (ForbiddenModelError("fable"), QuotaExceededError("limit")):
+
+        class RaisingLlm(FakeLlm):
+            async def run(self, request, on_text=None, _error=error):
+                raise _error
+
+        sub = tmp_path / type(error).__name__
+        sub.mkdir()
+        preparer, _ = make(sub, [osm("A", 100), osm("B", 150)], llm=RaisingLlm())
+
+        with pytest.raises(type(error)):
+            await preparer.prepare(HERE)
+
+
+async def test_editing_the_persona_file_invalidates_cached_narrations(tmp_path):
+    preparer, parts = make(tmp_path, [osm("霞海城隍廟", 100)], limit=1)
+    await preparer.prepare(HERE)
+
+    (tmp_path / "buddy.md").write_text("你是小葉。", encoding="utf-8")
+    await preparer.prepare(HERE)
+
+    assert [r.system_prompt for r in parts["llm"].requests] == ["你是小花。", "你是小葉。"]
+
+
+async def test_new_told_before_notes_invalidate_the_cache(tmp_path):
+    preparer, parts = make(tmp_path, [osm("霞海城隍廟", 100)], limit=1)
+    await preparer.prepare(HERE)
+
+    await preparer.prepare(HERE, told_before={"osm:node:霞海城隍廟": ("上次講過它是廟",)})
+
+    assert len(parts["llm"].requests) == 2
+
+
+async def test_nearby_positions_share_one_overpass_query(tmp_path):
+    boxes = []
+
+    class Recording(FakeOverpass):
+        async def nearby(self, box):
+            boxes.append(box)
+            return []
+
+    preparer, parts = make(tmp_path, [])
+    preparer._overpass = Recording([])
+
+    await preparer.prepare(Location(25.0553, 121.5098, 0.0))
+    await preparer.prepare(Location(25.0551, 121.5101, 0.0))
+
+    assert boxes[0] == boxes[1]
+
+
+async def test_query_area_still_covers_the_search_radius_around_the_real_position(tmp_path):
+    boxes = []
+
+    class Recording(FakeOverpass):
+        async def nearby(self, box):
+            boxes.append(box)
+            return []
+
+    preparer, _ = make(tmp_path, [])
+    preparer._overpass = Recording([])
+    here = Location(25.0553, 121.5098, 0.0)
+
+    await preparer.prepare(here)
+
+    box = boxes[0]
+    margin = 500 / 111_195
+    assert box.min_lat <= here.lat - margin and box.max_lat >= here.lat + margin

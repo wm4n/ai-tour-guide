@@ -33,7 +33,7 @@ class HostClient {
       if (response.statusCode == 200) return ConnectionStatus.connected;
       if (response.statusCode == 401) return ConnectionStatus.unauthorized;
       return ConnectionStatus.unreachable;
-    } catch (_) {
+    } on Exception {
       return ConnectionStatus.unreachable;
     }
   }

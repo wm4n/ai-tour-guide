@@ -1,6 +1,7 @@
 """為一個位置準備介紹：找景點 → 排序 → 抓摘要 → Claude 寫稿 → 合成驗收 → 存進快取。"""
 
 import asyncio
+import hashlib
 import json
 import logging
 import re
@@ -10,7 +11,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
 
-from buddy_host.llm.models import LlmRequest, LlmResult
+from buddy_host.llm.claude_cli import QuotaExceededError
+from buddy_host.llm.models import ForbiddenModelError, LlmRequest, LlmResult
 from buddy_host.narration.prompt import ScriptContext, build_script_request, load_persona
 from buddy_host.places.geo import bounding_box
 from buddy_host.places.merge import merge_wiki_hits, names_match
@@ -56,6 +58,16 @@ def _safe(candidate_id: str) -> str:
     return re.sub(r"[^\w\-]+", "_", candidate_id)
 
 
+SNAP_DECIMALS = 3  # 約 110 公尺；相近的位置共用同一份 Overpass／Wikipedia 查詢與快取
+SNAP_MARGIN_M = 150.0  # 吸附造成的位移上限（約 80 公尺）再留餘裕
+
+
+def _fingerprint(persona: str, told_before: tuple[str, ...]) -> str:
+    # 個性檔或「講過什麼」變了，舊稿就不能再用（設計文件 6.2：改了下次呼叫就生效）
+    payload = json.dumps([persona, list(told_before)], ensure_ascii=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
 def _relative_bearing(location: Location, bearing: float) -> float | None:
     if location.heading_deg is None:
         return None
@@ -93,9 +105,10 @@ class AreaPreparer:
         recent_topics: tuple[str, ...] = (),
         told_before: Mapping[str, tuple[str, ...]] | None = None,
     ) -> list[PreparedNarration]:
-        box = bounding_box(location.lat, location.lon, self._radius_m)
-        candidates = await self._overpass.nearby(box)
-        hits = await self._wiki.geosearch(location.lat, location.lon, int(self._radius_m))
+        snapped = (round(location.lat, SNAP_DECIMALS), round(location.lon, SNAP_DECIMALS))
+        query_radius = self._radius_m + SNAP_MARGIN_M
+        candidates = await self._overpass.nearby(bounding_box(*snapped, query_radius))
+        hits = await self._wiki.geosearch(*snapped, int(query_radius))
         ranked = rank(
             merge_wiki_hits(candidates, hits),
             location,
@@ -106,11 +119,21 @@ class AreaPreparer:
         )
 
         told = told_before or {}
+        persona = load_persona(self._persona_path)
+        prints = {
+            item.candidate.id: _fingerprint(persona, told.get(item.candidate.id, ()))
+            for item in ranked
+        }
         # 已有快取的直接用；其餘的稿子同時開寫，合成（只有一個模型）再依序進行
-        cached = {item.candidate.id: self._load_cached(item.candidate) for item in ranked}
+        cached = {
+            item.candidate.id: self._load_cached(item.candidate, prints[item.candidate.id])
+            for item in ranked
+        }
         scripts = {
             item.candidate.id: asyncio.create_task(
-                self._write_script(item, location, recent_topics, told.get(item.candidate.id, ()))
+                self._write_script(
+                    item, location, persona, recent_topics, told.get(item.candidate.id, ())
+                )
             )
             for item in ranked
             if cached[item.candidate.id] is None
@@ -124,10 +147,16 @@ class AreaPreparer:
                     continue
                 try:
                     script = await scripts[item.candidate.id]
-                except Exception:  # 一段寫稿失敗（額度、逾時…）不要拖垮其他段
+                except (ForbiddenModelError, QuotaExceededError):
+                    raise  # 政策違規與額度用盡不是單段失敗，要讓呼叫端知道
+                except Exception:  # 一段寫稿失敗（逾時、格式…）不要拖垮其他段
                     logger.exception("寫稿失敗：%s", item.candidate.name)
                     continue
-                made = await self._synthesize(item, script) if script else None
+                made = (
+                    await self._synthesize(item, script, prints[item.candidate.id])
+                    if script
+                    else None
+                )
                 if made:
                     prepared.append(made)
         finally:
@@ -139,11 +168,13 @@ class AreaPreparer:
         base = self._out_dir / _safe(candidate.id)
         return base.with_suffix(".wav"), base.with_suffix(".meta.json")
 
-    def _load_cached(self, candidate: Candidate) -> PreparedNarration | None:
+    def _load_cached(self, candidate: Candidate, fingerprint: str) -> PreparedNarration | None:
         wav, meta_path = self._paths(candidate)
         if not (wav.exists() and meta_path.exists()):
             return None
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        if meta.get("fingerprint") != fingerprint:
+            return None
         return PreparedNarration(
             candidate.id, meta["name"], meta["script"], wav, meta_path,
             meta["audio_seconds"], meta["distance_m"],
@@ -163,6 +194,7 @@ class AreaPreparer:
         self,
         item: Ranked,
         location: Location,
+        persona: str,
         recent_topics: tuple[str, ...],
         told_before: tuple[str, ...],
     ) -> str:
@@ -175,10 +207,12 @@ class AreaPreparer:
             told_before=told_before,
             recent_topics=recent_topics,
         )
-        request = build_script_request(load_persona(self._persona_path), context)
+        request = build_script_request(persona, context)
         return (await self._llm.run(request)).text.strip()
 
-    async def _synthesize(self, item: Ranked, script: str) -> PreparedNarration | None:
+    async def _synthesize(
+        self, item: Ranked, script: str, fingerprint: str
+    ) -> PreparedNarration | None:
         candidate = item.candidate
         speech = await asyncio.to_thread(self._speech.run, script)
         if speech.audio_seconds <= 0:
@@ -196,6 +230,7 @@ class AreaPreparer:
             "bearing_deg": round(item.bearing_deg, 1),
             "score": round(item.score, 3),
             "script": script,
+            "fingerprint": fingerprint,
             "audio_seconds": round(speech.audio_seconds, 2),
             "speech": speech.to_log(),
             "prepared_at": datetime.now(UTC).isoformat(),

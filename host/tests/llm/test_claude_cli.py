@@ -195,3 +195,13 @@ async def test_each_call_is_independent(home, record):
 
     assert seen(record)["argv"] == first
     assert len(UsageLog(home / "usage.jsonl").read_all()) == 2
+
+
+async def test_unparseable_stdout_lines_are_counted_in_the_usage_record(home, record, monkeypatch):
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", "noisy")
+
+    result = await make_client(home).run(request())
+
+    assert result.text == "你好，這是串流回覆。"
+    [entry] = UsageLog(home / "usage.jsonl").read_all()
+    assert entry["unparsed_lines"] == 2

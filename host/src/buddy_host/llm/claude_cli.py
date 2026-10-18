@@ -8,6 +8,7 @@
 
 import asyncio
 import json
+import logging
 import os
 import time
 from collections.abc import Callable
@@ -23,6 +24,8 @@ from buddy_host.llm.models import (
     resolve_model,
 )
 from buddy_host.llm.usage_log import UsageLog
+
+logger = logging.getLogger(__name__)
 
 TOKEN_FILENAME = "claude-token"
 _STRIPPED_ENV_PREFIXES = ("ANTHROPIC_", "CLAUDE_CODE_USE_")
@@ -67,6 +70,7 @@ class _Stream:
         self.rate_limits: list[dict] = []
         self.init_model: str | None = None
         self.result: dict | None = None
+        self.unparsed_lines = 0
 
     def feed(self, event: dict) -> None:
         kind = event.get("type")
@@ -132,6 +136,7 @@ class ClaudeCliClient:
                 "usage": result.get("usage", {}),
                 "reported_cost_usd": result.get("total_cost_usd"),
                 "rate_limit_events": stream.rate_limits,
+                "unparsed_lines": stream.unparsed_lines,
                 "duration_ms": result.get("duration_ms"),
                 "wall_ms": round((time.perf_counter() - started) * 1000),
                 "is_error": is_error,
@@ -209,20 +214,22 @@ class ClaudeCliClient:
             cwd=self._s.workdir,
             limit=_STDOUT_LIMIT,
         )
-        stderr_task = asyncio.create_task(proc.stderr.read())  # type: ignore[union-attr]
+        assert proc.stdin and proc.stdout and proc.stderr  # 以 PIPE 建立，必定存在
+        stderr_task = asyncio.create_task(proc.stderr.read())
 
         async def converse() -> int:
-            proc.stdin.write(request.prompt.encode("utf-8"))  # type: ignore[union-attr]
-            await proc.stdin.drain()  # type: ignore[union-attr]
-            proc.stdin.close()  # type: ignore[union-attr]
-            async for raw in proc.stdout:  # type: ignore[union-attr]
+            proc.stdin.write(request.prompt.encode("utf-8"))
+            await proc.stdin.drain()
+            proc.stdin.close()
+            async for raw in proc.stdout:
                 line = raw.decode("utf-8", errors="replace").strip()
                 if not line:
                     continue
                 try:
                     stream.feed(json.loads(line))
                 except json.JSONDecodeError:
-                    continue
+                    stream.unparsed_lines += 1
+                    logger.debug("claude stdout 不是 JSON，略過：%.80s", line)
             return await proc.wait()
 
         try:

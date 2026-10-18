@@ -47,6 +47,10 @@ elif mode == "crash":
     sys.stderr.write("boom: " + os.environ.get("CLAUDE_CODE_OAUTH_TOKEN", "") + "\n")
     sys.exit(3)
 
+if mode == "noisy":
+    print("this is not json", flush=True)
+    print("{broken", flush=True)
+
 emit({"type": "system", "subtype": "init", "model": "claude-sonnet-5-5", "session_id": "s1"})
 emit(
     {

@@ -7,9 +7,18 @@ dependencies = [
     "fastapi>=0.115",
     "uvicorn>=0.30",
     "httpx2>=2.14.0",
+    "opencc-python-reimplemented>=0.1.7",
+    "numpy>=2.5.4",
+    "truststore>=0.10.5",
 ]
 
 [dependency-groups]
+# 語音引擎很重（torch 等），只在要實際合成時安裝：uv sync --group speech
+speech = [
+    "kittenml==0.9.4",
+    "openai-whisper>=20240930",
+    "scipy>=1.11",
+]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",

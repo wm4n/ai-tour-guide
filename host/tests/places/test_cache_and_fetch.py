@@ -140,3 +140,18 @@ async def test_absurd_retry_after_is_capped():
     await make_http(lambda r: next(responses), sleeps).request("GET", "https://example.test/x")
 
     assert sleeps == [30]
+
+
+async def test_backoff_can_be_overridden_per_request():
+    sleeps: list[float] = []
+    calls = []
+
+    def handler(request):
+        calls.append(1)
+        return httpx2.Response(503)
+
+    with pytest.raises(httpx2.HTTPStatusError):
+        await make_http(handler, sleeps).request("GET", "https://example.test/x", backoff=())
+
+    assert len(calls) == 1
+    assert sleeps == []

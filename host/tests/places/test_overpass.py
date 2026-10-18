@@ -106,7 +106,57 @@ async def test_retries_with_backoff_on_503(tmp_path):
     def handler(request):
         return httpx2.Response(next(statuses), json=PAYLOAD)
 
-    candidates = await make_client(handler, tmp_path, sleeps).nearby(BOX)
+    client = make_client(handler, tmp_path, sleeps)
+    client._urls = ("https://only.test/api",)
+
+    candidates = await client.nearby(BOX)
 
     assert len(candidates) == 2
     assert sleeps == [1]
+
+
+async def test_falls_over_to_the_next_mirror_when_the_first_is_down(tmp_path):
+    seen_hosts = []
+
+    def handler(request):
+        seen_hosts.append(request.url.host)
+        if request.url.host == "a.test":
+            return httpx2.Response(502)
+        return httpx2.Response(200, json=PAYLOAD)
+
+    async def fake_sleep(seconds: float) -> None:
+        pass
+
+    http = RetryingHttp(
+        httpx2.AsyncClient(transport=httpx2.MockTransport(handler)), sleep=fake_sleep
+    )
+    client = OverpassClient(
+        http,
+        JsonCache(tmp_path, ttl_seconds=3600),
+        urls=("https://a.test/api", "https://b.test/api"),
+    )
+
+    candidates = await client.nearby(BOX)
+
+    assert len(candidates) == 2
+    assert seen_hosts[-1] == "b.test"
+    assert seen_hosts.count("a.test") == 1  # 換站時不在壞掉的站上反覆退避
+
+
+async def test_all_mirrors_down_raises(tmp_path):
+    import pytest
+
+    http = RetryingHttp(
+        httpx2.AsyncClient(transport=httpx2.MockTransport(lambda r: httpx2.Response(503))),
+        sleep=lambda s: _noop(),
+    )
+    client = OverpassClient(
+        http, JsonCache(tmp_path, ttl_seconds=3600), urls=("https://a.test/x", "https://b.test/x")
+    )
+
+    with pytest.raises(httpx2.HTTPStatusError):
+        await client.nearby(BOX)
+
+
+async def _noop() -> None:
+    return None

@@ -14,8 +14,8 @@ from typing import Protocol
 from buddy_host.llm.claude_cli import QuotaExceededError
 from buddy_host.llm.models import ForbiddenModelError, LlmRequest, LlmResult
 from buddy_host.narration.prompt import ScriptContext, build_script_request, load_persona
-from buddy_host.places.geo import bounding_box
-from buddy_host.places.merge import merge_wiki_hits, names_match
+from buddy_host.places.gather import gather_candidates
+from buddy_host.places.merge import names_match
 from buddy_host.places.models import BBox, Candidate, Location
 from buddy_host.places.ranking import DEFAULT_RADIUS_M, Ranked, rank
 from buddy_host.places.wikipedia import WikiHit, WikiSummary
@@ -107,10 +107,9 @@ class AreaPreparer:
     ) -> list[PreparedNarration]:
         snapped = (round(location.lat, SNAP_DECIMALS), round(location.lon, SNAP_DECIMALS))
         query_radius = self._radius_m + SNAP_MARGIN_M
-        candidates = await self._overpass.nearby(bounding_box(*snapped, query_radius))
-        hits = await self._wiki.geosearch(*snapped, int(query_radius))
+        merged = await gather_candidates(self._overpass, self._wiki, *snapped, query_radius)
         ranked = rank(
-            merge_wiki_hits(candidates, hits),
+            merged,
             location,
             limit=self._limit,
             radius_m=self._radius_m,

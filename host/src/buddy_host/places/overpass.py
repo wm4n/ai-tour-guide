@@ -1,10 +1,17 @@
 """Overpass（OpenStreetMap）：找出附近的景點、古蹟、廟宇，以及有故事的老店。"""
 
+import httpx2
+
 from buddy_host.places.cache import JsonCache
 from buddy_host.places.fetch import RetryingHttp
 from buddy_host.places.models import BBox, Candidate
 
-OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+# 公共 Overpass 常常過載（官方站會回 502 "at capacity"），依序換站
+OVERPASS_URLS = (
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass.private.coffee/api/interpreter",
+)
 
 # 有 name 且帶這些標記的 OSM 物件（node／way／relation）
 _FILTERS = (
@@ -60,17 +67,30 @@ def parse_elements(elements: list[dict]) -> list[Candidate]:
 
 
 class OverpassClient:
-    def __init__(self, http: RetryingHttp, cache: JsonCache, url: str = OVERPASS_URL):
+    def __init__(self, http: RetryingHttp, cache: JsonCache, urls: tuple[str, ...] = OVERPASS_URLS):
         self._http = http
         self._cache = cache
-        self._url = url
+        self._urls = urls
 
     async def nearby(self, box: BBox) -> list[Candidate]:
         query = build_query(box)
         elements = self._cache.get(query)
         if elements is None:
-            response = await self._http.request("POST", self._url, data={"data": query})
-            response.raise_for_status()
-            elements = response.json().get("elements", [])
+            elements = await self._fetch(query)
             self._cache.set(query, elements)
         return parse_elements(elements)
+
+    async def _fetch(self, query: str) -> list[dict]:
+        last = len(self._urls) - 1
+        for i, url in enumerate(self._urls):
+            try:
+                # 最後一站才做完整退避；前面的站失敗就直接換站
+                response = await self._http.request(
+                    "POST", url, data={"data": query}, backoff=None if i == last else ()
+                )
+                response.raise_for_status()
+                return response.json().get("elements", [])
+            except httpx2.HTTPError:
+                if i == last:
+                    raise
+        raise AssertionError("unreachable")

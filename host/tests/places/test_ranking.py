@@ -109,3 +109,48 @@ def test_wiki_title_alone_counts_as_having_a_wikipedia_entry():
     ranked = rank([plain, titled], HERE, limit=2)
 
     assert names(ranked)[0] == "有標題"
+
+
+def test_street_furniture_with_a_wikidata_tag_is_not_an_attraction():
+    # 真實資料：YouBike 租借站以故居命名，且帶品牌的 wikidata
+    bike = at(
+        "陳天來故居", 50, tags={"tourism": None, "amenity": "bicycle_rental", "wikidata": "Q1"}
+    )
+    parking = at("停車場", 40, tags={"tourism": None, "amenity": "parking", "wikidata": "Q2"})
+
+    assert rank([bike, parking], HERE, limit=3) == []
+
+
+def test_administrative_labels_are_not_attractions():
+    # 真實資料：「延平」是行政區標籤節點
+    district = at("延平", 50, tags={"tourism": None, "place": "suburb", "wikipedia": "zh:延平區"})
+    boundary = at(
+        "大同區", 60, tags={"tourism": None, "boundary": "administrative", "wikidata": "Q3"}
+    )
+
+    assert rank([district, boundary], HERE, limit=3) == []
+
+
+def test_same_named_places_take_only_one_slot():
+    monument = at("陳天來故居", 150, tags={"tourism": None, "historic": "monument"}, wiki=True)
+    twin = at(
+        "陳天來故居",
+        120,
+        tags={"tourism": None, "historic": "building"},
+        wiki=True,
+        id="osm:way:other",
+    )
+    other = at("霞海城隍廟", 200, wiki=True)
+
+    ranked = rank([monument, twin, other], HERE, limit=3)
+
+    assert sorted(names(ranked)) == ["陳天來故居", "霞海城隍廟"]
+
+
+def test_same_wikipedia_title_under_different_names_takes_one_slot():
+    a = at("故居", 100, wiki=True)
+    b = Candidate(**{**at("陳天來故居", 120).__dict__, "wiki_title": "故居"})
+
+    ranked = rank([a, b], HERE, limit=3)
+
+    assert len(ranked) == 1

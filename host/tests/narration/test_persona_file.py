@@ -33,3 +33,11 @@ def test_persona_keeps_the_number_and_kana_rules():
 
     assert "二零二七年" in text
     assert "假名" in text
+
+
+def test_the_example_script_does_not_use_any_word_the_rules_forbid():
+    # few-shot 範例比規則更有說服力：範本若示範「哇！」，Claude 就會照做
+    text = PERSONA.read_text(encoding="utf-8")
+    example = text[text.index("## 範本") :]
+
+    assert [word for word in AVOID if word in example] == []

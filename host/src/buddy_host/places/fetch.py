@@ -24,7 +24,8 @@ class RetryingHttp:
 
     async def request(self, method: str, url: str, **kwargs) -> httpx2.Response:
         headers = {"User-Agent": USER_AGENT, **kwargs.pop("headers", {})}
-        for wait in self._backoff:
+        override = kwargs.pop("backoff", None)  # 例如換鏡像站時不想在壞站上反覆退避
+        for wait in self._backoff if override is None else tuple(override):
             delay = wait
             try:
                 response = await self._client.request(method, url, headers=headers, **kwargs)

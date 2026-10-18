@@ -6,8 +6,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_app/features/session/screens/home_screen.dart';
+import 'package:flutter_app/shared/audio/audio_player_service.dart';
 import 'package:flutter_app/shared/db/local_db.dart';
 import 'package:flutter_app/shared/location/location_service.dart';
+import 'package:flutter_app/shared/notification/notification_service.dart';
 import 'package:flutter_app/shared/providers.dart';
 
 class _FakeLocationService implements LocationService {
@@ -23,6 +25,7 @@ class _FakeLocationService implements LocationService {
   @override void start() {}
   @override void stop() {}
   @override Stream<Position> get positionStream => const Stream.empty();
+  @override Position? get latestPosition => null;
 }
 
 Widget _makeWidget({
@@ -46,6 +49,8 @@ Widget _makeWidget({
       localDbProvider.overrideWithValue(
         LocalDb.forTesting(NativeDatabase.memory()),
       ),
+      audioPlayerServiceProvider.overrideWithValue(FakeAudioPlayerService()),
+      notificationServiceProvider.overrideWithValue(FakeNotificationService()),
     ],
     child: MaterialApp.router(routerConfig: router),
   );

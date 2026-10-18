@@ -14,7 +14,7 @@ void main() {
 
   group('LocalDb.isCooldown', () {
     test('returns false when no history exists', () async {
-      final result = await db.isCooldown('poi:123', Duration(hours: 24));
+      final result = await db.isCooldown('poi:123', const Duration(hours: 24));
       expect(result, isFalse);
     });
 
@@ -30,7 +30,7 @@ void main() {
         lang: 'zh-TW',
         completed: true,
       );
-      final result = await db.isCooldown('poi:123', Duration(hours: 24));
+      final result = await db.isCooldown('poi:123', const Duration(hours: 24));
       expect(result, isTrue);
     });
 
@@ -53,7 +53,7 @@ void main() {
           completed: const Value(0),
         ),
       );
-      final result = await db.isCooldown('poi:old', Duration(hours: 24));
+      final result = await db.isCooldown('poi:old', const Duration(hours: 24));
       expect(result, isFalse);
     });
   });

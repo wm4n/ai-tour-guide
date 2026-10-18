@@ -87,13 +87,14 @@ class PoiNotifier extends AsyncNotifier<List<POI>> {
       'radius': 500,
     });
     state = const AsyncLoading();
+    final session = ref.read(sessionProvider);
     final result = await AsyncValue.guard(() =>
         ref.read(backendClientProvider).fetchNearby(
               lat: position.latitude,
               lon: position.longitude,
               radius: 500,
-              lang: 'zh-TW',
-              persona: 'history_uncle',
+              lang: session.lang,
+              persona: session.persona,
             ));
     result.whenOrNull(
       data: (pois) {
@@ -104,7 +105,11 @@ class PoiNotifier extends AsyncNotifier<List<POI>> {
             'radius': 500,
           });
         } else {
-          AppLogger.info(LogEvents.poiLoaded, {'count': pois.length, 'source': 'osm'});
+          AppLogger.info(LogEvents.poiLoaded, {
+            'count': pois.length,
+            'source': 'osm',
+            'pois': pois.map((p) => '${p.name}(${p.id})').join(', '),
+          });
         }
       },
       error: (e, _) => AppLogger.error(LogEvents.apiError, {'endpoint': '/poi/nearby'}, e),

@@ -15,6 +15,8 @@ class ConsoleTransport implements LogTransport {
   @override
   void log(LogEntry entry) {
     final message = kDebugMode ? formatDebug(entry) : formatRelease(entry);
+    // ignore: avoid_print
+    print('[AppLogger] $message');
     dev.log(message, name: 'AppLogger');
   }
 

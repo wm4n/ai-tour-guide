@@ -243,16 +243,21 @@ class NarrationNotifier extends StateNotifier<NarrationState> {
   }
 
   Future<void> skip() async {
-    _audioSub?.cancel();
-    _audioSub = null;
-    _sseStreamEnded = false;
     AppLogger.warn(LogEvents.narrationSkip, {
       'poi_id': state.currentPoi?.id ?? '',
       'reason': 'user_skip',
     });
+    await stopCurrent();
+  }
+
+  Future<void> stopCurrent() async {
+    _audioSub?.cancel();
+    _audioSub = null;
+    _sseStreamEnded = false;
     await _sub?.cancel();
-    await _audio.skip();
-    state = state.copyWith(status: NarrationStatus.idle);
+    _sub = null;
+    await _audio.reset();
+    state = const NarrationState(status: NarrationStatus.idle);
   }
 
   @override

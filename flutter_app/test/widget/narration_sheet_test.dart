@@ -10,7 +10,7 @@ import 'package:flutter_app/shared/backend/models/poi.dart';
 import 'package:flutter_app/shared/mic/mic_recorder_service.dart';
 import 'package:flutter_app/shared/providers.dart';
 
-final _testState = NarrationState(
+const _testState = NarrationState(
   status: NarrationStatus.playing,
   currentPoi: POI(
     id: 'osm:1',
@@ -68,19 +68,19 @@ void main() {
   });
 
   testWidgets('NarrationSheet shows rating bar for foodie POI', (tester) async {
-    final foodiePoi = POI(
+    const foodiePoi = POI(
       id: 'gplace:001',
       name: '鼎泰豐',
       lat: 25.033,
       lon: 121.564,
-      tags: const {},
+      tags: {},
       distanceM: 47,
       confidence: 'high',
       rating: 4.6,
       userRatingsTotal: 328,
       priceLevel: 2,
     );
-    final state = NarrationState(
+    const state = NarrationState(
       status: NarrationStatus.playing,
       currentPoi: foodiePoi,
       subtitle: '美食推薦',
@@ -109,16 +109,16 @@ void main() {
 
   testWidgets('NarrationSheet hides rating bar for non-foodie POI',
       (tester) async {
-    final regularPoi = POI(
+    const regularPoi = POI(
       id: 'osm:node:1',
       name: '故宮博物院',
       lat: 25.1023,
       lon: 121.5482,
-      tags: const {},
+      tags: {},
       distanceM: 87,
       confidence: 'high',
     );
-    final state = NarrationState(
+    const state = NarrationState(
       status: NarrationStatus.playing,
       currentPoi: regularPoi,
       subtitle: '故宮介紹',
@@ -162,4 +162,6 @@ class _FakeNarrationNotifier extends StateNotifier<NarrationState>
   Future<void> resume() async {}
   @override
   Future<void> skip() async {}
+  @override
+  Future<void> stopCurrent() async {}
 }

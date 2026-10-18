@@ -15,6 +15,12 @@ class LogEvents {
   static const poiCacheHit = 'POI_CACHE_HIT';
   static const poiLoaded = 'POI_LOADED';
   static const poiEmpty = 'POI_EMPTY';
+  static const poiTap = 'POI_TAP';
+
+  // TRIGGER ENGINE
+  static const triggerEval = 'TRIGGER_EVAL';
+  static const triggerPoiCheck = 'TRIGGER_POI_CHECK';
+  static const triggerSkip = 'TRIGGER_SKIP';
 
   // NARRATION
   static const narrationTrigger = 'NARRATION_TRIGGER';

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_app/features/narration/providers/narration_provider.dart';
+import 'package:flutter_app/features/narration/providers/tour_playback_queue_provider.dart';
 
 class NarrationMiniBar extends ConsumerWidget {
   const NarrationMiniBar({super.key});
@@ -8,6 +9,7 @@ class NarrationMiniBar extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(narrationProvider);
+    final queue = ref.watch(tourPlaybackQueueProvider);
     if (state.status == NarrationStatus.idle || state.currentPoi == null) {
       return const SizedBox.shrink();
     }
@@ -30,10 +32,13 @@ class NarrationMiniBar extends ConsumerWidget {
                   overflow: TextOverflow.ellipsis,
                 ),
                 Text(
-                  state.status == NarrationStatus.playing
-                      ? '▶ 正在播放...'
-                      : '⏸ 已暫停',
+                  queue.nextPoi != null
+                      ? '下一段：${queue.nextPoi!.name}（待播 ${queue.queuedCount}）'
+                      : state.status == NarrationStatus.playing
+                          ? '▶ 正在播放...'
+                          : '⏸ 已暫停',
                   style: const TextStyle(color: Colors.grey, fontSize: 12),
+                  overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),
@@ -55,7 +60,8 @@ class NarrationMiniBar extends ConsumerWidget {
           ),
           IconButton(
             icon: const Icon(Icons.skip_next, color: Colors.white),
-            onPressed: () => ref.read(narrationProvider.notifier).skip(),
+            onPressed: () =>
+                ref.read(tourPlaybackQueueProvider.notifier).skipToNext(),
           ),
         ],
       ),

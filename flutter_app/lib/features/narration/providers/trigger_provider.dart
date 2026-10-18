@@ -1,13 +1,13 @@
 import 'dart:async';
-import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_app/features/map/providers/poi_provider.dart';
 import 'package:flutter_app/features/narration/providers/narration_provider.dart';
+import 'package:flutter_app/features/narration/providers/tour_playback_queue_provider.dart';
 import 'package:flutter_app/features/session/providers/session_provider.dart';
-import 'package:flutter_app/shared/backend/backend_client.dart';
 import 'package:flutter_app/shared/backend/models/poi.dart';
 import 'package:flutter_app/shared/location/haversine.dart';
 import 'package:flutter_app/shared/providers.dart';
+import 'package:flutter_app/shared/settings/app_settings.dart';
 import 'package:flutter_app/shared/settings/settings_provider.dart';
 import 'package:flutter_app/shared/logging/app_logger.dart';
 import 'package:flutter_app/shared/logging/log_events.dart';
@@ -37,9 +37,6 @@ class TriggerNotifier extends Notifier<TriggerState> {
   List<POI> _latestPois = [];
   Timer? _cooldownTimer;
   DateTime? _cooldownUntil;
-  String? _lastSelectedPoiId;
-  String _lastSelectedPoiName = '';
-  String _lastScript = '';
   bool _hasEverFired = false;
   Position? _currentPosition;
   Position? _lastTriggerPosition;
@@ -56,13 +53,10 @@ class TriggerNotifier extends Notifier<TriggerState> {
             LogEvents.triggerEval, {'layer': 'pois_updated', 'count': pois.length});
         // Fire immediately on first POI load if never played
         if (!_hasEverFired && pois.isNotEmpty && !state.isCountingDown) {
-          final narState = ref.read(narrationProvider);
-          if (narState.status == NarrationStatus.idle) {
-            _doCandidatesRequest().catchError((Object e, StackTrace st) {
-              AppLogger.error(
-                  LogEvents.apiError, {'context': 'initial_trigger'}, e, st);
-            });
-          }
+          _doCandidatesRequest().catchError((Object e, StackTrace st) {
+            AppLogger.error(
+                LogEvents.apiError, {'context': 'initial_trigger'}, e, st);
+          });
         }
       }),
     );
@@ -82,9 +76,6 @@ class TriggerNotifier extends Notifier<TriggerState> {
         // Start countdown when narration completes normally
         if (prev?.status == NarrationStatus.playing &&
             next.status == NarrationStatus.idle) {
-          _lastSelectedPoiId = next.currentPoi?.id;
-          _lastSelectedPoiName = next.currentPoi?.name ?? '';
-          _lastScript = next.scriptBuffer;
           _startCountdown();
         }
         // Also start countdown on error to avoid getting stuck
@@ -152,14 +143,8 @@ class TriggerNotifier extends Notifier<TriggerState> {
   Future<void> _doCandidatesRequest() async {
     if (_latestPois.isEmpty) return;
 
-    final narState = ref.read(narrationProvider);
-    if (narState.status == NarrationStatus.playing ||
-        narState.status == NarrationStatus.loading) {
-      return;
-    }
-
-    final lifecycleState = ref.read(appLifecycleStateProvider);
-    if (lifecycleState != AppLifecycleState.resumed) return;
+    final session = ref.read(sessionProvider);
+    if (session.status != SessionStatus.active) return;
 
     final db = ref.read(localDbProvider);
     final cooldownIds = <String>{};
@@ -210,26 +195,20 @@ class TriggerNotifier extends Notifier<TriggerState> {
     _lastTriggerPosition = _currentPosition;
     _lastCandidateIds = available.map((p) => p.id).toSet();
 
-    final session = ref.read(sessionProvider);
-    final previous = _lastSelectedPoiId != null
-        ? PreviousSelection(
-            poiId: _lastSelectedPoiId!,
-            poiName: _lastSelectedPoiName,
-            script: _lastScript,
-          )
-        : null;
-
     AppLogger.info(LogEvents.narrationTrigger, {
       'candidate_count': available.length,
-      'has_previous': previous != null,
+      'playback_mode': ref.read(appSettingsProvider).tourPlaybackMode.name,
     });
 
-    ref.read(narrationProvider.notifier).narrate(
-          candidates: available,
-          persona: session.persona,
-          lang: session.lang,
-          previousSelection: previous,
-        );
+    final settings = ref.read(appSettingsProvider);
+    if (settings.tourPlaybackMode == TourPlaybackMode.notifyOnly) {
+      await ref.read(notificationServiceProvider).showPoiTrigger(available.first);
+      _hasEverFired = true;
+    } else {
+      await ref
+          .read(tourPlaybackQueueProvider.notifier)
+          .enqueue(candidates: available);
+    }
   }
 }
 

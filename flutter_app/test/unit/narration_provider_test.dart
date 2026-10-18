@@ -71,6 +71,14 @@ class _ManualAudioPlayerService implements AudioPlayerService {
   @override
   Future<void> enqueueBytes(Uint8List bytes) async {}
   @override
+  Future<void> setCurrentItem({
+    required String id,
+    required String title,
+    String? subtitle,
+  }) async {}
+  @override
+  void setNextHandler(Future<void> Function()? handler) {}
+  @override
   Future<void> reset() async {}
   @override
   Future<void> pause() async {}

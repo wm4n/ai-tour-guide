@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_app/shared/settings/app_settings.dart';
 import 'package:flutter_app/shared/settings/settings_provider.dart';
 
 class SettingsScreen extends ConsumerWidget {
@@ -63,6 +64,56 @@ class SettingsScreen extends ConsumerWidget {
                   style: const TextStyle(fontWeight: FontWeight.bold)),
               const Text('5 km', style: TextStyle(color: Colors.grey, fontSize: 12)),
             ],
+          ),
+          const SizedBox(height: 32),
+          const Text('導覽播放模式',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          const SizedBox(height: 4),
+          const Text('背景偵測到景點時要自動播放，或只顯示通知',
+              style: TextStyle(color: Colors.grey, fontSize: 13)),
+          const SizedBox(height: 12),
+          SegmentedButton<TourPlaybackMode>(
+            segments: const [
+              ButtonSegment(
+                value: TourPlaybackMode.autoPlay,
+                label: Text('自動播放'),
+                icon: Icon(Icons.play_circle_outline),
+              ),
+              ButtonSegment(
+                value: TourPlaybackMode.notifyOnly,
+                label: Text('只通知'),
+                icon: Icon(Icons.notifications_none),
+              ),
+            ],
+            selected: {settings.tourPlaybackMode},
+            onSelectionChanged: (selection) {
+              notifier.setTourPlaybackMode(selection.first);
+            },
+          ),
+          const SizedBox(height: 32),
+          const Text('使用情境',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          const SizedBox(height: 4),
+          const Text('車用模式會提前觸發，並允許較遠的待播距離',
+              style: TextStyle(color: Colors.grey, fontSize: 13)),
+          const SizedBox(height: 12),
+          SegmentedButton<TourUsageProfile>(
+            segments: const [
+              ButtonSegment(
+                value: TourUsageProfile.portable,
+                label: Text('隨身'),
+                icon: Icon(Icons.headphones),
+              ),
+              ButtonSegment(
+                value: TourUsageProfile.car,
+                label: Text('車用'),
+                icon: Icon(Icons.directions_car),
+              ),
+            ],
+            selected: {settings.tourUsageProfile},
+            onSelectionChanged: (selection) {
+              notifier.setTourUsageProfile(selection.first);
+            },
           ),
         ],
       ),

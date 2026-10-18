@@ -29,7 +29,7 @@ class LocalDb extends _$LocalDb {
   LocalDb([QueryExecutor? executor])
       : super(executor ?? driftDatabase(name: 'tour_guide_db'));
 
-  LocalDb.forTesting(QueryExecutor executor) : super(executor);
+  LocalDb.forTesting(super.executor);
 
   @override
   int get schemaVersion => 1;

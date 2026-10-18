@@ -8,11 +8,13 @@ abstract class LocationService {
   void start();
   void stop();
   Stream<Position> get positionStream;
+  Position? get latestPosition;
 }
 
 class RealLocationService implements LocationService {
   StreamController<Position>? _controller;
   StreamSubscription<Position>? _subscription;
+  Position? _latestPosition;
 
   @override
   Future<bool> requestPermission() async {
@@ -56,7 +58,10 @@ class RealLocationService implements LocationService {
     _subscription = Geolocator.getPositionStream(
       locationSettings: locationSettings,
     ).listen(
-      _controller!.add,
+      (position) {
+        _latestPosition = position;
+        _controller!.add(position);
+      },
       onError: _controller!.addError,
     );
   }
@@ -72,24 +77,35 @@ class RealLocationService implements LocationService {
   @override
   Stream<Position> get positionStream =>
       _controller?.stream ?? const Stream.empty();
+
+  @override
+  Position? get latestPosition => _latestPosition;
 }
 
 class FakeLocationService implements LocationService {
   final StreamController<Position> _controller =
       StreamController<Position>.broadcast();
   final bool _hasPermission;
+  final LocationPermission _permissionStatus;
+  Position? _latestPosition;
 
-  FakeLocationService({bool hasPermission = true})
-      : _hasPermission = hasPermission;
+  FakeLocationService({
+    bool hasPermission = true,
+    LocationPermission permissionStatus = LocationPermission.whileInUse,
+  })  : _hasPermission = hasPermission,
+        _permissionStatus = permissionStatus;
 
-  void emit(Position position) => _controller.add(position);
+  void emit(Position position) {
+    _latestPosition = position;
+    _controller.add(position);
+  }
 
   @override
   Future<bool> requestPermission() async => _hasPermission;
 
   @override
   Future<LocationPermission> checkPermission() async =>
-      LocationPermission.whileInUse;
+      _permissionStatus;
 
   @override
   void start() {}
@@ -99,6 +115,9 @@ class FakeLocationService implements LocationService {
 
   @override
   Stream<Position> get positionStream => _controller.stream;
+
+  @override
+  Position? get latestPosition => _latestPosition;
 }
 
 Position fakePosition(double lat, double lon) => Position(

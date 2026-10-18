@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_app/features/narration/providers/narration_provider.dart';
+import 'package:flutter_app/features/narration/providers/tour_playback_queue_provider.dart';
 import 'package:flutter_app/features/qa/providers/qa_provider.dart';
 import 'package:flutter_app/shared/backend/models/poi.dart';
 
@@ -10,6 +11,7 @@ class NarrationSheet extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(narrationProvider);
+    final queue = ref.watch(tourPlaybackQueueProvider);
     if (state.status == NarrationStatus.idle || state.currentPoi == null) {
       return const SizedBox.shrink();
     }
@@ -63,6 +65,18 @@ class NarrationSheet extends ConsumerWidget {
               ),
             const SizedBox(height: 8),
             _FoodieRatingBar(poi: state.currentPoi!),
+            if (queue.nextPoi != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text(
+                  '下一段：${queue.nextPoi!.name}（待播 ${queue.queuedCount}）',
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 12,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
             // Q&A 字幕區塊（僅在 Q&A 進行中時顯示）
             Consumer(
               builder: (context, ref, _) {
@@ -149,7 +163,7 @@ class NarrationSheet extends ConsumerWidget {
                     size: 32,
                   ),
                   onPressed: () =>
-                      ref.read(narrationProvider.notifier).skip(),
+                      ref.read(tourPlaybackQueueProvider.notifier).skipToNext(),
                 ),
               ],
             ),

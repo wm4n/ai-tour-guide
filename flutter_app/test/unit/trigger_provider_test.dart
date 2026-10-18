@@ -7,6 +7,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_app/features/map/providers/poi_provider.dart';
 import 'package:flutter_app/features/narration/providers/trigger_provider.dart';
 import 'package:flutter_app/features/narration/providers/narration_provider.dart';
+import 'package:flutter_app/features/narration/providers/tour_playback_queue_provider.dart';
+import 'package:flutter_app/features/session/providers/session_provider.dart';
 import 'package:flutter_app/shared/backend/backend_client.dart';
 import 'package:flutter_app/shared/backend/models/narration_event.dart';
 import 'package:flutter_app/shared/backend/models/poi.dart';
@@ -14,6 +16,7 @@ import 'package:flutter_app/shared/backend/models/qa_event.dart';
 import 'package:flutter_app/shared/audio/audio_player_service.dart';
 import 'package:flutter_app/shared/db/local_db.dart';
 import 'package:flutter_app/shared/location/location_service.dart';
+import 'package:flutter_app/shared/notification/notification_service.dart';
 import 'package:flutter_app/shared/providers.dart';
 import 'package:flutter_app/shared/settings/app_settings.dart';
 import 'package:flutter_app/shared/settings/settings_provider.dart';
@@ -94,6 +97,7 @@ ProviderContainer _buildContainer({
   final container = ProviderContainer(
     overrides: [
       locationServiceProvider.overrideWithValue(fakeLocation),
+      notificationServiceProvider.overrideWithValue(FakeNotificationService()),
       backendClientProvider.overrideWithValue(
         FakeBackendClient(
           nearbyPois: const [_poi],
@@ -131,10 +135,11 @@ void main() {
     final container = ProviderContainer(
       overrides: [
         locationServiceProvider.overrideWithValue(fakeLocation),
+        notificationServiceProvider.overrideWithValue(FakeNotificationService()),
         backendClientProvider.overrideWithValue(
-          FakeBackendClient(
-            nearbyPois: const [_poi],
-            scriptedEvents: const [EndEvent()],
+          const FakeBackendClient(
+            nearbyPois: [_poi],
+            scriptedEvents: [EndEvent()],
           ),
         ),
         audioPlayerServiceProvider.overrideWithValue(fakeAudio),
@@ -186,10 +191,11 @@ void main() {
     final container = ProviderContainer(
       overrides: [
         locationServiceProvider.overrideWithValue(fakeLocation),
+        notificationServiceProvider.overrideWithValue(FakeNotificationService()),
         backendClientProvider.overrideWithValue(
-          FakeBackendClient(
-            nearbyPois: const [_poi],
-            scriptedEvents: const [SkipEvent()],
+          const FakeBackendClient(
+            nearbyPois: [_poi],
+            scriptedEvents: [SkipEvent()],
           ),
         ),
         audioPlayerServiceProvider.overrideWithValue(fakeAudio),
@@ -209,6 +215,7 @@ void main() {
     container.listen(triggerProvider, (_, __) {});
     container.listen(narrationProvider, (_, __) {});
 
+    await container.read(sessionProvider.notifier).start();
     fakeLocation.emit(fakePosition(25.1023, 121.5482));
     await Future<void>.delayed(const Duration(milliseconds: 200));
 
@@ -235,6 +242,7 @@ void main() {
     final container = ProviderContainer(
       overrides: [
         locationServiceProvider.overrideWithValue(fakeLocation),
+        notificationServiceProvider.overrideWithValue(FakeNotificationService()),
         backendClientProvider.overrideWithValue(trackingClient),
         audioPlayerServiceProvider.overrideWithValue(fakeAudio),
         localDbProvider.overrideWithValue(db),
@@ -253,6 +261,7 @@ void main() {
     container.listen(triggerProvider, (_, __) {});
     container.listen(narrationProvider, (_, __) {});
 
+    await container.read(sessionProvider.notifier).start();
     // Emit position and let first narration fire
     fakeLocation.emit(fakePosition(25.1023, 121.5482));
     await Future<void>.delayed(const Duration(milliseconds: 200));
@@ -274,6 +283,7 @@ void main() {
     final container = ProviderContainer(
       overrides: [
         locationServiceProvider.overrideWithValue(fakeLocation),
+        notificationServiceProvider.overrideWithValue(FakeNotificationService()),
         backendClientProvider.overrideWithValue(
           const FakeBackendClient(
             nearbyPois: [_poi],
@@ -298,6 +308,7 @@ void main() {
     addTearDown(db.close);
     container.listen(triggerProvider, (_, __) {});
     container.listen(narrationProvider, (_, __) {});
+    await container.read(sessionProvider.notifier).start();
     fakeLocation.emit(fakePosition(25.1023, 121.5482));
     await Future<void>.delayed(const Duration(milliseconds: 200));
     await Future<void>.delayed(const Duration(seconds: 2));
@@ -306,11 +317,7 @@ void main() {
         reason: 'countdown should restart when available.isEmpty');
   });
 
-  test('narrate() fires again after narration even if stationary', () async {
-    // Regression: 5 POIs, backend plays node:1 → _sessionPlayedIds = {node:1}
-    // Next countdown: available = {2,3,4,5}, _lastCandidateIds = {1,2,3,4,5}
-    // Before fix: Jaccard = 4/5 = 0.8 ≥ 0.8 → SKIP (bug!)
-    // After fix: _lastCandidateIds cleared on playback → Jaccard not computed → fires
+  test('queued narration advances after first selected POI completes', () async {
     const pois = [
       POI(id: 'osm:node:1', name: 'POI 1', lat: 25.10, lon: 121.54, tags: {}, distanceM: 50, confidence: 'high'),
       POI(id: 'osm:node:2', name: 'POI 2', lat: 25.10, lon: 121.54, tags: {}, distanceM: 60, confidence: 'high'),
@@ -318,10 +325,9 @@ void main() {
       POI(id: 'osm:node:4', name: 'POI 4', lat: 25.10, lon: 121.54, tags: {}, distanceM: 80, confidence: 'high'),
       POI(id: 'osm:node:5', name: 'POI 5', lat: 25.10, lon: 121.54, tags: {}, distanceM: 90, confidence: 'high'),
     ];
-    // First narration plays node:1 → _sessionPlayedIds={1}, _lastCandidateIds cleared.
-    // Second narration (subsequent) returns SkipEvent → no playback → _lastCandidateIds
-    // gets set to {2,3,4,5} and NOT cleared (no MetaEvent). Third countdown: same
-    // available {2,3,4,5} with no movement → dedup guard blocks → callCount stays 2.
+    // The trigger submits all eligible candidates to the queue. Once node:1
+    // completes, queue advancement starts node:2 without waiting for another
+    // countdown cycle.
     const firstNarrationEvents = [
       MetaEvent(poiId: 'osm:node:1', cacheHit: false, confidence: 'high'),
       EndEvent(),
@@ -340,6 +346,7 @@ void main() {
     final container = ProviderContainer(
       overrides: [
         locationServiceProvider.overrideWithValue(fakeLocation),
+        notificationServiceProvider.overrideWithValue(FakeNotificationService()),
         backendClientProvider.overrideWithValue(trackingClient),
         audioPlayerServiceProvider.overrideWithValue(fakeAudio),
         localDbProvider.overrideWithValue(db),
@@ -356,25 +363,19 @@ void main() {
     addTearDown(db.close);
     container.listen(triggerProvider, (_, __) {});
     container.listen(narrationProvider, (_, __) {});
+    await container.read(sessionProvider.notifier).start();
     fakeLocation.emit(fakePosition(25.10, 121.54));
     await Future<void>.delayed(const Duration(milliseconds: 200));
-    expect(trackingClient.callCount, 1, reason: 'first narration should fire');
-    // Wait for countdown + narration to complete → second call should fire (dedup cleared)
-    // Then third countdown: SkipEvent was returned, available unchanged → dedup blocks → stays 2
-    await Future<void>.delayed(const Duration(seconds: 3));
-    expect(trackingClient.callCount, 2,
-        reason: 'dedup guard must not block when POI was played (available list changed)');
+    expect(trackingClient.callCount, 5,
+        reason: 'queue should advance through queued POIs as each item ends or skips');
   });
 
   test('dedup guard blocks second narrate() after backend SKIP with unchanged POIs', () async {
-    // Scenario: backend returns SkipEvent (no playback) → _lastCandidateIds is NOT cleared
-    // → second countdown ends with same available list and no movement → dedup blocks
+    // Scenario: backend returns SkipEvent (no playback) for a single candidate.
+    // _lastCandidateIds is not cleared, so the next countdown sees the same
+    // candidate set with no movement and dedup blocks duplicate delivery.
     const pois = [
       POI(id: 'osm:node:1', name: 'POI 1', lat: 25.10, lon: 121.54, tags: {}, distanceM: 50, confidence: 'high'),
-      POI(id: 'osm:node:2', name: 'POI 2', lat: 25.10, lon: 121.54, tags: {}, distanceM: 60, confidence: 'high'),
-      POI(id: 'osm:node:3', name: 'POI 3', lat: 25.10, lon: 121.54, tags: {}, distanceM: 70, confidence: 'high'),
-      POI(id: 'osm:node:4', name: 'POI 4', lat: 25.10, lon: 121.54, tags: {}, distanceM: 80, confidence: 'high'),
-      POI(id: 'osm:node:5', name: 'POI 5', lat: 25.10, lon: 121.54, tags: {}, distanceM: 90, confidence: 'high'),
     ];
     const skipEvent = [SkipEvent()];
     final fakeLocation = FakeLocationService();
@@ -388,6 +389,7 @@ void main() {
     final container = ProviderContainer(
       overrides: [
         locationServiceProvider.overrideWithValue(fakeLocation),
+        notificationServiceProvider.overrideWithValue(FakeNotificationService()),
         backendClientProvider.overrideWithValue(trackingClient),
         audioPlayerServiceProvider.overrideWithValue(fakeAudio),
         localDbProvider.overrideWithValue(db),
@@ -404,6 +406,7 @@ void main() {
     addTearDown(db.close);
     container.listen(triggerProvider, (_, __) {});
     container.listen(narrationProvider, (_, __) {});
+    await container.read(sessionProvider.notifier).start();
     fakeLocation.emit(fakePosition(25.10, 121.54));
     await Future<void>.delayed(const Duration(milliseconds: 200));
     expect(trackingClient.callCount, 1);
@@ -414,4 +417,139 @@ void main() {
         reason: 'countdown should restart after dedup guard blocks');
   });
 
+  test('background active journey queues candidates in auto-play mode', () async {
+    final fakeLocation = FakeLocationService();
+    final fakeAudio = FakeAudioPlayerService();
+    final db = LocalDb.forTesting(NativeDatabase.memory());
+
+    final container = ProviderContainer(
+      overrides: [
+        locationServiceProvider.overrideWithValue(fakeLocation),
+        notificationServiceProvider.overrideWithValue(FakeNotificationService()),
+        backendClientProvider.overrideWithValue(
+          const FakeBackendClient(
+            nearbyPois: [_poi],
+            scriptedEvents: [
+              MetaEvent(
+                poiId: 'osm:node:1',
+                poiName: '故宮',
+                cacheHit: false,
+                confidence: 'high',
+              ),
+            ],
+          ),
+        ),
+        audioPlayerServiceProvider.overrideWithValue(fakeAudio),
+        localDbProvider.overrideWithValue(db),
+        sessionLangProvider.overrideWithValue('zh-TW'),
+        fallbackTimeoutProvider.overrideWithValue(const Duration(seconds: 30)),
+        appSettingsProvider.overrideWith(
+          () => _FakeSettingsNotifier(const AppSettings()),
+        ),
+        appLifecycleStateProvider.overrideWith(
+          (ref) => AppLifecycleState.paused,
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(db.close);
+
+    container.listen(triggerProvider, (_, __) {});
+    container.listen(narrationProvider, (_, __) {});
+    container.listen(tourPlaybackQueueProvider, (_, __) {});
+    await container.read(sessionProvider.notifier).start();
+
+    fakeLocation.emit(fakePosition(25.1023, 121.5482));
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+
+    expect(container.read(tourPlaybackQueueProvider).currentPoi?.id, 'osm:node:1');
+  });
+
+  test('notify-only mode shows notification without queueing', () async {
+    final fakeLocation = FakeLocationService();
+    final fakeAudio = FakeAudioPlayerService();
+    final fakeNotification = FakeNotificationService();
+    final db = LocalDb.forTesting(NativeDatabase.memory());
+
+    final container = ProviderContainer(
+      overrides: [
+        locationServiceProvider.overrideWithValue(fakeLocation),
+        notificationServiceProvider.overrideWithValue(fakeNotification),
+        backendClientProvider.overrideWithValue(
+          const FakeBackendClient(
+            nearbyPois: [_poi],
+            scriptedEvents: [],
+          ),
+        ),
+        audioPlayerServiceProvider.overrideWithValue(fakeAudio),
+        localDbProvider.overrideWithValue(db),
+        sessionLangProvider.overrideWithValue('zh-TW'),
+        fallbackTimeoutProvider.overrideWithValue(const Duration(seconds: 30)),
+        appLifecycleStateProvider.overrideWith(
+          (ref) => AppLifecycleState.paused,
+        ),
+        appSettingsProvider.overrideWith(
+          () => _FakeSettingsNotifier(
+            const AppSettings(tourPlaybackMode: TourPlaybackMode.notifyOnly),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(db.close);
+
+    container.listen(triggerProvider, (_, __) {});
+    container.listen(tourPlaybackQueueProvider, (_, __) {});
+    await container.read(sessionProvider.notifier).start();
+
+    fakeLocation.emit(fakePosition(25.1023, 121.5482));
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+
+    expect(container.read(tourPlaybackQueueProvider).queuedCount, 0);
+    expect(fakeNotification.shownPois.map((p) => p.id), contains('osm:node:1'));
+  });
+
+  test('inactive journey does not queue notify or start narration', () async {
+    final fakeLocation = FakeLocationService();
+    final fakeAudio = FakeAudioPlayerService();
+    final fakeNotification = FakeNotificationService();
+    final db = LocalDb.forTesting(NativeDatabase.memory());
+
+    final container = ProviderContainer(
+      overrides: [
+        locationServiceProvider.overrideWithValue(fakeLocation),
+        notificationServiceProvider.overrideWithValue(fakeNotification),
+        backendClientProvider.overrideWithValue(
+          const FakeBackendClient(
+            nearbyPois: [_poi],
+            scriptedEvents: [
+              MetaEvent(
+                poiId: 'osm:node:1',
+                poiName: '故宮',
+                cacheHit: false,
+                confidence: 'high',
+              ),
+            ],
+          ),
+        ),
+        audioPlayerServiceProvider.overrideWithValue(fakeAudio),
+        localDbProvider.overrideWithValue(db),
+        sessionLangProvider.overrideWithValue('zh-TW'),
+        fallbackTimeoutProvider.overrideWithValue(const Duration(seconds: 30)),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(db.close);
+
+    container.listen(triggerProvider, (_, __) {});
+    container.listen(narrationProvider, (_, __) {});
+    container.listen(tourPlaybackQueueProvider, (_, __) {});
+
+    fakeLocation.emit(fakePosition(25.1023, 121.5482));
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+
+    expect(container.read(tourPlaybackQueueProvider).currentPoi, isNull);
+    expect(fakeNotification.shownPois, isEmpty);
+    expect(container.read(narrationProvider).currentPoi, isNull);
+  });
 }

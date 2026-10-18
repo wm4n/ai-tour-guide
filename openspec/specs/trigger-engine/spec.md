@@ -9,55 +9,27 @@ Manages narration triggering through countdown timers and manual user interactio
 ## Requirements
 
 ### Requirement: Countdown-based narration trigger
-After each narration completes, `TriggerNotifier` SHALL start a configurable countdown timer. When the countdown expires, `TriggerNotifier` SHALL automatically send a new narration request with all currently available (non-excluded) candidates. If a narration error occurs, the countdown SHALL also start to avoid a stuck state. Before calling `narrate()`, `TriggerNotifier` SHALL apply a dedup guard: if the user has not moved more than 30m since the last `narrate()` call AND the Jaccard similarity of the current candidate POI IDs versus the previous set is ≥ 0.8, the request SHALL be skipped, a `triggerSkip` log event with `reason: "poi_unchanged"` SHALL be emitted, and `_startCountdown()` SHALL be called to restart the heartbeat cycle. `_startCountdown()` SHALL NOT reset `_lastTriggerPosition` or `_lastCandidateIds`, preserving dedup state across countdown cycles.
+After the first eligible POI load and after each narration completes or errors, `TriggerNotifier` SHALL continue to run its countdown and dedup cycle only while the journey is active. When that cycle produces eligible candidates, `TriggerNotifier` SHALL deliver them according to playback mode instead of calling narration directly: `autoPlay` submits candidates to `TourPlaybackQueue`, and `notifyOnly` shows a local notification for the first eligible POI. This delivery SHALL remain active even when the app lifecycle is backgrounded.
 
 #### Scenario: Countdown starts after narration ends
-- **WHEN** `NarrationState.status` transitions from `playing` to `idle`
-- **THEN** `TriggerState.isCountingDown` becomes true and `countdownRemaining` is set to the configured countdown duration
+- **WHEN** `NarrationState.status` transitions from `playing` to `idle` during an active journey
+- **THEN** `TriggerState.isCountingDown` becomes true and the countdown restarts with the configured duration
 
-#### Scenario: Countdown updates every second
-- **WHEN** countdown is active
-- **THEN** `TriggerState.countdownRemaining` decreases by 1 second each tick
+#### Scenario: Background active journey queues candidates in auto-play mode
+- **WHEN** the countdown or trigger cycle produces eligible candidates while the journey is active, playback mode is `autoPlay`, and the app lifecycle is not `resumed`
+- **THEN** `TriggerNotifier` submits those candidates to `TourPlaybackQueue`
 
-#### Scenario: Countdown expiry triggers new narration request
-- **WHEN** `countdownRemaining` reaches zero
-- **THEN** `TriggerNotifier` calls `_doCandidatesRequest()` with available non-excluded candidates
+#### Scenario: Background active journey notifies instead of queueing in notify-only mode
+- **WHEN** the countdown or trigger cycle produces eligible candidates while the journey is active and playback mode is `notifyOnly`
+- **THEN** `TriggerNotifier` shows a local POI notification instead of starting narration or queueing items
 
-#### Scenario: Countdown starts on narration error
-- **WHEN** `NarrationState.status` transitions from `loading` or `playing` to `error`
-- **THEN** countdown starts to allow retry
+#### Scenario: Inactive journey does not deliver candidates
+- **WHEN** the countdown expires while the journey is not active
+- **THEN** `TriggerNotifier` does not queue, notify, or start narration
 
-#### Scenario: skipCountdown() fires immediately and resets dedup state
-- **WHEN** `TriggerNotifier.skipCountdown()` is called
-- **THEN** the timer is cancelled, `isCountingDown` becomes false, `_lastTriggerPosition` and `_lastCandidateIds` are reset to null/empty, and `_doCandidatesRequest()` is called immediately
-
-#### Scenario: No countdown if narration is already active
-- **WHEN** countdown expires but `NarrationState.status` is `loading` or `playing`
-- **THEN** `_doCandidatesRequest()` returns without sending a request
-
-#### Scenario: Dedup guard skips request and restarts countdown when user hasn't moved and POIs unchanged
-- **WHEN** countdown expires, user has moved < 30m from `_lastTriggerPosition`, and current candidate POI IDs have Jaccard similarity ≥ 0.8 with `_lastCandidateIds`
-- **THEN** `narrate()` is NOT called, a `triggerSkip` log event with `reason: "poi_unchanged"` is emitted, and `_startCountdown()` is called
-
-#### Scenario: Dedup guard allows request when user has moved
-- **WHEN** countdown expires and user has moved ≥ 30m from `_lastTriggerPosition`
-- **THEN** `narrate()` is called regardless of POI similarity
-
-#### Scenario: Dedup guard allows request when POI set has changed significantly
-- **WHEN** countdown expires, user has not moved, but current candidate Jaccard similarity < 0.8 versus `_lastCandidateIds`
-- **THEN** `narrate()` is called
-
-#### Scenario: First-ever trigger bypasses dedup guard
-- **WHEN** `_lastTriggerPosition` is null (no prior trigger in this session)
-- **THEN** `narrate()` is called without checking distance or Jaccard similarity
-
-#### Scenario: _lastTriggerPosition and _lastCandidateIds updated on each narrate() call
-- **WHEN** `narrate()` is called (dedup guard passed)
-- **THEN** `_lastTriggerPosition` is set to current GPS position and `_lastCandidateIds` is set to the current candidate POI ID set
-
-#### Scenario: _startCountdown() preserves dedup state
-- **WHEN** `_startCountdown()` is called (from any path: narration end, error, dedup block, SkipEvent, available.isEmpty)
-- **THEN** `_lastTriggerPosition` and `_lastCandidateIds` are NOT reset
+#### Scenario: Dedup guard still blocks unchanged candidate sets
+- **WHEN** the trigger cycle produces a candidate set that matches the existing dedup guard's unchanged-position and unchanged-candidates conditions
+- **THEN** `TriggerNotifier` skips delivery, logs the dedup skip, and restarts the countdown
 
 ---
 
@@ -83,55 +55,50 @@ The app SHALL display a circular countdown badge in the bottom-right corner of t
 ---
 
 ### Requirement: First-run auto-trigger on POI load
-On the first POI load in a session (before any narration has played), `TriggerNotifier` SHALL automatically trigger narration when POIs become available and narration is idle.
+On the first eligible POI load in an active journey, `TriggerNotifier` SHALL immediately deliver candidates through the queue-or-notification path without waiting for the countdown. Subsequent POI refreshes SHALL continue using the normal trigger cycle.
 
-#### Scenario: Narration fires on first POI load
-- **WHEN** `poiProvider` emits a non-empty list for the first time and no narration has ever played in this session
-- **THEN** `TriggerNotifier` calls `_doCandidatesRequest()` immediately without waiting for countdown
+#### Scenario: First POI load in auto-play mode queues immediately
+- **WHEN** eligible POIs become available for the first time in an active journey and playback mode is `autoPlay`
+- **THEN** `TriggerNotifier` immediately submits candidates to `TourPlaybackQueue`
 
-#### Scenario: Subsequent POI updates do not re-trigger automatically
-- **WHEN** `poiProvider` emits updated POIs after narration has already played once
-- **THEN** `TriggerNotifier` does NOT trigger narration (waits for countdown to expire)
+#### Scenario: First POI load in notify-only mode notifies immediately
+- **WHEN** eligible POIs become available for the first time in an active journey and playback mode is `notifyOnly`
+- **THEN** `TriggerNotifier` immediately shows a local POI notification
+
+#### Scenario: Later POI refreshes wait for the normal trigger cycle
+- **WHEN** POIs update after the first eligible delivery has already happened in the same journey
+- **THEN** `TriggerNotifier` does not perform another immediate first-run delivery
 
 ---
 
 ### Requirement: Candidates list excludes session-played and cooled-down POIs
-Before sending a narration request, `TriggerNotifier` SHALL filter out POIs that have been played in the current session (in-memory set) or are within the 24-hour DB cooldown window. If no candidates remain, `TriggerNotifier` SHALL call `_startCountdown()` to continue the heartbeat cycle.
+Before delivering candidates to the queue or notification path, `TriggerNotifier` SHALL filter out POIs that have already played in the current session or remain inside the cooldown window. If no candidates remain after filtering, `TriggerNotifier` SHALL restart the countdown instead of attempting delivery.
 
-#### Scenario: Session-played POI excluded from candidates
-- **WHEN** a POI's `id` is in `_sessionPlayedIds`
-- **THEN** that POI is NOT included in the `available` candidates list sent to the backend
+#### Scenario: Session-played POI is excluded from delivery
+- **WHEN** a POI is already present in the session-played set
+- **THEN** that POI is omitted from the delivered candidate list
 
-#### Scenario: Cooldown POI excluded from candidates
+#### Scenario: Cooldown POI is excluded from delivery
 - **WHEN** `LocalDB.isCooldown(poi.id, 24h)` returns true for a POI
-- **THEN** that POI is NOT included in the `available` candidates list sent to the backend
+- **THEN** that POI is omitted from the delivered candidate list
 
-#### Scenario: No available candidates restarts countdown
-- **WHEN** all POIs in `_latestPois` are excluded by session or cooldown
-- **THEN** `_doCandidatesRequest()` logs `triggerSkip` with reason "no_candidates_available" and calls `_startCountdown()` to continue the heartbeat
-
----
-
-### Requirement: previous_selection passed on subsequent requests
-`TriggerNotifier` SHALL track the last selected POI's id, name, and full script buffer after each narration completes, and include them as `PreviousSelection` in every subsequent narration request within the session.
-
-#### Scenario: PreviousSelection sent on second request
-- **WHEN** a second narration request is triggered after the first has completed
-- **THEN** `BackendClient.narrate()` is called with `previousSelection` containing the first narration's `poi_id`, `poi_name`, and `scriptBuffer`
-
-#### Scenario: No PreviousSelection on first request
-- **WHEN** the very first narration request is triggered in a session
-- **THEN** `BackendClient.narrate()` is called with `previousSelection == null`
+#### Scenario: No eligible candidates restarts the trigger cycle
+- **WHEN** all available POIs are filtered out by session-played or cooldown rules
+- **THEN** `TriggerNotifier` logs the empty-delivery skip and restarts the countdown
 
 ---
 
 ### Requirement: Manual trigger bypasses countdown
-The app SHALL allow direct invocation of narration without going through the countdown timer. Users may tap the CountdownBadge to skip the countdown and trigger narration immediately. The manual map marker tap path SHALL remain unchanged.
+The app SHALL continue to support manual delivery without waiting for the countdown. Tapping the countdown badge SHALL cancel the active countdown and immediately re-run candidate delivery through the queue-or-notification path. The manual map-marker tap path SHALL continue to request direct narration immediately, bypassing the queue, cooldown, and dedup rules for that explicit user action.
 
-#### Scenario: User taps CountdownBadge during countdown
-- **WHEN** user taps the CountdownBadge while countdown is active
-- **THEN** the countdown timer is cancelled and `TriggerNotifier.skipCountdown()` triggers a new narration request immediately
+#### Scenario: Countdown badge immediately re-runs auto-play delivery
+- **WHEN** the user taps the countdown badge during an active countdown and playback mode is `autoPlay`
+- **THEN** the countdown is cancelled and eligible candidates are submitted to `TourPlaybackQueue` immediately
 
-#### Scenario: User taps marker while POI is in cooldown
-- **WHEN** user taps a POI marker on the map
-- **THEN** narration is triggered regardless of cooldown or dedup state
+#### Scenario: Countdown badge immediately re-runs notify-only delivery
+- **WHEN** the user taps the countdown badge during an active countdown and playback mode is `notifyOnly`
+- **THEN** the countdown is cancelled and the first eligible POI notification is shown immediately
+
+#### Scenario: Manual map marker tap still bypasses queue policy
+- **WHEN** the user taps a POI marker directly on the map
+- **THEN** the app starts direct narration for that POI without waiting for countdown or queue ordering

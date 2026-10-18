@@ -13,6 +13,8 @@ void main() {
     const settings = AppSettings();
     expect(settings.skipDisplacementM, 1500.0);
     expect(settings.countdownSeconds, 90);
+    expect(settings.tourPlaybackMode, TourPlaybackMode.autoPlay);
+    expect(settings.tourUsageProfile, TourUsageProfile.portable);
   });
 
   test('setSkipDisplacement updates state and persists', () async {
@@ -43,6 +45,8 @@ void main() {
     SharedPreferences.setMockInitialValues({
       'skip_displacement_m': 3000.0,
       'countdown_seconds': 60,
+      'tour_playback_mode': 'notifyOnly',
+      'tour_usage_profile': 'car',
     });
     final container = ProviderContainer();
     addTearDown(container.dispose);
@@ -53,5 +57,41 @@ void main() {
     final settings = container.read(appSettingsProvider);
     expect(settings.skipDisplacementM, 3000.0);
     expect(settings.countdownSeconds, 60);
+    expect(settings.tourPlaybackMode, TourPlaybackMode.notifyOnly);
+    expect(settings.tourUsageProfile, TourUsageProfile.car);
+  });
+
+  test('setTourPlaybackMode updates state and persists', () async {
+    SharedPreferences.setMockInitialValues({});
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+
+    await container
+        .read(appSettingsProvider.notifier)
+        .setTourPlaybackMode(TourPlaybackMode.notifyOnly);
+
+    expect(
+      container.read(appSettingsProvider).tourPlaybackMode,
+      TourPlaybackMode.notifyOnly,
+    );
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString('tour_playback_mode'), 'notifyOnly');
+  });
+
+  test('setTourUsageProfile updates state and persists', () async {
+    SharedPreferences.setMockInitialValues({});
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+
+    await container
+        .read(appSettingsProvider.notifier)
+        .setTourUsageProfile(TourUsageProfile.car);
+
+    expect(
+      container.read(appSettingsProvider).tourUsageProfile,
+      TourUsageProfile.car,
+    );
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString('tour_usage_profile'), 'car');
   });
 }

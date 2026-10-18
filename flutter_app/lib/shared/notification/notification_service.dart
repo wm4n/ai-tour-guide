@@ -1,21 +1,29 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_app/shared/backend/models/poi.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 /// Abstract interface for local notification services.
 abstract class NotificationService {
   Future<void> init();
+  Future<bool> hasNotificationPermission();
   Future<void> showPoiTrigger(POI poi);
 }
 
 /// Fake implementation for tests — records all calls without side effects.
 class FakeNotificationService implements NotificationService {
+  FakeNotificationService({this.hasPermission = true});
+
   bool initCalled = false;
+  final bool hasPermission;
   final List<POI> shownPois = [];
 
   @override
   Future<void> init() async {
     initCalled = true;
   }
+
+  @override
+  Future<bool> hasNotificationPermission() async => hasPermission;
 
   @override
   Future<void> showPoiTrigger(POI poi) async {
@@ -42,6 +50,12 @@ class RealNotificationService implements NotificationService {
       iOS: iosSettings,
     );
     await _plugin.initialize(settings);
+  }
+
+  @override
+  Future<bool> hasNotificationPermission() async {
+    final status = await Permission.notification.status;
+    return status.isGranted || status.isLimited;
   }
 
   @override

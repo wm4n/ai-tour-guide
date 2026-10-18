@@ -25,6 +25,19 @@ void main() {
       expect(service.initCalled, isTrue);
     });
 
+    test('hasNotificationPermission returns configured permission state',
+        () async {
+      expect(
+        await FakeNotificationService().hasNotificationPermission(),
+        isTrue,
+      );
+      expect(
+        await FakeNotificationService(hasPermission: false)
+            .hasNotificationPermission(),
+        isFalse,
+      );
+    });
+
     test('shownPois is empty before any showPoiTrigger()', () {
       final service = FakeNotificationService();
       expect(service.shownPois, isEmpty);

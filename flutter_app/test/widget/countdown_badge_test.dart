@@ -22,9 +22,9 @@ class _FakeTriggerNotifier extends TriggerNotifier {
 
 void main() {
   testWidgets('CountdownBadge CircularProgressIndicator fills container via SizedBox.expand', (tester) async {
-    final countingState = TriggerState(
+    const countingState = TriggerState(
       isCountingDown: true,
-      countdownRemaining: const Duration(seconds: 45),
+      countdownRemaining: Duration(seconds: 45),
     );
     await tester.pumpWidget(
       ProviderScope(

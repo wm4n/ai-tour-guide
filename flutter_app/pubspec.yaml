@@ -26,6 +26,7 @@ dependencies:
   record: ^5.0.0
   flutter_local_notifications: ^17.2.4
   shared_preferences: ^2.3.2
+  audio_service: ^0.18.18
 
 dev_dependencies:
   flutter_test:

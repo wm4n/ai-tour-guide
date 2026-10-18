@@ -11,7 +11,7 @@ import 'package:flutter_app/shared/backend/models/poi.dart';
 import 'package:flutter_app/shared/db/local_db.dart';
 import 'package:flutter_app/shared/providers.dart';
 
-final _testPoi = POI(
+const _testPoi = POI(
   id: 'osm:1',
   name: '故宮博物院',
   lat: 25.1023,

@@ -46,7 +46,7 @@ final narrationAudioPlayerProvider = audioPlayerServiceProvider;
 
 // Q&A 專用 AudioPlayer（獨立實例，不影響旁白音量）
 final qaAudioPlayerProvider = Provider<AudioPlayerService>((ref) {
-  final service = RealAudioPlayerService();
+  final service = RealAudioPlayerService(useMediaService: false);
   ref.onDispose(service.dispose);
   return service;
 });

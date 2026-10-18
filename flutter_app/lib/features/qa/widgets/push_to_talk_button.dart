@@ -37,10 +37,10 @@ class PushToTalkButton extends ConsumerWidget {
 
   Widget _buildIcon(QaStatus status) {
     return switch (status) {
-      QaStatus.idle => _CircleButton(
+      QaStatus.idle => const _CircleButton(
           icon: Icons.mic,
           color: Colors.white,
-          backgroundColor: const Color(0xFF4A9EFF),
+          backgroundColor: Color(0xFF4A9EFF),
         ),
       QaStatus.recording => _PulsingButton(),
       QaStatus.processing => const SizedBox(
@@ -51,12 +51,12 @@ class PushToTalkButton extends ConsumerWidget {
             strokeWidth: 3,
           ),
         ),
-      QaStatus.answering => _CircleButton(
+      QaStatus.answering => const _CircleButton(
           icon: Icons.volume_up,
           color: Colors.white,
-          backgroundColor: const Color(0xFF4A9EFF),
+          backgroundColor: Color(0xFF4A9EFF),
         ),
-      QaStatus.error => _CircleButton(
+      QaStatus.error => const _CircleButton(
           icon: Icons.warning_amber,
           color: Colors.white,
           backgroundColor: Colors.orange,

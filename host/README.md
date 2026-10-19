@@ -7,7 +7,9 @@ uv sync                      # 一般開發（FastAPI、測試）
 uv sync --group speech       # 要實際合成語音時（torch、KittenTTS 2、Whisper，約數 GB）
 uv run pytest
 uv run ruff check . && uv run ruff format --check .
-uv run python -m buddy_host  # 啟動服務
+uv run python -m buddy_host  # 啟動服務（旅程端點會回 503，沒有指定準備器）
+uv run python -m buddy_host --replay-dir DIR     # 重播既有介紹，不呼叫 Claude
+uv run python -m buddy_host --max-llm-calls N    # 真實準備；Claude 呼叫硬上限 N 次
 ```
 
 主機上的設定與機密一律放在 `~/.buddy-host/`（可用 `BUDDY_HOST_HOME` 改位置），**不入 repo**：
@@ -44,3 +46,19 @@ uv run python -m buddy_host.speech --text-file 稿子.txt --name demo
 
 踩到的坑：逐句合成時，只有兩個字的「哇！」四個 seed 全部驗收失敗（Whisper 對超短音訊會亂寫），
 所以前處理會把相鄰句子併成每段約 90 字再合成；整段失敗才依序往下拆。
+
+## 旅程 API（`buddy_host.tour`）
+
+都需要 `X-Buddy-Token`（有設 token 時）。準備很慢，所以位置回報立刻回應，準備在背景進行：
+同一時間只跑一次，期間只保留最新位置；移動超過 250 公尺或旅人狀態改變才為前方重新準備。
+
+| 端點 | 用途 |
+|---|---|
+| `POST /v1/tour/start` | 出發。帶 `lat`、`lon`、`heading_deg`、`mode`（walking／driving）、`companions`（solo／couple／family／friends）、`with_children`、`local_time`（帶時區的 ISO）；立刻準備起點周邊 |
+| `POST /v1/tour/location` | 位置與旅人狀態回報（同上欄位）；還沒出發回 409 |
+| `POST /v1/tour/end` | 結束 |
+| `GET /v1/tour/narrations?after=N` | 輪詢：`active`、`preparing`、`stopped_reason`（`quota`／`llm_budget`／`forbidden_model`）、序號大於 N 的介紹（含景點座標與秒數） |
+| `GET /v1/tour/audio?id=…` | 下載一段介紹的 wav |
+
+**Claude 用量保護**：`--max-llm-calls N` 用 `BudgetedLlm` 包住 Claude 呼叫，次數用完就停止準備並回報 `llm_budget`。
+一次準備最多 `limit(2) × (1 + 重寫次數)` 次呼叫；整趟次數 ≈ 起點那次 ＋ 路線長度 ÷ 250 公尺 × 2。

@@ -73,6 +73,26 @@
 - 需要同意才能做：真實 Claude 呼叫（先講次數）、實機（#8）；模擬器 GPX 路線要放進 repo
 - 品質基準：語音約 90 分，不必追求完美；停頓、朋友式口吻、`approx` 規則都已完成
 
+### #7 App 走一趟（`/implement #7`，2026-10-20）
+
+做了：
+- 主機：`/v1/tour/{start,location,end}`、輪詢 `/v1/tour/narrations?after=`、下載 `/v1/tour/audio?id=`；`TourSession`（同時只準備一次、期間只留最新位置、移動 250 公尺或旅人狀態改變才重準備）；`BudgetedLlm` 硬上限（`--max-llm-calls`）；`ReplayPreparer`（`--replay-dir`，不呼叫 Claude）；`PreparedNarration` 帶座標
+- App：`PlaybackPolicy`（150 公尺內、間隔 3 分鐘可用 `MIN_GAP_SECONDS` 調整、暫停／播放中不開始、走遠 500 公尺或放 30 分鐘就丟）、`TourController`、自己用前後定位點算方向、duck＋播完釋放 audio session、耳機鍵＝暫停／恢復主動介紹、出發前選旅人狀態、Info.plist 背景定位與音訊
+- `scripts/gpx/dadaocheng-to-bangka.gpx`（霞海城隍廟→龍山寺，3.0 公里，OSM 步行路網）、`scripts/play-gpx.sh`、`app/integration_test/tour_flow_test.dart`
+
+驗證：host 369 項、app 102 項、ruff／analyze 乾淨。模擬器（乾淨的 iPhone 16／iOS 18.6，已刪除）以重播模式實跑：出發→主機通知→下載→自動播出「台北霞海城隍廟」；1 分鐘內位置回報 5 次。
+
+**還沒驗證（誠實列出）**
+- 驗收「整趟至少 3 段」「兩段間隔 ≥ 3 分鐘」的真實一趟：需要 Claude 呼叫，**尚未取得授權**。預估：起點 1 次準備 ＋ 約 12 次重準備（3 公里 ÷ 250 公尺）＝ 最多約 13 次 × 每次最多 2 景點（快取命中不重寫）≈ 最多 26 次 Sonnet；建議 `--max-llm-calls 10` 先跑。M3 合成很慢（單段數分鐘），GPX 要用 `--speed 1.4`（約 36 分鐘）而不是快轉；跑之前先確認沒有其他大型程式
+- 耳機／鎖定畫面暫停鍵、duck 其他 App 的實際聽感、鎖定畫面時的背景定位與播放、`TourAudioHandler` 在「沒有音訊在播」時 iOS 是否仍把遙控鍵交給 App：模擬器沒有耳機鍵，留給 #8 實機
+- 「額度用完」只在畫面提示；連不上主機時播固定短句 6、自動繼續：不在 #7 範圍，未做
+- 準備中途按「結束」：`asyncio.to_thread` 裡的合成無法取消，舊的合成會跑完（GPU 短暫被占用）
+
+踩到的坑：
+- `simctl privacy grant location` 要在 App 已安裝後才有效，而 `flutter test` 每次重裝都會重置權限；整合測試期間要用迴圈持續授權，否則系統對話框會蓋住 App
+- `just_audio` 只啟用 audio session 不停用：不主動 `setActive(false, notifyOthersOnDeactivation)`，其他 App 會一直被壓低音量（短句播放器原本也有這個問題，已補）
+- 選項回呼若用 build 時的狀態，連續快速點選會互相覆蓋（旅人選擇器，測試抓到）
+
 ### 踩到的坑
 - **逐句合成會誤判**：兩個字的「哇！」四個 seed 的 CER 都 ≥ 1；管線改成先併段（約 90 字），整段失敗才往下拆（段 → 句 → 分句）
 - **SSL**：python.org 版 Python 的 urllib 不認這台機器的憑證，用 `truststore`

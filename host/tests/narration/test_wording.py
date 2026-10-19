@@ -64,3 +64,8 @@ def test_the_eight_fixed_phrases_contain_no_listed_mainland_term(terms):
 
     for number, (text, _) in PHRASES.items():
         assert find_issues(text, terms) == [], number
+
+
+def test_registered_as_a_historic_building_is_proper_taiwan_wording(terms):
+    # 真實案例：Claude 寫「被登錄為歷史建築」，這是台灣文資的正規用語，不能當成大陸用語
+    assert find_issues("後來被登錄為歷史建築，也登錄了文化資產。", terms) == []

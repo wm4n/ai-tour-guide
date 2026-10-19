@@ -102,3 +102,16 @@ def test_describe_direction():
     assert describe_direction(-90) == "左手邊"
     assert describe_direction(180) == "後方"
     assert describe_direction(None) == "附近"
+
+
+def test_revision_request_quotes_the_previous_script_and_the_replacements():
+    from buddy_host.narration.wording import Finding
+
+    request = build_script_request(
+        "p", ctx(), revise=("這個視頻很好看。", [Finding("視頻", "影片")])
+    )
+
+    assert "這個視頻很好看。" in request.prompt
+    assert "視頻" in request.prompt and "影片" in request.prompt
+    assert "台灣" in request.prompt
+    assert "霞海城隍廟" in request.prompt  # 原本的任務還在

@@ -10,8 +10,8 @@ ALLOWED = ["對了", "而且", "其實", "你看", "啦"]
 def rule_lines() -> dict[str, str]:
     lines = PERSONA.read_text(encoding="utf-8").splitlines()
     return {
-        "avoid": next(line for line in lines if "不要用" in line),
-        "allowed": next(line for line in lines if "可以用" in line),
+        "avoid": next(line for line in lines if "**不要用**" in line),
+        "allowed": next(line for line in lines if "**可以用**" in line),
     }
 
 
@@ -41,3 +41,20 @@ def test_the_example_script_does_not_use_any_word_the_rules_forbid():
     example = text[text.index("## 範本") :]
 
     assert [word for word in AVOID if word in example] == []
+
+
+def test_persona_tells_claude_to_use_taiwan_wording_with_examples():
+    text = PERSONA.read_text(encoding="utf-8")
+
+    for taiwan in ("影片", "軟體", "捷運", "公車", "計程車", "飯店"):
+        assert taiwan in text
+
+
+def test_the_example_script_uses_no_listed_mainland_term():
+    from buddy_host.narration.wording import find_issues, load_terms
+
+    terms_file = Path(__file__).resolve().parents[2] / "config" / "taiwan_terms.json"
+    text = PERSONA.read_text(encoding="utf-8")
+    example = text[text.index("## 範本") :]
+
+    assert find_issues(example, load_terms(terms_file)) == []

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from buddy_host.llm.models import LlmRequest, Purpose
+from buddy_host.narration.wording import Finding
 from buddy_host.places.models import Candidate
 
 WEB_TOOLS = ("WebSearch", "WebFetch")
@@ -64,6 +65,7 @@ def build_script_request(
     *,
     seconds: tuple[int, int] = (30, 45),
     model: str | None = None,
+    revise: tuple[str, list[Finding]] | None = None,
 ) -> LlmRequest:
     thin = not ctx.wiki_extract or len(ctx.wiki_extract) < THIN_FACTS_CHARS
     parts = [
@@ -81,6 +83,13 @@ def build_script_request(
         parts.append("這趟剛介紹過：" + "、".join(ctx.recent_topics) + "。可以拿來對比或串連。")
     if thin:
         parts.append("上面的資料不多，你可以上網查證補充，但查不到的事不要編。")
+    if revise:
+        previous, findings = revise
+        replacements = "、".join(f"「{f.term}」請改成「{f.suggestion}」" for f in findings)
+        parts.append(
+            f"上一版稿子：\n{previous}\n\n這一版用了不是台灣的用語：{replacements}。"
+            "請用台灣的用語與繁體中文，把整份稿子重寫一次，其餘內容與長度維持。"
+        )
     parts.append("只輸出要唸出來的稿子，不要任何前言、標題或說明。")
     return LlmRequest(
         prompt="\n\n".join(parts),

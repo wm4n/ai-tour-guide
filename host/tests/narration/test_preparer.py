@@ -303,3 +303,47 @@ async def test_query_area_still_covers_the_search_radius_around_the_real_positio
     box = boxes[0]
     margin = 500 / 111_195
     assert box.min_lat <= here.lat - margin and box.max_lat >= here.lat + margin
+
+
+class ScriptedLlm(FakeLlm):
+    def __init__(self, *texts):
+        super().__init__(texts[0])
+        self.texts = list(texts)
+
+    async def run(self, request, on_text=None):
+        self.requests.append(request)
+        text = self.texts.pop(0) if len(self.texts) > 1 else self.texts[0]
+        return LlmResult(text, "claude-sonnet-5-5", {}, {}, {}, 10)
+
+
+async def test_mainland_wording_triggers_one_rewrite_and_the_clean_version_is_used(tmp_path):
+    llm = ScriptedLlm("我們看這個視頻。", "我們看這個影片。")
+    preparer, _ = make(tmp_path, [osm("霞海城隍廟", 100)], llm=llm, limit=1)
+
+    [prepared] = await preparer.prepare(HERE)
+
+    assert len(llm.requests) == 2
+    assert "視頻" in llm.requests[1].prompt
+    assert prepared.script == "我們看這個影片。"
+    assert json.loads(prepared.meta_path.read_text(encoding="utf-8"))["wording_issues"] == []
+
+
+async def test_rewrites_are_capped_and_remaining_issues_are_recorded(tmp_path):
+    llm = ScriptedLlm("我們看這個視頻。")
+    preparer, _ = make(tmp_path, [osm("霞海城隍廟", 100)], llm=llm, limit=1)
+    preparer._max_rewrites = 0
+
+    [prepared] = await preparer.prepare(HERE)
+
+    assert len(llm.requests) == 1  # 額度保護：不會自己多叫
+    meta = json.loads(prepared.meta_path.read_text(encoding="utf-8"))
+    assert meta["wording_issues"] == [{"term": "視頻", "suggestion": "影片"}]
+
+
+async def test_clean_script_costs_a_single_call(tmp_path):
+    llm = ScriptedLlm("我們搭捷運到大橋頭站。")
+    preparer, _ = make(tmp_path, [osm("霞海城隍廟", 100)], llm=llm, limit=1)
+
+    await preparer.prepare(HERE)
+
+    assert len(llm.requests) == 1

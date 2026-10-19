@@ -52,6 +52,7 @@ async def run(args: argparse.Namespace) -> dict:
             persona_path=PERSONA,
             out_dir=home / "out" / "narrations",
             limit=args.limit,
+            max_rewrites=args.max_rewrites,
         )
         started = time.perf_counter()
         with PeakMemorySampler() as memory:
@@ -76,12 +77,20 @@ def main() -> None:
     parser.add_argument("--lon", type=float, required=True)
     parser.add_argument("--heading", type=float, default=None)
     parser.add_argument("--limit", type=int, default=2)
+    parser.add_argument(
+        "--max-rewrites",
+        type=int,
+        default=0,
+        help="稿子有非台灣用語時最多重寫幾次（每次多一次呼叫）",
+    )
     parser.add_argument("--confirm-llm-calls", type=int, required=True)
     args = parser.parse_args()
-    if args.confirm_llm_calls != args.limit:
+    max_calls = args.limit * (1 + args.max_rewrites)
+    if args.confirm_llm_calls != max_calls:
         sys.exit(
-            f"本次最多會呼叫 Claude Sonnet {args.limit} 次（每個景點一次），"
-            f"請以 --confirm-llm-calls {args.limit} 確認"
+            f"本次最多會呼叫 Claude Sonnet {max_calls} 次"
+            f"（{args.limit} 個景點 × 每個最多 {1 + args.max_rewrites} 次），"
+            f"請以 --confirm-llm-calls {max_calls} 確認"
         )
     report = asyncio.run(run(args))
     out = default_home() / "out" / "prepare-report.json"

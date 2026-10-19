@@ -14,6 +14,7 @@ from typing import Protocol
 from buddy_host.llm.claude_cli import QuotaExceededError
 from buddy_host.llm.models import ForbiddenModelError, LlmRequest, LlmResult
 from buddy_host.narration.prompt import ScriptContext, build_script_request, load_persona
+from buddy_host.narration.wording import DEFAULT_TERMS_FILE, Finding, find_issues, load_terms
 from buddy_host.places.gather import gather_candidates
 from buddy_host.places.merge import names_match
 from buddy_host.places.models import BBox, Candidate, Location
@@ -86,6 +87,8 @@ class AreaPreparer:
         out_dir: Path,
         radius_m: float = DEFAULT_RADIUS_M,
         limit: int = 2,
+        max_rewrites: int = 1,
+        terms_path: Path = DEFAULT_TERMS_FILE,
     ):
         self._overpass = overpass
         self._wiki = wiki
@@ -95,6 +98,8 @@ class AreaPreparer:
         self._out_dir = out_dir
         self._radius_m = radius_m
         self._limit = limit
+        self._max_rewrites = max_rewrites  # 每次重寫都是一次額外的 Claude 呼叫
+        self._terms = load_terms(terms_path)
 
     async def prepare(
         self,
@@ -145,14 +150,14 @@ class AreaPreparer:
                     prepared.append(hit)
                     continue
                 try:
-                    script = await scripts[item.candidate.id]
+                    script, issues = await scripts[item.candidate.id]
                 except (ForbiddenModelError, QuotaExceededError):
                     raise  # 政策違規與額度用盡不是單段失敗，要讓呼叫端知道
                 except Exception:  # 一段寫稿失敗（逾時、格式…）不要拖垮其他段
                     logger.exception("寫稿失敗：%s", item.candidate.name)
                     continue
                 made = (
-                    await self._synthesize(item, script, prints[item.candidate.id])
+                    await self._synthesize(item, script, prints[item.candidate.id], issues)
                     if script
                     else None
                 )
@@ -196,7 +201,7 @@ class AreaPreparer:
         persona: str,
         recent_topics: tuple[str, ...],
         told_before: tuple[str, ...],
-    ) -> str:
+    ) -> tuple[str, list[Finding]]:
         candidate = item.candidate
         context = ScriptContext(
             candidate=candidate,
@@ -206,11 +211,20 @@ class AreaPreparer:
             told_before=told_before,
             recent_topics=recent_topics,
         )
-        request = build_script_request(persona, context)
-        return (await self._llm.run(request)).text.strip()
+        script = (await self._llm.run(build_script_request(persona, context))).text.strip()
+        issues = find_issues(script, self._terms)
+        for _ in range(self._max_rewrites):
+            if not script or not issues:
+                break
+            revised = build_script_request(persona, context, revise=(script, issues))
+            script = (await self._llm.run(revised)).text.strip()
+            issues = find_issues(script, self._terms)
+        if issues:
+            logger.warning("%s 的稿子仍有非台灣用語：%s", candidate.name, issues)
+        return script, issues
 
     async def _synthesize(
-        self, item: Ranked, script: str, fingerprint: str
+        self, item: Ranked, script: str, fingerprint: str, issues: list[Finding]
     ) -> PreparedNarration | None:
         candidate = item.candidate
         speech = await asyncio.to_thread(self._speech.run, script)
@@ -230,6 +244,7 @@ class AreaPreparer:
             "score": round(item.score, 3),
             "script": script,
             "fingerprint": fingerprint,
+            "wording_issues": [{"term": f.term, "suggestion": f.suggestion} for f in issues],
             "audio_seconds": round(speech.audio_seconds, 2),
             "speech": speech.to_log(),
             "prepared_at": datetime.now(UTC).isoformat(),

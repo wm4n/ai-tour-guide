@@ -57,3 +57,8 @@ uv run python -m buddy_host.speech.particle_probe --listen ~/.buddy-host/out/par
 | 可以用 | 對了、而且、其實、你看、啦 | CER 過關，失敗只偶發在單一 seed，重試可兜底 |
 
 親切感改靠句型和用詞營造（「我們」「你看這裡」「對了，」「其實」）。
+
+## 人耳確認（2026-10-20）
+使用者聽了 `particles-listen/`（每個詞 seed 1234）：除了「欸」之外，都有照預期聽到檔名的字串；
+「欸_seed1234」前半段完全不像中文（CER 0.818，Whisper 轉成「我叫孟子英國，英國，茶香。」），
+與上表「欸放句首失敗率高」一致，維持避免。

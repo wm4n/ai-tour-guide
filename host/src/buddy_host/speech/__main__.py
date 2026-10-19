@@ -51,7 +51,7 @@ def main() -> None:
     print(f"[done] audio={log['audio_seconds']}s wall={log['wall_seconds']}s rtf={log['rtf']}")
     print(
         f"[done] chunks={len(statuses)} ok={statuses.count('ok')} "
-        f"split={statuses.count('split')} skipped={statuses.count('skipped')}"
+        f"approx={statuses.count('approx')} split={statuses.count('split')} skipped={statuses.count('skipped')}"
     )
     print(f"[out] {wav_path}\n[out] {log_path}")
 

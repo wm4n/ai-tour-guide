@@ -51,6 +51,10 @@ class PipelineConfig:
     short_cer_threshold: float = 0.05
     # 開場句通常有名字，丟掉會讓整段沒頭沒尾，所以失敗時多試幾個 seed 再拆句／跳過
     opening_extra_seeds: tuple[int, ...] = (314, 777, 2468, 99, 11, 5)
+    # 偶爾字音不準可以接受，漏掉整句內容不行（試聽回饋）：所有 seed 都差一點點時，
+    # 與其拆開（失去語氣）或丟掉，不如收下 CER 最低的那一版；拆到不能再拆時放寬一些
+    approx_cer: float = 0.10
+    leaf_approx_cer: float = 0.25
 
 
 @dataclass
@@ -65,7 +69,7 @@ class Attempt:
     rejected: str | None = None  # 句首檢查不過的原因；有值就不採用，即使 CER 很低
 
 
-Status = Literal["ok", "split", "skipped"]
+Status = Literal["ok", "approx", "split", "skipped"]
 
 
 @dataclass
@@ -172,14 +176,21 @@ class SpeechPipeline:
         """換 seed 重試 → 全失敗就往下拆（段→句→分句）→ 還是不行就跳過。"""
         attempts: list[Attempt] = []
         seeds = self._config.seeds + (self._config.opening_extra_seeds if opening else ())
+        best: tuple[float, np.ndarray] | None = None  # 句首沒問題、CER 最低的一版
         for seed in dict.fromkeys(seeds):
             attempt, audio = self.attempt(text, seed)
             attempts.append(attempt)
             if attempt.rejected is None and attempt.cer <= self.threshold_for(text):
                 return ChunkResult(text, "ok", attempts, audio=audio)
+            if attempt.rejected is None and (best is None or attempt.cer < best[0]):
+                best = (attempt.cer, audio)
 
+        if best and best[0] <= self._config.approx_cer:
+            return ChunkResult(text, "approx", attempts, audio=best[1])
         split = _split_once(text) if self._config.split_on_failure else None
         if split is None:
+            if best and best[0] <= self._config.leaf_approx_cer:
+                return ChunkResult(text, "approx", attempts, audio=best[1])
             return ChunkResult(text, "skipped", attempts)
 
         kind, pieces = split

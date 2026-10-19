@@ -333,7 +333,8 @@ def test_wrong_first_word_rejects_the_attempt_even_with_perfect_cer():
 def test_short_text_needs_an_almost_exact_transcript():
     short = "額度用完了，我先安靜陪你走。"  # 12 字
     wrong = {(short, s): "眾度用完了，我先安靜陪你走。" for s in (1234, 7, 42, 2026)}
-    pipeline, _, _ = make_words(lead=0.0, text_for=wrong, first_word="額")
+    # approx_cer=0：關掉「差一點就收下」，只看短句門檻（固定短句挑選走這條嚴格路徑）
+    pipeline, _, _ = make_words(lead=0.0, text_for=wrong, first_word="額", approx_cer=0.0)
 
     result = pipeline.run(short)
 
@@ -470,3 +471,63 @@ def test_skipped_chunk_keeps_the_longer_pause_it_sat_on():
     result = pipeline.run("甲乙丙。\n\n丁戊己。\n\n庚辛壬。")
 
     assert len(result.audio) == 2 * 40 + 1500
+
+
+def _wrong_by_one(text: str) -> str:
+    return text[:3] + "錯" + text[4:]
+
+
+def test_near_miss_is_accepted_as_is_instead_of_being_split_or_dropped():
+    text = "等一下經過的時候可以瞄一眼門口。"  # 16 字：錯一個字是 0.0625，超過短句門檻 0.05
+    wrong = {(text, s): _wrong_by_one(text) for s in (1234, 7, 42, 2026)}
+    pipeline, synth = make(wrong=wrong)
+
+    result = pipeline.run(text)
+
+    [chunk] = result.chunks
+    assert chunk.status == "approx"
+    assert chunk.pieces == []
+    assert len(result.audio) == len(text) * 10
+
+
+def test_near_miss_uses_the_attempt_with_the_lowest_cer():
+    text = "等一下經過的時候可以瞄一眼門口。"
+    wrong = {
+        (text, 1234): text[:3] + "錯錯" + text[5:],
+        (text, 7): _wrong_by_one(text),
+        (text, 42): text[:3] + "錯錯" + text[5:],
+        (text, 2026): text[:3] + "錯錯" + text[5:],
+    }
+    pipeline, _ = make(wrong=wrong, approx_cer=0.1)
+
+    result = pipeline.run(text)
+
+    assert float(result.audio[0]) == pytest.approx(7 / 10000)
+
+
+def test_rejected_attempts_are_never_used_as_the_near_miss():
+    text = "等一下經過的時候可以瞄一眼門口。"
+    wrong = {(text, s): "亂" for s in (1234, 7, 42, 2026)}
+    pipeline, _ = make(wrong=wrong, split_on_failure=False)
+
+    assert pipeline.run(text).chunks[0].status == "skipped"
+
+
+def test_clear_misses_still_get_split_first():
+    text = "甲乙丙丁，戊己庚辛。"
+    wrong = {(text, s): "完全不一樣的句子啦" for s in (1234, 7, 42, 2026)}
+    pipeline, _ = make(wrong=wrong)
+
+    assert pipeline.run(text).chunks[0].status == "split"
+
+
+def test_last_resort_piece_accepts_a_worse_attempt_than_a_near_miss():
+    text = "甲乙丙丁戊己庚。"  # 不能再拆
+    wrong = {(text, s): text[:2] + "錯錯" + text[4:] for s in (1234, 7, 42, 2026)}  # 2/7 ≈ 0.29
+    pipeline, _ = make(wrong=wrong, leaf_approx_cer=0.3)
+
+    assert pipeline.run(text).chunks[0].status == "approx"
+
+    pipeline, _ = make(wrong=wrong, leaf_approx_cer=0.2)
+
+    assert pipeline.run(text).chunks[0].status == "skipped"

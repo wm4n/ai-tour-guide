@@ -21,15 +21,14 @@ from buddy_host.config import default_home
 from buddy_host.speech.pipeline import PipelineConfig, SpeechPipeline, SpeechResult, write_outputs
 from buddy_host.speech.text_prep import prepare_sentences
 
+# 編號沿用設計文件 9.3；5（額度用完）與 8（恢復）已取消，改成畫面提示與自動繼續
 PHRASES: dict[int, tuple[str, str]] = {
     1: ("好，我來查一下，你稍等我一下。", "問答開頭"),
     2: ("這個問題很好，讓我想一下。", "問答開頭替換"),
     3: ("我想想怎麼說比較好。", "答案還沒好時補一句"),
     4: ("我上網查一下，可能要多等一下。", "需要上網查時"),
-    5: ("額度用完了，我先安靜陪你走。", "額度用完"),
     6: ("我連不上家裡的電腦了，先安靜一下，連上了再跟你說。", "連不上主機"),
     7: ("好，我們出發吧！", "按出發時"),
-    8: ("我恢復了，我們繼續。", "額度恢復或重新連上"),
 }
 CANDIDATE_SEEDS = (1234, 7, 42, 2026, 99, 314, 777, 2468)
 WANTED = 3

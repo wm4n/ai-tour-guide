@@ -42,6 +42,8 @@ class PipelineConfig:
     # 短句只要錯一個字就聽得出來（真實案例：「額度」被念成「眾珠」仍過 0.2 門檻）
     short_text_chars: int = 20
     short_cer_threshold: float = 0.05
+    # 開場句通常有名字，丟掉會讓整段沒頭沒尾，所以失敗時多試幾個 seed 再拆句／跳過
+    opening_extra_seeds: tuple[int, ...] = (314, 777, 2468, 99, 11, 5)
 
 
 @dataclass
@@ -128,7 +130,7 @@ class SpeechPipeline:
         texts = chunk_sentences(prepare_sentences(text), self._config.chunk_chars)
         chunks: list[ChunkResult] = []
         for index, chunk_text in enumerate(texts, start=1):
-            chunk = self._speak(chunk_text)
+            chunk = self._speak(chunk_text, opening=index == 1)
             chunks.append(chunk)
             if self._progress:
                 self._progress(index, len(texts), chunk)
@@ -147,10 +149,11 @@ class SpeechPipeline:
             out += [self._gap(), part]
         return np.concatenate(out)
 
-    def _speak(self, text: str) -> ChunkResult:
+    def _speak(self, text: str, opening: bool = False) -> ChunkResult:
         """換 seed 重試 → 全失敗就往下拆（段→句→分句）→ 還是不行就跳過。"""
         attempts: list[Attempt] = []
-        for seed in self._config.seeds:
+        seeds = self._config.seeds + (self._config.opening_extra_seeds if opening else ())
+        for seed in dict.fromkeys(seeds):
             attempt, audio = self.attempt(text, seed)
             attempts.append(attempt)
             if attempt.rejected is None and attempt.cer <= self.threshold_for(text):
@@ -161,7 +164,7 @@ class SpeechPipeline:
             return ChunkResult(text, "skipped", attempts)
 
         kind, pieces = split
-        results = [self._speak(piece) for piece in pieces]
+        results = [self._speak(piece, opening and i == 0) for i, piece in enumerate(pieces)]
         good = [r.audio for r in results if r.audio is not None]
         # 拆成句子：只丟掉失敗的那句；拆成分句：少一個分句句子就不完整，整句跳過
         if not good or (kind == "clause" and len(good) < len(results)):

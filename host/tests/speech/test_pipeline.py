@@ -36,6 +36,7 @@ class ScriptedRecognizer:
 
 
 def make(wrong=None, **config):
+    config.setdefault("opening_extra_seeds", ())  # 既有測試不涉及「開場句多試 seed」
     synth = FakeSynth()
     pipeline = SpeechPipeline(synth, ScriptedRecognizer(synth, wrong), PipelineConfig(**config))
     return pipeline, synth
@@ -290,6 +291,7 @@ class WordsRecognizer:
 
 
 def make_words(lead=0.9, text_for=None, first_word=None, **config):
+    config.setdefault("opening_extra_seeds", ())
     synth = FixedSynth()
     asr = WordsRecognizer(synth, lead, text_for, first_word)
     return SpeechPipeline(synth, asr, PipelineConfig(**config)), synth, asr
@@ -383,3 +385,58 @@ def test_energy_based_lead_in_trim_removes_the_faint_sound_whisper_did_not_repor
     attempt = result.chunks[0].attempts[0]
     assert attempt.trimmed_seconds == pytest.approx(0.37, abs=0.05)
     assert len(result.audio) == pytest.approx(1450 - 370, abs=50)
+
+
+# ---- 開場句多試 seed（使用者決定 A：不要因為驗收不過就丟掉含名字的開場句）----
+
+EXTRA = (314, 777)
+
+
+def test_opening_chunk_tries_extra_seeds_before_giving_up():
+    text = "台北霞海城隍廟就在前方。"
+    wrong = {(text, s): "亂" for s in (1234, 7, 42, 2026)}
+    pipeline, synth = make(wrong=wrong, opening_extra_seeds=EXTRA)
+
+    result = pipeline.run(text)
+
+    [chunk] = result.chunks
+    assert chunk.status == "ok"
+    assert [a.seed for a in chunk.attempts] == [1234, 7, 42, 2026, 314]
+
+
+def test_later_chunks_do_not_get_extra_seeds():
+    first, second = "甲" * 90 + "。", "乙乙乙乙。"
+    wrong = {(second, s): "亂" for s in (1234, 7, 42, 2026)}
+    pipeline, synth = make(wrong=wrong, opening_extra_seeds=EXTRA)
+
+    result = pipeline.run(first + second)
+
+    assert [c.status for c in result.chunks] == ["ok", "skipped"]
+    assert len([c for c in synth.calls if c[0] == second]) == 4
+
+
+def test_first_sentence_of_a_split_opening_keeps_the_extra_seeds():
+    one, two = "台北霞海城隍廟就在前方。", "它在迪化街上。"
+    chunk_text = one + two
+    wrong = {(chunk_text, s): "亂" for s in (1234, 7, 42, 2026, *EXTRA)}
+    wrong.update({(one, s): "亂" for s in (1234, 7, 42, 2026)})
+    wrong.update({(two, s): "亂" for s in (1234, 7, 42, 2026, *EXTRA)})
+    pipeline, _ = make(wrong=wrong, opening_extra_seeds=EXTRA, gap_seconds=0)
+
+    result = pipeline.run(chunk_text)
+
+    [chunk] = result.chunks
+    assert chunk.status == "split"
+    assert [p.status for p in chunk.pieces] == ["ok", "skipped"]
+    assert chunk.pieces[0].attempts[-1].seed == 314
+
+
+def test_extra_seeds_that_repeat_a_base_seed_are_only_tried_once():
+    text = "台北霞海城隍廟就在前方。"
+    wrong = {(text, s): "亂" for s in (1234, 7, 42, 2026, 314, 777)}
+    pipeline, synth = make(wrong=wrong, opening_extra_seeds=(7, 314, 777))
+
+    pipeline.run(text)
+
+    seeds = [seed for t, seed in synth.calls if t == text]
+    assert seeds == [1234, 7, 42, 2026, 314, 777]

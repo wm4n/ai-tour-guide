@@ -2,8 +2,9 @@ from buddy_host.speech.phrases import CANDIDATE_SEEDS, PHRASES, WANTED
 from buddy_host.speech.text_prep import prepare_sentences
 
 
-def test_there_are_eight_numbered_phrases_matching_the_design_doc():
-    assert sorted(PHRASES) == [1, 2, 3, 4, 5, 6, 7, 8]
+def test_there_are_six_numbered_phrases_matching_the_design_doc():
+    # 5（額度用完）與 8（恢復）已取消：改成畫面提示與自動繼續
+    assert sorted(PHRASES) == [1, 2, 3, 4, 6, 7]
     assert PHRASES[7][0] == "好，我們出發吧！"
 
 

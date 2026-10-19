@@ -20,6 +20,10 @@ from buddy_host.llm.models import LlmRequest, Purpose
 PLANNED_CALLS = 4
 
 
+def planned_calls(*, skip_first_cold: bool) -> int:
+    return PLANNED_CALLS - 1 if skip_first_cold else PLANNED_CALLS
+
+
 def make_solid_png(path: Path, rgb: tuple[int, int, int], size: int = 64) -> None:
     def chunk(kind: bytes, data: bytes) -> bytes:
         body = kind + data
@@ -54,7 +58,7 @@ async def timed(client: ClaudeCliClient, request: LlmRequest) -> dict:
     }
 
 
-async def run(home: Path) -> dict:
+async def run(home: Path, *, skip_first_cold: bool = False) -> dict:
     client = ClaudeCliClient(ClaudeSettings.for_home(home))
     probe_dir = home / "workdir" / "probe"
     image = probe_dir / "probe.png"
@@ -77,7 +81,8 @@ async def run(home: Path) -> dict:
 
     report: dict = {}
     ping = LlmRequest(prompt="只回覆 OK 兩個字母。", purpose=Purpose.PROBE)
-    report["cold_start_1"] = await timed(client, ping)
+    if not skip_first_cold:
+        report["cold_start_1"] = await timed(client, ping)
     report["cold_start_2"] = await timed(client, ping)
 
     report["image"] = await timed(
@@ -107,14 +112,15 @@ async def run(home: Path) -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--confirm-calls", type=int, required=True)
+    parser.add_argument(
+        "--skip-first-cold", action="store_true", help="第 1 次冷啟動已另外做過，少呼叫 1 次"
+    )
     args = parser.parse_args()
-    if args.confirm_calls != PLANNED_CALLS:
-        sys.exit(
-            f"本探測會呼叫 Claude {PLANNED_CALLS} 次（Haiku），"
-            f"請以 --confirm-calls {PLANNED_CALLS} 確認"
-        )
+    planned = planned_calls(skip_first_cold=args.skip_first_cold)
+    if args.confirm_calls != planned:
+        sys.exit(f"本探測會呼叫 Claude {planned} 次（Haiku），請以 --confirm-calls {planned} 確認")
     home = default_home()
-    report = asyncio.run(run(home))
+    report = asyncio.run(run(home, skip_first_cold=args.skip_first_cold))
     out = home / "out" / "probe-report.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")

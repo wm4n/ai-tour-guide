@@ -70,3 +70,10 @@ def test_solid_png_is_a_valid_png(tmp_path):
     idat_len = struct.unpack(">I", data[idat_start - 8 : idat_start - 4])[0]
     raw = zlib.decompress(data[idat_start : idat_start + idat_len])
     assert raw[:4] == b"\x00\xdc\x14\x14"
+
+
+def test_planned_calls_shrink_when_the_first_cold_start_was_already_done():
+    from buddy_host.probe.run_probe import planned_calls
+
+    assert planned_calls(skip_first_cold=False) == 4
+    assert planned_calls(skip_first_cold=True) == 3

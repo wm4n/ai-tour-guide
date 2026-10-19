@@ -310,12 +310,13 @@ iPhone（Flutter，app/）
 
 ## 15. 未驗證的依賴（第一批任務先驗證）
 
-1. **Claude Code headless 在主機上的行為**：
-   - `CLAUDE_CODE_OAUTH_TOKEN` 搭配 `claude -p` 能否正常運作。
-   - 冷啟動延遲。
-   - stream-json 的串流與 `rate_limit_event`。
-   - 讀圖片。
-   - 從 MCP 呼叫 `places_nearby`。
+1. **Claude Code headless 在主機上的行為**【2026-10-19 已實測，見 [`docs/spikes/2026-10-19-claude-headless/`](../../spikes/2026-10-19-claude-headless/README.md)】：
+   - `CLAUDE_CODE_OAUTH_TOKEN` 搭配 `claude -p`：可用。
+   - 冷啟動延遲：Haiku 總耗時約 3 秒、第一個字約 2 到 2.5 秒。
+   - stream-json 的串流與 `rate_limit_event`：可用；`utilization` 在 `unifiedWindows.five_hour／seven_day` 底下，不在頂層。
+   - 讀圖片：可用。
+   - 從 MCP 呼叫工具：可用（以本機測試用 MCP 伺服器驗證；`places_nearby` 本身留待 #12）。
+   - 每次新對話約 25k 輸入 token 的固定成本，用工具時更高。
 2. **Claude Pro 額度實測**：研究一區、寫一段稿、回答一題，各自用掉多少 `utilization`。
 3. **16 GB 記憶體能否同時跑完整套**：Claude Code、KittenTTS 2（8.8 到 11.8 GB）、Whisper、Buddy Host。如果不行，記錄下來，等 M6 再驗收（第 16 節）。
 4. **iOS**：

@@ -66,6 +66,13 @@
 - Claude 用量：Sonnet 5.5 共 3 次（城隍廟：走路獨自、帶小朋友、開車），使用者已同意「可以測試幾次」，**之後的呼叫仍要先講次數**
 - 待辦：問答模式（放寬重試）先不做，使用者聽完再說；開車時是否縮短目標秒數：使用者說不用；稿子事實核對：目前只是測試語音，**不需要**（使用者 2026-10-20 確認），正式給人用之前再做；App 要在哪裡選同行者留給 #7
 
+### 下一步：#7（第二階段起點，2026-10-20）
+- 使用者要在 `/clear` 後輸入 `/implement #7`（`/implement` 只能由使用者輸入，我不能用 Skill 工具啟動）
+- 先讀：issue #7、設計文件第 6.1.1、7、13 節、本節、`app/lib/host/host_connection.dart`、`host/src/buddy_host/narration/{preparer,traveler}.py`
+- 主機端已就緒：`AreaPreparer.prepare(location, traveler=TravelerContext(...))`；App 端要新做：位置與即時狀態回報、主機通知、下載播放、時機規則（兩段至少隔 3 分鐘）
+- 需要同意才能做：真實 Claude 呼叫（先講次數）、實機（#8）；模擬器 GPX 路線要放進 repo
+- 品質基準：語音約 90 分，不必追求完美；停頓、朋友式口吻、`approx` 規則都已完成
+
 ### 踩到的坑
 - **逐句合成會誤判**：兩個字的「哇！」四個 seed 的 CER 都 ≥ 1；管線改成先併段（約 90 字），整段失敗才往下拆（段 → 句 → 分句）
 - **SSL**：python.org 版 Python 的 urllib 不認這台機器的憑證，用 `truststore`

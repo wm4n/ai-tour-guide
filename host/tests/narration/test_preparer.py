@@ -347,3 +347,16 @@ async def test_clean_script_costs_a_single_call(tmp_path):
     await preparer.prepare(HERE)
 
     assert len(llm.requests) == 1
+
+
+async def test_traveler_state_reaches_the_prompt_and_invalidates_the_cache(tmp_path):
+    from buddy_host.narration.traveler import Companions, TravelerContext
+
+    preparer, parts = make(tmp_path, [osm("霞海城隍廟", 100)], limit=1)
+    await preparer.prepare(HERE)
+
+    await preparer.prepare(HERE, traveler=TravelerContext(companions=Companions.FAMILY))
+    await preparer.prepare(HERE, traveler=TravelerContext(companions=Companions.FAMILY))
+
+    assert len(parts["llm"].requests) == 2  # 第三次與第二次狀態相同，用快取
+    assert "家人" in parts["llm"].requests[1].prompt

@@ -115,3 +115,18 @@ def test_revision_request_quotes_the_previous_script_and_the_replacements():
     assert "視頻" in request.prompt and "影片" in request.prompt
     assert "台灣" in request.prompt
     assert "霞海城隍廟" in request.prompt  # 原本的任務還在
+
+
+def test_traveler_state_is_described_in_the_prompt():
+    from buddy_host.narration.traveler import Companions, TravelerContext, TravelMode
+
+    request = build_script_request(
+        "p",
+        ctx(traveler=TravelerContext(mode=TravelMode.DRIVING, companions=Companions.FAMILY)),
+    )
+
+    assert "開車" in request.prompt and "家人" in request.prompt
+
+
+def test_prompt_without_traveler_state_has_no_state_section():
+    assert "他現在的狀態" not in build_script_request("p", ctx()).prompt

@@ -14,6 +14,7 @@ from typing import Protocol
 from buddy_host.llm.claude_cli import QuotaExceededError
 from buddy_host.llm.models import ForbiddenModelError, LlmRequest, LlmResult
 from buddy_host.narration.prompt import ScriptContext, build_script_request, load_persona
+from buddy_host.narration.traveler import TravelerContext
 from buddy_host.narration.wording import DEFAULT_TERMS_FILE, Finding, find_issues, load_terms
 from buddy_host.places.gather import gather_candidates
 from buddy_host.places.merge import names_match
@@ -63,9 +64,9 @@ SNAP_DECIMALS = 3  # 約 110 公尺；相近的位置共用同一份 Overpass／
 SNAP_MARGIN_M = 150.0  # 吸附造成的位移上限（約 80 公尺）再留餘裕
 
 
-def _fingerprint(persona: str, told_before: tuple[str, ...]) -> str:
-    # 個性檔或「講過什麼」變了，舊稿就不能再用（設計文件 6.2：改了下次呼叫就生效）
-    payload = json.dumps([persona, list(told_before)], ensure_ascii=False)
+def _fingerprint(persona: str, told_before: tuple[str, ...], traveler_key: str) -> str:
+    # 個性檔、「講過什麼」或使用者的狀態變了，舊稿就不能再用（設計文件 6.2：改了下次呼叫就生效）
+    payload = json.dumps([persona, list(told_before), traveler_key], ensure_ascii=False)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
@@ -109,6 +110,7 @@ class AreaPreparer:
         recent_themes: Collection[str] = (),
         recent_topics: tuple[str, ...] = (),
         told_before: Mapping[str, tuple[str, ...]] | None = None,
+        traveler: TravelerContext | None = None,
     ) -> list[PreparedNarration]:
         snapped = (round(location.lat, SNAP_DECIMALS), round(location.lon, SNAP_DECIMALS))
         query_radius = self._radius_m + SNAP_MARGIN_M
@@ -125,7 +127,9 @@ class AreaPreparer:
         told = told_before or {}
         persona = load_persona(self._persona_path)
         prints = {
-            item.candidate.id: _fingerprint(persona, told.get(item.candidate.id, ()))
+            item.candidate.id: _fingerprint(
+                persona, told.get(item.candidate.id, ()), traveler.key() if traveler else ""
+            )
             for item in ranked
         }
         # 已有快取的直接用；其餘的稿子同時開寫，合成（只有一個模型）再依序進行
@@ -136,7 +140,12 @@ class AreaPreparer:
         scripts = {
             item.candidate.id: asyncio.create_task(
                 self._write_script(
-                    item, location, persona, recent_topics, told.get(item.candidate.id, ())
+                    item,
+                    location,
+                    persona,
+                    recent_topics,
+                    told.get(item.candidate.id, ()),
+                    traveler,
                 )
             )
             for item in ranked
@@ -201,6 +210,7 @@ class AreaPreparer:
         persona: str,
         recent_topics: tuple[str, ...],
         told_before: tuple[str, ...],
+        traveler: TravelerContext | None,
     ) -> tuple[str, list[Finding]]:
         candidate = item.candidate
         context = ScriptContext(
@@ -210,6 +220,7 @@ class AreaPreparer:
             bearing_relative_deg=_relative_bearing(location, item.bearing_deg),
             told_before=told_before,
             recent_topics=recent_topics,
+            traveler=traveler,
         )
         script = (await self._llm.run(build_script_request(persona, context))).text.strip()
         issues = find_issues(script, self._terms)

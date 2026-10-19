@@ -74,3 +74,24 @@ def test_persona_asks_for_short_paragraphs_so_the_voice_can_breathe():
 
     assert "空一行" in text
     assert "看一下" in text
+
+
+def test_persona_talks_like_a_friend_not_an_encyclopedia():
+    # 試聽回饋：像在念稿。要的是暖場、傳聞八卦、轉述來源，而且只用資料裡真有的（不編造）
+    text = PERSONA.read_text(encoding="utf-8")
+
+    for phrase in ("暖場", "傳聞", "八卦", "我讀過", "不要編"):
+        assert phrase in text
+
+
+def test_persona_never_makes_him_apologise_for_old_data():
+    text = PERSONA.read_text(encoding="utf-8")
+
+    assert "道歉" in text  # 規則本身要點名，Claude 才知道不能這樣寫
+    assert "資料可能過時" not in text.split("## 範本")[1]
+
+
+def test_persona_explains_how_to_use_the_traveler_state():
+    text = PERSONA.read_text(encoding="utf-8")
+
+    assert "他現在的狀態" in text

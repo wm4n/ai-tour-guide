@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from buddy_host.llm.models import LlmRequest, Purpose
+from buddy_host.narration.traveler import TravelerContext
 from buddy_host.narration.wording import Finding
 from buddy_host.places.models import Candidate
 
@@ -23,6 +24,7 @@ class ScriptContext:
     bearing_relative_deg: float | None  # 相對行進方向：0＝正前方，正值偏右
     told_before: tuple[str, ...] = ()  # 以前跟使用者講過這個地方的重點
     recent_topics: tuple[str, ...] = ()  # 這趟剛講過的主題，用來對比串連
+    traveler: TravelerContext | None = None  # 裝置回報的即時狀態
 
 
 def load_persona(path: Path) -> str:
@@ -81,6 +83,13 @@ def build_script_request(
         )
     if ctx.recent_topics:
         parts.append("這趟剛介紹過：" + "、".join(ctx.recent_topics) + "。可以拿來對比或串連。")
+    state = ctx.traveler.describe() if ctx.traveler else []
+    if state:
+        parts.append(
+            "他現在的狀態：\n"
+            + "\n".join(f"- {line}" for line in state)
+            + "\n請依這個狀態調整說法與內容。"
+        )
     if thin:
         parts.append("上面的資料不多，你可以上網查證補充，但查不到的事不要編。")
     if revise:

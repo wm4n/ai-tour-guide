@@ -10,6 +10,7 @@ import '../audio/phrase_player.dart';
 import '../audio/remote_controls.dart';
 import '../host/host_connection.dart';
 import 'geo.dart';
+import 'host_reachability.dart';
 import 'location_source.dart';
 import 'playback_policy.dart';
 import 'tour_api.dart';
@@ -128,6 +129,11 @@ class TourController extends Notifier<TourState> {
   DateTime? _lastFinishedAt;
   int _cursor = 0;
   bool _busy = false;
+  var _host = HostReachability();
+
+  /// 剛斷線、還沒念 [FixedPhrase.hostUnreachable]；播放中或暫停時先等，等念得出來才念，一次斷線只念一次。
+  bool _unreachableDue = false;
+  bool _polling = false; // 輪詢逾時比 tick 間隔長，不讓它們疊在一起
   final _queue = <QueuedNarration>[];
   final _audio = <String, Future<Uint8List?>>{};
   final _seen = <String>{};
@@ -224,30 +230,67 @@ class TourController extends Notifier<TourState> {
   }
 
   /// 問主機有什麼新的準備好了，然後看現在該不該播。
+  ///
+  /// 連不上主機時照退避間隔重試；已經下載好的介紹仍照常評估播放。
   Future<void> tick() async {
     if (!state.active) return;
     final session = _session;
+    if (!_polling && _host.canTry(_now)) {
+      _polling = true;
+      try {
+        if (!await _poll(session)) return;
+      } finally {
+        if (session == _session) _polling = false;
+      }
+    }
+    if (session == _session) _evaluate();
+  }
+
+  /// 回傳 false 代表這一輪已處理完畢（例如主機重新開始），不必再評估播放。
+  Future<bool> _poll(int session) async {
     final settings = ref.read(settingsProvider);
-    final api = ref.read(tourApiProvider);
     try {
-      final poll = await api.poll(settings, after: _cursor);
-      if (session != _session) return;
+      final poll = await ref
+          .read(tourApiProvider)
+          .poll(settings, after: _cursor);
+      if (session != _session) return false;
+      _onHostReached();
       state = state.copyWith(stoppedReason: poll.stoppedReason);
       if (!poll.active) {
         await _restartOnHost(session);
-        return;
+        return false;
       }
       for (final info in poll.narrations) {
         if (info.seq > _cursor) _cursor = info.seq;
         if (_seen.add(info.id)) {
           _queue.add(QueuedNarration(info, _now));
-          _audio[info.id] = _download(info.id);
+          _audio[info.id] = _download(info.id, session);
         }
       }
     } on TourApiException catch (error) {
       debugPrint('輪詢主機失敗：$error');
+      _onHostFailed(session);
     }
-    if (session == _session) _evaluate();
+    return true;
+  }
+
+  void _onHostFailed(int session) {
+    if (session == _session && _host.recordFailure(_now)) {
+      _unreachableDue = true;
+    }
+  }
+
+  /// 連上主機：恢復是安靜的（不念），並把斷線期間沒送出的最新位置補報。
+  void _onHostReached() {
+    if (!_host.recordSuccess()) return;
+    _unreachableDue = false;
+    final position = _position;
+    if (position != null) _reportNow(position);
+  }
+
+  void _reportNow(PositionFix fix) {
+    _lastReportAt = fix.time;
+    unawaited(_report(fix));
   }
 
   Future<void> _restartOnHost(int session) async {
@@ -267,13 +310,17 @@ class TourController extends Notifier<TourState> {
     }
   }
 
-  Future<Uint8List?> _download(String id) async {
+  /// 失敗回傳 null：算一次斷線，介紹留在佇列裡，主機回來後再抓。
+  Future<Uint8List?> _download(String id, int session) async {
     try {
-      return await ref
+      final bytes = await ref
           .read(tourApiProvider)
           .downloadAudio(ref.read(settingsProvider), id);
+      if (session == _session) _onHostReached();
+      return bytes;
     } on TourApiException catch (error) {
       debugPrint('下載 $id 失敗：$error');
+      _onHostFailed(session);
       return null;
     }
   }
@@ -282,11 +329,11 @@ class TourController extends Notifier<TourState> {
     if (!state.active) return;
     final fix = _fixFrom(raw);
     final lastReport = _lastReportAt;
-    if (lastReport == null ||
-        fix.time.difference(lastReport) >=
-            ref.read(locationReportIntervalProvider)) {
-      _lastReportAt = fix.time;
-      unawaited(_report(fix));
+    if (_host.reachable &&
+        (lastReport == null ||
+            fix.time.difference(lastReport) >=
+                ref.read(locationReportIntervalProvider))) {
+      _reportNow(fix);
     }
     _evaluate();
   }
@@ -318,6 +365,21 @@ class TourController extends Notifier<TourState> {
 
   void _evaluate() {
     if (!state.active) return;
+    if (_unreachableDue && !_busy && !state.paused) {
+      _unreachableDue = false;
+      unawaited(
+        ref.read(phrasePlayerProvider).play(FixedPhrase.hostUnreachable),
+      );
+      return; // 短句念完前不開始介紹，下一輪再評估
+    }
+    if (_host.canTry(_now)) {
+      for (final item in _queue) {
+        _audio.putIfAbsent(
+          item.info.id,
+          () => _download(item.info.id, _session),
+        );
+      }
+    }
     final decision = ref
         .read(playbackPolicyProvider)
         .decide(
@@ -345,6 +407,8 @@ class TourController extends Notifier<TourState> {
     final bytes = await _audio.remove(item.info.id);
     if (session != _session) return;
     if (bytes == null) {
+      // 下載失敗：放回去，主機回來後 _evaluate 會再抓
+      _queue.insert(0, item);
       _busy = false;
       return;
     }
@@ -398,6 +462,9 @@ class TourController extends Notifier<TourState> {
     _lastFinishedAt = null;
     _cursor = 0;
     _busy = false;
+    _host = HostReachability();
+    _unreachableDue = false;
+    _polling = false;
     _queue.clear();
     _audio.clear();
     _seen.clear();

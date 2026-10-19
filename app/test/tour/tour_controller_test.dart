@@ -282,21 +282,18 @@ void main() {
       expect(h.player.played, ['A']);
     });
 
-    test(
-      'a narration whose audio cannot be fetched is skipped quietly',
-      () async {
-        final h = await makeHarness(api: FakeTourApiFailingDownload());
-        await h.tour.start();
-        await h.moveTo(nearFix());
-        h.api.queue([info('A')]);
+    test('a narration whose audio cannot be fetched stays quiet', () async {
+      final h = await makeHarness(api: FakeTourApiFailingDownload());
+      await h.tour.start();
+      await h.moveTo(nearFix());
+      h.api.queue([info('A')]);
 
-        await h.tick();
+      await h.tick();
 
-        expect(h.player.played, isEmpty);
-        expect(h.state.nowPlaying, isNull);
-        expect(h.state.active, isTrue);
-      },
-    );
+      expect(h.player.played, isEmpty);
+      expect(h.state.nowPlaying, isNull);
+      expect(h.state.active, isTrue);
+    });
   });
 
   group('pausing proactive narration', () {
@@ -506,9 +503,227 @@ void main() {
 
       h.api.pollError = null;
       h.api.queue([info('A')]);
-      await h.tick();
+      await h.tick(after: const Duration(minutes: 1));
 
       expect(h.player.played, ['A']);
+    });
+  });
+
+  group('host unreachable', () {
+    const retry = Duration(seconds: 70); // 比退避上限長，保證下一次一定會重試
+
+    test('says the unreachable phrase once, however long the outage', () async {
+      final h = await makeHarness();
+      await h.tour.start();
+      h.api.pollError = TourApiException('down');
+
+      await h.tick();
+      await h.tick(after: retry);
+      await h.tick(after: retry);
+
+      expect(h.phrases.played, [
+        FixedPhrase.startTour,
+        FixedPhrase.hostUnreachable,
+      ]);
+    });
+
+    test('backs off instead of polling on every tick', () async {
+      final h = await makeHarness();
+      await h.tour.start();
+      h.api.pollError = TourApiException('down');
+      await h.tick();
+      final pollsAfterFailure = h.api.polls.length;
+
+      await h.tick(after: const Duration(seconds: 5));
+      expect(h.api.polls.length, pollsAfterFailure);
+
+      await h.tick(after: const Duration(seconds: 5));
+      expect(h.api.polls.length, pollsAfterFailure + 1);
+    });
+
+    test('recovering resumes narration quietly and never replays', () async {
+      final h = await makeHarness();
+      await h.tour.start();
+      await h.moveTo(nearFix());
+      h.api.queue([info('A', seq: 1)]);
+      await h.tick();
+      h.player.finish();
+      await h.settle();
+      h.api.pollError = TourApiException('down');
+      await h.tick(after: const Duration(minutes: 5));
+      expect(h.phrases.played, contains(FixedPhrase.hostUnreachable));
+      final spoken = h.phrases.played.length;
+
+      h.api.pollError = null;
+      h.api.queue([info('B', seq: 2)]);
+      await h.tick(after: retry);
+
+      expect(h.api.polls.last, 1); // 還是從上次的進度往後問
+      expect(h.player.played, ['A', 'B']);
+      expect(h.phrases.played, hasLength(spoken)); // 重新連上不念
+    });
+
+    test('a second outage is announced again', () async {
+      final h = await makeHarness();
+      await h.tour.start();
+      h.api.pollError = TourApiException('down');
+      await h.tick();
+      h.api.pollError = null;
+      await h.tick(after: retry);
+      h.api.pollError = TourApiException('down');
+
+      await h.tick(after: retry);
+
+      expect(
+        h.phrases.played.where((p) => p == FixedPhrase.hostUnreachable),
+        hasLength(2),
+      );
+    });
+
+    test('waits for the narration in progress before speaking', () async {
+      final h = await makeHarness();
+      await h.tour.start();
+      await h.moveTo(nearFix());
+      h.api.queue([info('A')]);
+      await h.tick();
+      expect(h.player.events, contains('play:景點A'));
+
+      h.api.pollError = TourApiException('down');
+      await h.tick(after: retry);
+      expect(h.phrases.played, [FixedPhrase.startTour]);
+
+      h.player.finish();
+      await h.settle();
+      await h.tick(after: const Duration(seconds: 5));
+      expect(h.phrases.played, [
+        FixedPhrase.startTour,
+        FixedPhrase.hostUnreachable,
+      ]);
+    });
+
+    test(
+      'a host that comes back before the phrase is due stays quiet',
+      () async {
+        final h = await makeHarness();
+        await h.tour.start();
+        await h.moveTo(nearFix());
+        h.api.queue([info('A')]);
+        await h.tick();
+        h.api.pollError = TourApiException('down');
+        await h.tick(after: retry);
+        h.api.pollError = null;
+        await h.tick(after: retry);
+
+        h.player.finish();
+        await h.settle();
+        await h.tick(after: retry);
+
+        expect(h.phrases.played, [FixedPhrase.startTour]);
+      },
+    );
+
+    test('stays silent while paused and speaks once resumed', () async {
+      final h = await makeHarness();
+      await h.tour.start();
+      h.tour.pause();
+      h.api.pollError = TourApiException('down');
+
+      await h.tick();
+      expect(h.phrases.played, [FixedPhrase.startTour]);
+
+      h.tour.resume();
+      await h.settle();
+      expect(h.phrases.played, [
+        FixedPhrase.startTour,
+        FixedPhrase.hostUnreachable,
+      ]);
+    });
+
+    test('position reports pause during the outage, then catch up', () async {
+      final h = await makeHarness();
+      await h.tour.start();
+      h.api.pollError = TourApiException('down');
+      await h.tick();
+      final reported = h.api.reported.length;
+
+      await h.moveTo(farFix(200));
+      expect(h.api.reported.length, reported);
+
+      h.api.pollError = null;
+      await h.tick(after: retry);
+
+      expect(h.api.reported.length, reported + 1);
+      expect(h.api.reported.last.$1.lat, closeTo(farFix(200).lat, 1e-9));
+    });
+
+    test('a narration whose download failed is fetched again once the host is '
+        'back', () async {
+      final h = await makeHarness();
+      await h.tour.start();
+      await h.moveTo(nearFix());
+      h.api.downloadError = TourApiException('dropped');
+      h.api.queue([info('A')]);
+
+      await h.tick();
+      expect(h.player.played, isEmpty);
+      await h.tick(after: const Duration(seconds: 5)); // 退避中，只評估播放
+      expect(h.phrases.played, contains(FixedPhrase.hostUnreachable));
+
+      h.api.downloadError = null;
+      await h.tick(after: retry);
+
+      expect(h.player.played, ['A']);
+    });
+
+    test('overlapping ticks do not poll twice at once', () async {
+      final h = await makeHarness();
+      await h.tour.start();
+      h.api.pollGate = Completer<void>();
+
+      final first = h.tour.tick();
+      final second = h.tour.tick();
+      h.api.pollGate!.complete();
+      await Future.wait([first, second]);
+
+      expect(h.api.polls, hasLength(1));
+    });
+
+    test('the phrase is not spoken on top of a narration that starts at the '
+        'same moment', () async {
+      final h = await makeHarness();
+      await h.tour.start();
+      await h.moveTo(nearFix());
+      h.tour.pause();
+      h.api.queue([info('A')]);
+      await h.tick();
+      h.api.pollError = TourApiException('down');
+      await h.tick(after: retry);
+
+      h.tour.resume();
+      await h.settle();
+      expect(h.phrases.played, contains(FixedPhrase.hostUnreachable));
+      expect(h.player.played, isEmpty);
+
+      await h.tick(after: const Duration(seconds: 5));
+      expect(h.player.played, ['A']);
+    });
+
+    test('a new tour starts with a healthy link', () async {
+      final h = await makeHarness();
+      await h.tour.start();
+      h.api.pollError = TourApiException('down');
+      await h.tick();
+      await h.tour.end();
+      h.api.pollError = null;
+
+      await h.tour.start();
+      h.api.pollError = TourApiException('down');
+      await h.tick(); // 沒有往返重試等待，應該立刻輪詢並再提示一次
+
+      expect(
+        h.phrases.played.where((p) => p == FixedPhrase.hostUnreachable),
+        hasLength(2),
+      );
     });
   });
 }

@@ -139,3 +139,19 @@ cd app && flutter analyze && flutter test              # 26 項
 scripts/install-phrases.sh                             # 把 6 句複製進 App（被 git 忽略）
 tail -f /private/tmp/claude-503/*/scratchpad/opening.log   # 開場句驗證進度
 ```
+
+### #14 連不上主機時的處理（`/implement #14`，2026-10-20）
+
+做了（App 端，主機不用改）：
+- `HostReachability`（`app/lib/tour/host_reachability.dart`）：記連線狀態與退避（10、20、40、60 秒封頂），只在一次斷線的第一次失敗回報「新斷線」
+- `TourController`：輪詢失敗＝斷線，念一次短句 6（`FixedPhrase.hostUnreachable`）；等到沒有介紹在播、沒暫停才念，念的當下不同時開始介紹；連上後安靜繼續、不念、不重播（`_seen`＋游標）；斷線期間不回報位置，連上後補報最新位置；輪詢不重疊
+- 輪詢成功後下載失敗：算一次斷線，介紹留在佇列，主機回來後補抓（原本會永久遺失）
+
+驗證：app 119 項、host 372 項、analyze 乾淨。**沒有跑模擬器關主機的端到端**（單元測試用 fake 時鐘涵蓋流程；HTTP 失敗轉成 `TourApiException` 由 `tour_api_test` 涵蓋）。
+
+審查指出但刻意不改：
+- HTTP 非 2xx（例如 401 token 錯）也當斷線念短句 6；畫面上的連線 chip 已會顯示「token 不正確」
+- 下載一直 404（主機快取被清）也會被當斷線、在退避下重試，直到介紹過期（500 公尺／30 分鐘）才丟
+- `_report`、`_restartOnHost` 失敗不計入連線狀態，以輪詢為心跳
+- 畫面 chip（`connectionProvider` 自己每 5 秒檢查）與控制器的連線判斷是兩套，短暫不一致可接受
+- issue #14 內文仍寫「我恢復了，我們繼續」，以設計文件為準（恢復不念）

@@ -27,7 +27,9 @@ class FakeTourApi implements TourApi {
   Object? startError;
   Object? pollError;
   Object? reportError;
+  Object? downloadError;
   Completer<void>? downloadGate;
+  Completer<void>? pollGate;
 
   void queue(List<NarrationInfo> narrations, {String? stoppedReason}) {
     polled.add(
@@ -75,6 +77,7 @@ class FakeTourApi implements TourApi {
   @override
   Future<NarrationPoll> poll(s, {required int after}) async {
     polls.add(after);
+    await pollGate?.future;
     if (pollError != null) throw pollError!;
     if (polled.isEmpty) {
       return const NarrationPoll(
@@ -91,6 +94,7 @@ class FakeTourApi implements TourApi {
   Future<Uint8List> downloadAudio(s, String id) async {
     downloads.add(id);
     await downloadGate?.future;
+    if (downloadError != null) throw downloadError!;
     return Uint8List.fromList(id.codeUnits);
   }
 }

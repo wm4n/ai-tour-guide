@@ -58,3 +58,11 @@ def test_the_example_script_uses_no_listed_mainland_term():
     example = text[text.index("## 範本") :]
 
     assert find_issues(example, load_terms(terms_file)) == []
+
+
+def test_persona_keeps_the_opening_sentence_off_a_proper_noun():
+    # 句首是冷啟動，開場又是人名、廟名這類罕用字時，合成最容易失敗而整句被跳過（#6 實測）
+    text = PERSONA.read_text(encoding="utf-8")
+
+    assert "第一句" in text
+    assert "專有名詞" in text

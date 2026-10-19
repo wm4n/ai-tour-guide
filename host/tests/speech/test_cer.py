@@ -48,3 +48,19 @@ def test_genuinely_wrong_number_still_counts():
 
 def test_normalize_is_stable():
     assert normalize("2027年") == normalize(normalize("2027年"))
+
+
+@pytest.mark.parametrize(
+    ("reference", "hypothesis"),
+    [
+        ("台北霞海城隍廟", "台北霞海城黃廟"),  # 「隍」罕用，Whisper 寫成同音的「黃」
+        ("它在迪化街上", "他在迪化街上"),
+        ("她在迪化街上", "他在迪化街上"),
+    ],
+)
+def test_homophone_spellings_whisper_prefers_are_unified(reference, hypothesis):
+    assert cer(reference, hypothesis) == 0.0
+
+
+def test_homophone_unification_does_not_hide_other_errors():
+    assert cer("台北霞海城隍廟", "台北霞海城黃苗") > 0

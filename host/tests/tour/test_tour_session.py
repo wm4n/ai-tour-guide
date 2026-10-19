@@ -49,8 +49,10 @@ class FakePreparer:
         self.gate: asyncio.Event | None = None
         self.running = 0
         self.max_running = 0
+        self.report_progressively = False
+        self.gate_after_first: asyncio.Event | None = None
 
-    async def prepare(self, location, *, exclude_ids=(), traveler=None, **_):
+    async def prepare(self, location, *, exclude_ids=(), traveler=None, on_ready=None, **_):
         self.calls.append(
             {"location": location, "exclude_ids": set(exclude_ids), "traveler": traveler}
         )
@@ -62,7 +64,13 @@ class FakePreparer:
             result = self.results.pop(0) if self.results else []
             if isinstance(result, Exception):
                 raise result
-            return [narration(n, self.tmp_path) if isinstance(n, str) else n for n in result]
+            items = [narration(n, self.tmp_path) if isinstance(n, str) else n for n in result]
+            if on_ready and self.report_progressively:
+                for item in items:
+                    on_ready(item)
+                    if self.gate_after_first:
+                        await self.gate_after_first.wait()
+            return items
         finally:
             self.running -= 1
 
@@ -78,6 +86,22 @@ async def test_start_prepares_the_area_around_the_start_point_with_the_traveler_
     assert call["location"] == START
     assert call["traveler"].with_children is True
     assert [e.name for e in session.narrations_after(0)] == ["A", "B"]
+
+
+async def test_each_narration_is_published_as_soon_as_it_is_ready(tmp_path):
+    preparer = FakePreparer(tmp_path, [["A", "B"]])
+    preparer.report_progressively = True
+    preparer.gate_after_first = asyncio.Event()
+    session = TourSession(preparer)
+
+    session.start(fix())
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+
+    assert [e.name for e in session.narrations_after(0)] == ["A"]  # B 還在準備，A 已可取用
+    preparer.gate_after_first.set()
+    await session.wait_idle()
+    assert [e.name for e in session.narrations_after(0)] == ["A", "B"]  # 不會重複發佈 A
 
 
 async def test_events_carry_position_length_and_a_growing_sequence(tmp_path):

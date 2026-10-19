@@ -4,7 +4,7 @@
 """
 
 import json
-from collections.abc import Collection
+from collections.abc import Callable, Collection
 from pathlib import Path
 
 from buddy_host.narration.preparer import PreparedNarration
@@ -25,6 +25,7 @@ class ReplayPreparer:
         *,
         exclude_ids: Collection[str] = (),
         traveler: TravelerContext | None = None,
+        on_ready: Callable[[PreparedNarration], None] | None = None,
     ) -> list[PreparedNarration]:
         found: list[tuple[float, PreparedNarration]] = []
         for meta_path in sorted(self._directory.glob("*.meta.json")):

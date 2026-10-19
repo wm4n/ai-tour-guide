@@ -38,6 +38,7 @@ class PreparerLike(Protocol):
         *,
         exclude_ids: Collection[str] = (),
         traveler: TravelerContext | None = None,
+        on_ready: Callable[[PreparedNarration], None] | None = None,
     ) -> list[PreparedNarration]: ...
 
 
@@ -151,7 +152,11 @@ class TourSession:
             fix, self._pending = self._pending, None
             try:
                 prepared = await self._preparer.prepare(
-                    fix.location, exclude_ids=set(self._audio), traveler=fix.traveler
+                    fix.location,
+                    exclude_ids=set(self._audio),
+                    traveler=fix.traveler,
+                    # 準備一段要數分鐘：做好一段就通知一段，不等整批
+                    on_ready=lambda item: self._publish_if_current(generation, item),
                 )
             except QuotaExceededError as error:
                 reason = "llm_budget" if isinstance(error, LlmBudgetExhaustedError) else "quota"
@@ -168,7 +173,7 @@ class TourSession:
                 return
             self._failed_at = None
             for item in prepared:
-                self._publish(item)
+                self._publish_if_current(generation, item)
 
     def _stop(self, generation: int, reason: str) -> None:
         if generation != self._generation:
@@ -176,6 +181,10 @@ class TourSession:
         self.stopped_reason = reason
         self._pending = None
         logger.warning("停止準備介紹：%s", reason)
+
+    def _publish_if_current(self, generation: int, item: PreparedNarration) -> None:
+        if generation == self._generation and item.candidate_id not in self._audio:
+            self._publish(item)
 
     def _publish(self, item: PreparedNarration) -> None:
         self._seq += 1

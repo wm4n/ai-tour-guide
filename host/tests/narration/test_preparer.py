@@ -370,3 +370,14 @@ async def test_traveler_state_reaches_the_prompt_and_invalidates_the_cache(tmp_p
 
     assert len(parts["llm"].requests) == 2  # 第三次與第二次狀態相同，用快取
     assert "家人" in parts["llm"].requests[1].prompt
+
+
+async def test_on_ready_fires_for_each_narration_in_order_including_cache_hits(tmp_path):
+    preparer, _ = make(tmp_path, [osm("A", 100), osm("B", 150)], limit=2)
+    await preparer.prepare(HERE, exclude_ids={"osm:node:B"})  # 只有 A 進快取
+    seen = []
+
+    result = await preparer.prepare(HERE, on_ready=lambda item: seen.append(item.name))
+
+    assert seen == ["A", "B"]
+    assert [p.name for p in result] == seen

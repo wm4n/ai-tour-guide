@@ -5,7 +5,7 @@ import hashlib
 import json
 import logging
 import re
-from collections.abc import Collection, Mapping
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -113,7 +113,9 @@ class AreaPreparer:
         recent_topics: tuple[str, ...] = (),
         told_before: Mapping[str, tuple[str, ...]] | None = None,
         traveler: TravelerContext | None = None,
+        on_ready: Callable[[PreparedNarration], None] | None = None,
     ) -> list[PreparedNarration]:
+        """on_ready：每做好一段就呼叫（合成很慢，呼叫端不必等整批）。"""
         snapped = (round(location.lat, SNAP_DECIMALS), round(location.lon, SNAP_DECIMALS))
         query_radius = self._radius_m + SNAP_MARGIN_M
         merged = await gather_candidates(self._overpass, self._wiki, *snapped, query_radius)
@@ -159,6 +161,8 @@ class AreaPreparer:
                 hit = cached[item.candidate.id]
                 if hit:
                     prepared.append(hit)
+                    if on_ready:
+                        on_ready(hit)
                     continue
                 try:
                     script, issues = await scripts[item.candidate.id]
@@ -174,6 +178,8 @@ class AreaPreparer:
                 )
                 if made:
                     prepared.append(made)
+                    if on_ready:
+                        on_ready(made)
         finally:
             for task in scripts.values():
                 task.cancel()

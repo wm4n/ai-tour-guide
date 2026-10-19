@@ -149,6 +149,12 @@ def prepare_sentences(text: str) -> list[str]:
     return split_sentences(numbers_to_chinese(remove_kana(text)))
 
 
+def prepare_paragraphs(text: str) -> list[list[str]]:
+    """空行分段；每段各自整理成句子。段落是講故事時「換一口氣」的地方，朗讀時停得比句間久。"""
+    paragraphs = (prepare_sentences(block) for block in re.split(r"\n\s*\n", text))
+    return [sentences for sentences in paragraphs if sentences]
+
+
 def chunk_sentences(sentences: list[str], limit: int = 90) -> list[str]:
     """把相鄰句子併成每段約 limit 字：太短的句子（例如「哇！」）單獨合成很容易失敗。"""
     chunks: list[str] = []

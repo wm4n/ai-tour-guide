@@ -3,6 +3,7 @@ import pytest
 from buddy_host.speech.text_prep import (
     chunk_sentences,
     numbers_to_chinese,
+    prepare_paragraphs,
     prepare_sentences,
     remove_kana,
     split_sentences,
@@ -183,3 +184,20 @@ class TestSpecReviewEdgeCases:
 
     def test_slash_that_is_not_a_date_is_left_alone(self):
         assert numbers_to_chinese("50/60") == "五十/六十"
+
+
+class TestParagraphs:
+    def test_blank_lines_separate_paragraphs_and_each_is_prepared_on_its_own(self):
+        raw = "我們到了。你看右邊。\n\n它有兩百年。\n\n\n\n最後一段"
+
+        assert prepare_paragraphs(raw) == [
+            ["我們到了。", "你看右邊。"],
+            ["它有兩百年。"],
+            ["最後一段。"],
+        ]
+
+    def test_single_line_breaks_stay_inside_the_paragraph(self):
+        assert prepare_paragraphs("甲乙丙。\n丁戊己。") == [["甲乙丙。", "丁戊己。"]]
+
+    def test_empty_text_has_no_paragraphs(self):
+        assert prepare_paragraphs(" \n\n ") == []

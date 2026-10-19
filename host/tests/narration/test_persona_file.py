@@ -66,3 +66,11 @@ def test_persona_keeps_the_opening_sentence_off_a_proper_noun():
 
     assert "第一句" in text
     assert "專有名詞" in text
+
+
+def test_persona_asks_for_short_paragraphs_so_the_voice_can_breathe():
+    # 空行在朗讀時會停得比句間久（#6 試聽回饋：一股腦唸像在念稿）
+    text = PERSONA.read_text(encoding="utf-8")
+
+    assert "空一行" in text
+    assert "看一下" in text

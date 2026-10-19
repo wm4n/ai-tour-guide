@@ -440,3 +440,33 @@ def test_extra_seeds_that_repeat_a_base_seed_are_only_tried_once():
 
     seeds = [seed for t, seed in synth.calls if t == text]
     assert seeds == [1234, 7, 42, 2026, 314, 777]
+
+
+def test_paragraph_break_gets_a_longer_pause_than_a_sentence_break():
+    pipeline, _ = make(gap_seconds=0.5, paragraph_gap_seconds=1.5, chunk_chars=4)
+
+    result = pipeline.run("甲乙丙。丁戊己。\n\n庚辛壬。")
+
+    assert len(result.audio) == 3 * 40 + 500 + 1500
+
+
+def test_chunks_never_merge_across_a_paragraph_break():
+    pipeline, synth = make(gap_seconds=0, paragraph_gap_seconds=0, chunk_chars=90)
+
+    pipeline.run("甲乙丙。\n\n丁戊己。")
+
+    assert [text for text, _ in synth.calls] == ["甲乙丙。", "丁戊己。"]
+
+
+def test_skipped_chunk_keeps_the_longer_pause_it_sat_on():
+    text = "丁戊己。"
+    pipeline, _ = make(
+        wrong={(text, s): "亂" for s in (1234, 7, 42, 2026)},
+        gap_seconds=0.5,
+        paragraph_gap_seconds=1.5,
+        chunk_chars=4,
+    )
+
+    result = pipeline.run("甲乙丙。\n\n丁戊己。\n\n庚辛壬。")
+
+    assert len(result.audio) == 2 * 40 + 1500

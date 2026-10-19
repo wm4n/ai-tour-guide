@@ -17,7 +17,11 @@ from buddy_host.speech.cer import cer as compute_cer
 from buddy_host.speech.cer import normalize
 from buddy_host.speech.onset import trim_lead
 from buddy_host.speech.preroll import WordTiming, analyze_preroll
-from buddy_host.speech.text_prep import chunk_sentences, prepare_sentences, split_sentences
+from buddy_host.speech.text_prep import (
+    chunk_sentences,
+    prepare_paragraphs,
+    split_sentences,
+)
 
 _PIECE_RE = re.compile(r"[^，、；：]+[，、；：]?")
 
@@ -37,8 +41,11 @@ class PipelineConfig:
     seeds: tuple[int, ...] = (1234, 7, 42, 2026)
     cer_threshold: float = 0.20
     split_on_failure: bool = True
-    gap_seconds: float = 0.3
-    chunk_chars: int = 90
+    # 段與段之間（合成單位的接縫）停多久；同一段內的句子停頓由模型自己決定
+    gap_seconds: float = 0.45
+    # 稿子裡的空行＝換一口氣：講完一段故事、請聽眾看一下想一下，停得比較久
+    paragraph_gap_seconds: float = 1.0
+    chunk_chars: int = 60
     # 短句只要錯一個字就聽得出來（真實案例：「額度」被念成「眾珠」仍過 0.2 門檻）
     short_text_chars: int = 20
     short_cer_threshold: float = 0.05
@@ -127,26 +134,38 @@ class SpeechPipeline:
 
     def run(self, text: str) -> SpeechResult:
         started = self._clock()
-        texts = chunk_sentences(prepare_sentences(text), self._config.chunk_chars)
+        planned: list[tuple[str, float]] = []  # (合成單位, 它後面接多久的停頓)
+        for paragraph in prepare_paragraphs(text):
+            texts = chunk_sentences(paragraph, self._config.chunk_chars)
+            planned += [(t, self._config.gap_seconds) for t in texts]
+            planned[-1] = (planned[-1][0], self._config.paragraph_gap_seconds)
+
         chunks: list[ChunkResult] = []
-        for index, chunk_text in enumerate(texts, start=1):
+        parts: list[np.ndarray] = []
+        pending_gap = 0.0
+        for index, (chunk_text, gap_after) in enumerate(planned, start=1):
             chunk = self._speak(chunk_text, opening=index == 1)
             chunks.append(chunk)
             if self._progress:
-                self._progress(index, len(texts), chunk)
-        rate = self._synth.sample_rate
-        audio = self._join([c.audio for c in chunks if c.audio is not None])
-        return SpeechResult(audio, rate, chunks, self._clock() - started)
+                self._progress(index, len(planned), chunk)
+            if chunk.audio is not None:
+                if parts:
+                    parts.append(self._silence(pending_gap))
+                parts.append(chunk.audio)
+                pending_gap = 0.0
+            pending_gap = max(pending_gap, gap_after)  # 被跳過的單位不吞掉它那一段的停頓
+        audio = np.concatenate(parts) if parts else np.zeros(0, dtype=np.float32)
+        return SpeechResult(audio, self._synth.sample_rate, chunks, self._clock() - started)
 
-    def _gap(self) -> np.ndarray:
-        return np.zeros(int(self._synth.sample_rate * self._config.gap_seconds), dtype=np.float32)
+    def _silence(self, seconds: float) -> np.ndarray:
+        return np.zeros(int(self._synth.sample_rate * seconds), dtype=np.float32)
 
     def _join(self, parts: list[np.ndarray]) -> np.ndarray:
         if not parts:
             return np.zeros(0, dtype=np.float32)
         out = [parts[0]]
         for part in parts[1:]:
-            out += [self._gap(), part]
+            out += [self._silence(self._config.gap_seconds), part]
         return np.concatenate(out)
 
     def _speak(self, text: str, opening: bool = False) -> ChunkResult:

@@ -15,6 +15,7 @@ import numpy as np
 
 from buddy_host.speech.cer import cer as compute_cer
 from buddy_host.speech.cer import normalize
+from buddy_host.speech.onset import trim_lead
 from buddy_host.speech.preroll import WordTiming, analyze_preroll
 from buddy_host.speech.text_prep import chunk_sentences, prepare_sentences, split_sentences
 
@@ -199,6 +200,9 @@ class SpeechPipeline:
                     audio, trimmed = trimmed_audio, verdict.trim_to
                 else:
                     rejected = f"{verdict.reason}; still bad after trim: {again.reason}"
+        # Whisper 的時間戳記抓不到的前導（低音量的雜音＋近乎靜音）改用能量判斷再裁一次
+        audio, energy_trim = trim_lead(audio, rate)
+        trimmed += energy_trim
         attempt = Attempt(
             seed=seed,
             cer=compute_cer(text, hypothesis),

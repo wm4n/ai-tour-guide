@@ -355,3 +355,31 @@ def test_recognisers_without_word_timestamps_still_work_as_before():
     result = pipeline.run("大稻埕是老街。")
 
     assert result.chunks[0].status == "ok"
+
+
+class BlipSynth:
+    """開頭有一小段雜音與近乎靜音的空白，約 0.45 秒才開口（取樣率 1000）。"""
+
+    sample_rate = SR
+
+    def __init__(self):
+        self.calls: list[tuple[str, int]] = []
+
+    def synthesize(self, text: str, seed: int) -> np.ndarray:
+        self.calls.append((text, seed))
+        t = np.arange(1000) / SR
+        speech = (0.5 * np.sin(2 * np.pi * 50 * t)).astype(np.float32)
+        blip = (0.03 * np.sin(2 * np.pi * 50 * t[:100])).astype(np.float32)
+        quiet = (0.002 * np.sin(2 * np.pi * 50 * t[:350])).astype(np.float32)
+        return np.concatenate([blip, quiet, speech])
+
+
+def test_energy_based_lead_in_trim_removes_the_faint_sound_whisper_did_not_report():
+    synth = BlipSynth()
+    pipeline = SpeechPipeline(synth, ScriptedRecognizer(synth), PipelineConfig())
+
+    result = pipeline.run("我恢復了，我們繼續。")
+
+    attempt = result.chunks[0].attempts[0]
+    assert attempt.trimmed_seconds == pytest.approx(0.37, abs=0.05)
+    assert len(result.audio) == pytest.approx(1450 - 370, abs=50)

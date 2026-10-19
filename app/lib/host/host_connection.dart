@@ -4,8 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../audio/fixed_phrase.dart';
-import '../audio/phrase_player.dart';
 import 'host_client.dart';
 import 'host_settings.dart';
 
@@ -83,22 +81,5 @@ class ConnectionNotifier extends Notifier<ConnectionStatus> {
     // 較新的檢查已經送出，或 provider 已被銷毀時，丟棄這次結果。
     if (!ref.mounted || generation != _generation) return;
     state = result;
-  }
-}
-
-final tourActiveProvider = NotifierProvider<TourActiveNotifier, bool>(
-  TourActiveNotifier.new,
-);
-
-/// 出發／結束的雛形：目前只切換狀態，之後由旅程流程接手。
-class TourActiveNotifier extends Notifier<bool> {
-  @override
-  bool build() => false;
-
-  void toggle() {
-    state = !state;
-    if (state) {
-      unawaited(ref.read(phrasePlayerProvider).play(FixedPhrase.startTour));
-    }
   }
 }

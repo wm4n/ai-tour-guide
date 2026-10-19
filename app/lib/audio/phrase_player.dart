@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
 
+import 'audio_focus.dart';
 import 'fixed_phrase.dart';
 
 abstract class PhrasePlayer {
@@ -18,6 +19,7 @@ class JustAudioPhrasePlayer implements PhrasePlayer {
     try {
       await _player.setAsset(phrase.assetPath);
       await _player.play();
+      await releaseAudioFocus();
     } catch (error) {
       debugPrint('固定短句 ${phrase.number} 無法播放（音檔沒放進 assets/phrases/？）：$error');
     }

@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../host/host_client.dart';
 import '../host/host_connection.dart';
 import '../host/host_settings.dart';
+import '../tour/tour_controller.dart';
+import '../tour/traveler_state.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -16,10 +18,17 @@ class HomeScreen extends ConsumerWidget {
     ConnectionStatus.checking => '檢查主機中…',
   };
 
+  static String stoppedLabel(String reason) => switch (reason) {
+    'quota' => 'Claude 額度用完了，先安靜陪你走',
+    'llm_budget' => '主機的 Claude 呼叫上限用完了，先安靜陪你走',
+    _ => '主機暫時停止準備介紹（$reason）',
+  };
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final status = ref.watch(connectionProvider);
-    final active = ref.watch(tourActiveProvider);
+    final tour = ref.watch(tourProvider);
+    final controller = ref.read(tourProvider.notifier);
     final connected = status == ConnectionStatus.connected;
 
     return Scaffold(
@@ -37,20 +46,66 @@ class HomeScreen extends ConsumerWidget {
           ),
         ],
       ),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            _StatusChip(status: status),
-            const SizedBox(height: 32),
-            FilledButton(
-              key: const Key('tour-toggle'),
-              onPressed: connected
-                  ? ref.read(tourActiveProvider.notifier).toggle
-                  : null,
-              child: Text(active ? '結束' : '出發'),
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _StatusChip(status: status),
+                if (tour.stoppedReason != null) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    stoppedLabel(tour.stoppedReason!),
+                    key: const Key('stopped-reason'),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 24),
+                if (!tour.active) const TravelerPicker(),
+                const SizedBox(height: 24),
+                FilledButton(
+                  key: const Key('tour-toggle'),
+                  onPressed: tour.active
+                      ? controller.end
+                      : (connected ? controller.start : null),
+                  child: Text(tour.active ? '結束' : '出發'),
+                ),
+                if (tour.active) ...[
+                  const SizedBox(height: 12),
+                  OutlinedButton(
+                    key: const Key('tour-pause'),
+                    onPressed: tour.paused
+                        ? controller.resume
+                        : controller.pause,
+                    child: Text(tour.paused ? '繼續介紹' : '暫停介紹'),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    tour.paused
+                        ? '主動介紹已暫停'
+                        : (tour.nowPlaying != null
+                              ? '正在介紹：${tour.nowPlaying}'
+                              : '陪你走，有好內容再開口'),
+                    key: const Key('tour-status'),
+                  ),
+                ],
+                if (tour.error != null) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    tour.error!,
+                    key: const Key('tour-error'),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ],
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -140,6 +195,61 @@ class _SettingsDialogState extends ConsumerState<SettingsDialog> {
           child: const Text('取消'),
         ),
         FilledButton(onPressed: _save, child: const Text('儲存')),
+      ],
+    );
+  }
+}
+
+class TravelerPicker extends ConsumerWidget {
+  const TravelerPicker({super.key});
+
+  static const _modes = {TravelMode.walking: '走路', TravelMode.driving: '開車'};
+  static const _companions = {
+    Companions.solo: '一個人',
+    Companions.couple: '情侶',
+    Companions.family: '家人',
+    Companions.friends: '朋友',
+  };
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final traveler = ref.watch(travelerProvider);
+    final notifier = ref.read(travelerProvider.notifier);
+    // 回呼裡要讀點選當下的最新狀態：連續快速點選時，build 時的 traveler 已經過期
+    TravelerState current() => ref.read(travelerProvider);
+    return Column(
+      children: [
+        SegmentedButton<TravelMode>(
+          key: const Key('traveler-mode'),
+          segments: [
+            for (final entry in _modes.entries)
+              ButtonSegment(value: entry.key, label: Text(entry.value)),
+          ],
+          selected: {traveler.mode},
+          onSelectionChanged: (value) =>
+              notifier.save(current().copyWith(mode: value.single)),
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          key: const Key('traveler-companions'),
+          spacing: 8,
+          children: [
+            for (final entry in _companions.entries)
+              ChoiceChip(
+                label: Text(entry.value),
+                selected: traveler.companions == entry.key,
+                onSelected: (_) =>
+                    notifier.save(current().copyWith(companions: entry.key)),
+              ),
+          ],
+        ),
+        SwitchListTile(
+          key: const Key('traveler-children'),
+          title: const Text('有小朋友同行'),
+          value: traveler.withChildren,
+          onChanged: (value) =>
+              notifier.save(current().copyWith(withChildren: value)),
+        ),
       ],
     );
   }

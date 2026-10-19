@@ -54,6 +54,8 @@ class PreparedNarration:
     meta_path: Path
     audio_seconds: float
     distance_m: float
+    lat: float
+    lon: float
 
 
 def _safe(candidate_id: str) -> str:
@@ -190,7 +192,7 @@ class AreaPreparer:
             return None
         return PreparedNarration(
             candidate.id, meta["name"], meta["script"], wav, meta_path,
-            meta["audio_seconds"], meta["distance_m"],
+            meta["audio_seconds"], meta["distance_m"], candidate.lat, candidate.lon,
         )  # fmt: skip
 
     async def _summary(self, candidate: Candidate) -> str | None:
@@ -263,5 +265,5 @@ class AreaPreparer:
         meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
         return PreparedNarration(
             candidate.id, candidate.name, script, wav, meta_path,
-            meta["audio_seconds"], meta["distance_m"],
+            meta["audio_seconds"], meta["distance_m"], candidate.lat, candidate.lon,
         )  # fmt: skip

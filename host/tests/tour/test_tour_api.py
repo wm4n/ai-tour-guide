@@ -1,0 +1,191 @@
+import time
+
+import pytest
+from fastapi.testclient import TestClient
+
+from buddy_host.app import create_app
+from buddy_host.config import HostConfig
+from buddy_host.narration.preparer import PreparedNarration
+
+BODY = {
+    "lat": 25.056,
+    "lon": 121.51,
+    "heading_deg": 200,
+    "mode": "walking",
+    "companions": "family",
+    "with_children": True,
+    "local_time": "2026-10-20T15:04:00+08:00",
+}
+
+
+class FakePreparer:
+    def __init__(self, wav):
+        self.wav = wav
+        self.calls = []
+
+    async def prepare(self, location, *, exclude_ids=(), traveler=None, **_):
+        self.calls.append((location, set(exclude_ids), traveler))
+        return [
+            PreparedNarration(
+                "wiki:霞海城隍廟",
+                "霞海城隍廟",
+                "稿",
+                self.wav,
+                self.wav,
+                34.7,
+                50.0,
+                25.0556,
+                121.5103,
+            )
+        ]
+
+
+@pytest.fixture
+def wav(tmp_path):
+    path = tmp_path / "a.wav"
+    path.write_bytes(b"RIFF....WAVEdata")
+    return path
+
+
+@pytest.fixture
+def preparer(wav):
+    return FakePreparer(wav)
+
+
+@pytest.fixture
+def client(tmp_path, preparer):
+    config = HostConfig(home=tmp_path, token="s3cret")
+    with TestClient(create_app(config, preparer=preparer)) as client:
+        client.headers["X-Buddy-Token"] = "s3cret"
+        yield client
+
+
+def wait_for(client, count, after=0):
+    for _ in range(100):
+        body = client.get("/v1/tour/narrations", params={"after": after}).json()
+        if len(body["narrations"]) >= count:
+            return body
+        time.sleep(0.02)
+    raise AssertionError(f"沒有等到 {count} 段介紹：{body}")
+
+
+def test_tour_endpoints_require_the_token(tmp_path, preparer):
+    config = HostConfig(home=tmp_path, token="s3cret")
+    with TestClient(create_app(config, preparer=preparer)) as bare:
+        assert bare.post("/v1/tour/start", json=BODY).status_code == 401
+        assert bare.post("/v1/tour/location", json=BODY).status_code == 401
+        assert bare.post("/v1/tour/end").status_code == 401
+        assert bare.get("/v1/tour/narrations").status_code == 401
+        assert bare.get("/v1/tour/audio", params={"id": "x"}).status_code == 401
+
+
+def test_start_prepares_the_start_area_and_publishes_the_narration(client, preparer):
+    assert client.post("/v1/tour/start", json=BODY).status_code == 200
+
+    body = wait_for(client, 1)
+
+    assert body["active"] is True
+    assert body["narrations"] == [
+        {
+            "seq": 1,
+            "id": "wiki:霞海城隍廟",
+            "name": "霞海城隍廟",
+            "lat": 25.0556,
+            "lon": 121.5103,
+            "audio_seconds": 34.7,
+        }
+    ]
+    location, _, traveler = preparer.calls[0]
+    assert (location.lat, location.lon, location.heading_deg) == (25.056, 121.51, 200)
+    assert (traveler.mode, traveler.companions) == ("walking", "family")
+    assert traveler.with_children is True
+    assert traveler.local_time.hour == 15
+
+
+def test_traveler_fields_are_optional(client, preparer):
+    client.post("/v1/tour/start", json={"lat": 25.0, "lon": 121.5})
+    wait_for(client, 1)
+
+    _, _, traveler = preparer.calls[0]
+    assert (traveler.mode, traveler.companions, traveler.local_time) == (None, None, None)
+    assert traveler.with_children is False
+
+
+def test_location_before_start_is_a_conflict(client):
+    assert client.post("/v1/tour/location", json=BODY).status_code == 409
+
+
+def test_location_report_after_start_is_accepted(client):
+    client.post("/v1/tour/start", json=BODY)
+
+    response = client.post("/v1/tour/location", json=BODY)
+
+    assert response.status_code == 200
+
+
+@pytest.mark.parametrize(
+    "patch",
+    [{"lat": 91}, {"lon": 181}, {"mode": "flying"}, {"companions": "crowd"}, {"heading_deg": 400}],
+)
+def test_invalid_reports_are_rejected(client, patch):
+    assert client.post("/v1/tour/start", json={**BODY, **patch}).status_code == 422
+
+
+def test_narrations_after_the_cursor_only(client):
+    client.post("/v1/tour/start", json=BODY)
+    wait_for(client, 1)
+
+    assert client.get("/v1/tour/narrations", params={"after": 1}).json()["narrations"] == []
+
+
+def test_audio_is_served_for_a_published_narration(client):
+    client.post("/v1/tour/start", json=BODY)
+    wait_for(client, 1)
+
+    response = client.get("/v1/tour/audio", params={"id": "wiki:霞海城隍廟"})
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "audio/wav"
+    assert response.content == b"RIFF....WAVEdata"
+
+
+def test_audio_for_an_unknown_id_is_not_found(client):
+    client.post("/v1/tour/start", json=BODY)
+
+    assert client.get("/v1/tour/audio", params={"id": "../../etc/passwd"}).status_code == 404
+
+
+def test_end_stops_the_tour_and_forgets_its_narrations(client):
+    client.post("/v1/tour/start", json=BODY)
+    wait_for(client, 1)
+
+    assert client.post("/v1/tour/end").status_code == 200
+
+    body = client.get("/v1/tour/narrations").json()
+    assert body["active"] is False
+    assert body["narrations"] == []
+
+
+def test_stopped_reason_is_visible_to_the_app(tmp_path, wav):
+    from buddy_host.llm.claude_cli import QuotaExceededError
+
+    class Exhausted:
+        async def prepare(self, *args, **kwargs):
+            raise QuotaExceededError("You've hit your limit")
+
+    config = HostConfig(home=tmp_path)
+    with TestClient(create_app(config, preparer=Exhausted())) as client:
+        client.post("/v1/tour/start", json=BODY)
+        for _ in range(100):
+            body = client.get("/v1/tour/narrations").json()
+            if body["stopped_reason"]:
+                break
+            time.sleep(0.02)
+
+    assert body["stopped_reason"] == "quota"
+
+
+def test_tour_endpoints_are_unavailable_without_a_preparer(tmp_path):
+    config = HostConfig(home=tmp_path)
+    with TestClient(create_app(config)) as client:
+        assert client.post("/v1/tour/start", json=BODY).status_code == 503

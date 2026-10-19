@@ -104,6 +104,16 @@ async def test_prepares_the_top_ranked_places_with_audio_and_script(tmp_path):
     assert first.audio_seconds == 3.0
     assert first.script == "你好，這是介紹稿。"
     assert parts["speech"].texts == ["你好，這是介紹稿。"] * 2
+    assert (first.lat, first.lon) == (cands[0].lat, cands[0].lon)
+
+
+async def test_cache_hit_keeps_the_place_coordinates(tmp_path):
+    preparer, _ = make(tmp_path, [osm("霞海城隍廟", 100)], limit=1)
+    first = await preparer.prepare(HERE)
+
+    second = await preparer.prepare(HERE)
+
+    assert (second[0].lat, second[0].lon) == (first[0].lat, first[0].lon)
 
 
 async def test_prompt_gets_persona_wikipedia_facts_and_relative_direction(tmp_path):

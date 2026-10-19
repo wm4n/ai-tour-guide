@@ -14,6 +14,8 @@ from typing import Literal, Protocol
 import numpy as np
 
 from buddy_host.speech.cer import cer as compute_cer
+from buddy_host.speech.cer import normalize
+from buddy_host.speech.preroll import WordTiming, analyze_preroll
 from buddy_host.speech.text_prep import chunk_sentences, prepare_sentences, split_sentences
 
 _PIECE_RE = re.compile(r"[^，、；：]+[，、；：]?")
@@ -36,6 +38,9 @@ class PipelineConfig:
     split_on_failure: bool = True
     gap_seconds: float = 0.3
     chunk_chars: int = 90
+    # 短句只要錯一個字就聽得出來（真實案例：「額度」被念成「眾珠」仍過 0.2 門檻）
+    short_text_chars: int = 20
+    short_cer_threshold: float = 0.05
 
 
 @dataclass
@@ -46,6 +51,8 @@ class Attempt:
     synth_seconds: float
     check_seconds: float
     audio_seconds: float
+    trimmed_seconds: float = 0.0
+    rejected: str | None = None  # 句首檢查不過的原因；有值就不採用，即使 CER 很低
 
 
 Status = Literal["ok", "split", "skipped"]
@@ -84,6 +91,8 @@ class SpeechResult:
                         "synth_seconds": round(a.synth_seconds, 2),
                         "check_seconds": round(a.check_seconds, 2),
                         "audio_seconds": round(a.audio_seconds, 2),
+                        "trimmed_seconds": round(a.trimmed_seconds, 2),
+                        "rejected": a.rejected,
                     }
                     for a in s.attempts
                 ],
@@ -141,9 +150,9 @@ class SpeechPipeline:
         """換 seed 重試 → 全失敗就往下拆（段→句→分句）→ 還是不行就跳過。"""
         attempts: list[Attempt] = []
         for seed in self._config.seeds:
-            attempt, audio = self._attempt(text, seed)
+            attempt, audio = self.attempt(text, seed)
             attempts.append(attempt)
-            if attempt.cer <= self._config.cer_threshold:
+            if attempt.rejected is None and attempt.cer <= self.threshold_for(text):
                 return ChunkResult(text, "ok", attempts, audio=audio)
 
         split = _split_once(text) if self._config.split_on_failure else None
@@ -159,21 +168,56 @@ class SpeechPipeline:
         audio = self._join(good) if kind == "sentence" else np.concatenate(good)
         return ChunkResult(text, "split", attempts, results, audio)
 
-    def _attempt(self, text: str, seed: int) -> tuple[Attempt, np.ndarray]:
+    def threshold_for(self, text: str) -> float:
+        if len(normalize(text)) <= self._config.short_text_chars:
+            return min(self._config.cer_threshold, self._config.short_cer_threshold)
+        return self._config.cer_threshold
+
+    def attempt(self, text: str, seed: int) -> tuple[Attempt, np.ndarray]:
         t0 = self._clock()
         audio = np.asarray(self._synth.synthesize(text, seed), dtype=np.float32)
-        t1 = self._clock()
-        hypothesis = self._asr.transcribe(audio, self._synth.sample_rate)
-        t2 = self._clock()
+        return self.review(text, audio, seed=seed, synth_seconds=self._clock() - t0)
+
+    def review(
+        self, text: str, audio: np.ndarray, *, seed: int = 0, synth_seconds: float = 0.0
+    ) -> tuple[Attempt, np.ndarray]:
+        """轉寫、檢查句首、必要時裁掉多餘的開頭並再驗一次。"""
+        rate = self._synth.sample_rate
+        t0 = self._clock()
+        hypothesis, words = self._transcribe(audio)
+        rejected: str | None = None
+        trimmed = 0.0
+        if words is not None:
+            verdict = analyze_preroll(text, words)
+            if not verdict.ok:
+                rejected = verdict.reason
+            elif verdict.trim_to:
+                trimmed_audio = audio[int(round(verdict.trim_to * rate)) :]
+                hypothesis, words = self._transcribe(trimmed_audio)
+                again = analyze_preroll(text, words or [])
+                if again.ok and not again.trim_to:
+                    audio, trimmed = trimmed_audio, verdict.trim_to
+                else:
+                    rejected = f"{verdict.reason}; still bad after trim: {again.reason}"
         attempt = Attempt(
             seed=seed,
             cer=compute_cer(text, hypothesis),
             hypothesis=hypothesis,
-            synth_seconds=t1 - t0,
-            check_seconds=t2 - t1,
-            audio_seconds=len(audio) / self._synth.sample_rate,
+            synth_seconds=synth_seconds,
+            check_seconds=self._clock() - t0,
+            audio_seconds=len(audio) / rate,
+            trimmed_seconds=trimmed,
+            rejected=rejected,
         )
         return attempt, audio
+
+    def _transcribe(self, audio: np.ndarray) -> tuple[str, list[WordTiming] | None]:
+        rate = self._synth.sample_rate
+        with_words = getattr(self._asr, "transcribe_words", None)
+        if with_words is None:
+            return self._asr.transcribe(audio, rate), None
+        text, words = with_words(audio, rate)
+        return text, words
 
 
 def _split_once(text: str) -> tuple[Literal["sentence", "clause"], list[str]] | None:

@@ -3,6 +3,7 @@ import wave
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from buddy_host.speech.pipeline import PipelineConfig, SpeechPipeline, write_outputs
 
@@ -241,3 +242,116 @@ def test_chunk_whose_sentences_all_fail_is_skipped():
 
     assert result.chunks[0].status == "skipped"
     assert len(result.audio) == 0
+
+
+# ---- 句首檢查與短句門檻（#5 的實測回饋）----
+
+from buddy_host.speech.preroll import WordTiming  # noqa: E402
+
+
+class FixedSynth:
+    """固定 2 秒、值等於 seed 的音訊（sr=1000），方便驗證裁切長度。"""
+
+    sample_rate = SR
+
+    def __init__(self):
+        self.calls: list[tuple[str, int]] = []
+
+    def synthesize(self, text: str, seed: int) -> np.ndarray:
+        self.calls.append((text, seed))
+        return np.full(2000, seed / 10000, dtype=np.float32)
+
+
+class WordsRecognizer:
+    """依音訊長度決定第一個詞的起始秒數：完整 2 秒的音訊有 lead 秒的前導，裁過就是 0。"""
+
+    def __init__(self, synth, lead=0.9, text_for=None, first_word=None):
+        self.synth, self.lead, self.text_for, self.first_word = (
+            synth,
+            lead,
+            text_for or {},
+            first_word,
+        )
+        self.calls = 0
+
+    def transcribe(self, audio, sample_rate):
+        return self.transcribe_words(audio, sample_rate)[0]
+
+    def transcribe_words(self, audio, sample_rate):
+        self.calls += 1
+        text, seed = self.synth.calls[-1]
+        hyp = self.text_for.get((text, seed), text)
+        start = self.lead if len(audio) >= 2000 else 0.0
+        first = self.first_word or hyp[0]
+        return hyp, [
+            WordTiming(first, start, start + 0.2),
+            WordTiming(hyp[1:2] or "。", start + 0.3, start + 0.5),
+        ]
+
+
+def make_words(lead=0.9, text_for=None, first_word=None, **config):
+    synth = FixedSynth()
+    asr = WordsRecognizer(synth, lead, text_for, first_word)
+    return SpeechPipeline(synth, asr, PipelineConfig(**config)), synth, asr
+
+
+def test_long_lead_in_is_trimmed_and_recorded():
+    pipeline, _, asr = make_words(lead=0.9)
+
+    result = pipeline.run("我恢復了，我們繼續。")
+
+    [chunk] = result.chunks
+    attempt = chunk.attempts[0]
+    assert chunk.status == "ok"
+    assert attempt.trimmed_seconds == pytest.approx(0.75)
+    assert len(result.audio) == 2000 - 750
+    assert asr.calls == 2  # 裁完要再驗一次
+
+
+def test_clean_start_is_not_trimmed_and_not_rechecked():
+    pipeline, _, asr = make_words(lead=0.1)
+
+    result = pipeline.run("我恢復了，我們繼續。")
+
+    assert result.chunks[0].attempts[0].trimmed_seconds == 0
+    assert len(result.audio) == 2000
+    assert asr.calls == 1
+
+
+def test_wrong_first_word_rejects_the_attempt_even_with_perfect_cer():
+    pipeline, synth, _ = make_words(lead=0.0, first_word="謝")
+
+    result = pipeline.run("我恢復了，我們繼續。")
+
+    assert result.chunks[0].status == "skipped"
+    assert len(synth.calls) >= 4
+    assert all(a.rejected for a in result.chunks[0].attempts)
+
+
+def test_short_text_needs_an_almost_exact_transcript():
+    short = "額度用完了，我先安靜陪你走。"  # 12 字
+    wrong = {(short, s): "眾度用完了，我先安靜陪你走。" for s in (1234, 7, 42, 2026)}
+    pipeline, _, _ = make_words(lead=0.0, text_for=wrong, first_word="額")
+
+    result = pipeline.run(short)
+
+    assert result.chunks[0].status == "skipped"  # CER 約 0.083，舊門檻 0.2 會放行
+
+
+def test_long_text_keeps_the_looser_threshold():
+    long_text = "這裡每年會設計不同的主題，利用大量燈光創造出山脈海洋花卉或其他壯觀場景。"
+    wrong = {(long_text, 1234): long_text.replace("設計", "社記")}
+    pipeline, _, _ = make_words(lead=0.0, text_for=wrong)
+
+    result = pipeline.run(long_text)
+
+    assert result.chunks[0].status == "ok"
+    assert [a.seed for a in result.chunks[0].attempts] == [1234]
+
+
+def test_recognisers_without_word_timestamps_still_work_as_before():
+    pipeline, _ = make()  # 原本的 ScriptedRecognizer 沒有 transcribe_words
+
+    result = pipeline.run("大稻埕是老街。")
+
+    assert result.chunks[0].status == "ok"

@@ -4,6 +4,7 @@ from pathlib import Path
 
 import numpy as np
 
+from buddy_host.speech.preroll import WordTiming
 from buddy_host.speech.voice import ReferenceVoice
 
 WHISPER_SAMPLE_RATE = 16000
@@ -52,3 +53,24 @@ class WhisperRecognizer:
             mono.astype(np.float32), language="zh", fp16=False, initial_prompt=ASR_PROMPT
         )
         return result["text"]
+
+    def transcribe_words(self, audio: np.ndarray, sample_rate: int) -> tuple[str, list[WordTiming]]:
+        from math import gcd
+
+        from scipy.signal import resample_poly
+
+        divisor = gcd(sample_rate, WHISPER_SAMPLE_RATE)
+        mono = resample_poly(audio, WHISPER_SAMPLE_RATE // divisor, sample_rate // divisor)
+        result = self._model.transcribe(
+            mono.astype(np.float32),
+            language="zh",
+            fp16=False,
+            initial_prompt=ASR_PROMPT,
+            word_timestamps=True,
+        )
+        words = [
+            WordTiming(w["word"].strip(), float(w["start"]), float(w["end"]))
+            for segment in result["segments"]
+            for w in segment.get("words", [])
+        ]
+        return result["text"], words

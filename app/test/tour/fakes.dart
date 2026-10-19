@@ -145,7 +145,7 @@ class FakePlayer implements NarrationPlayer {
 
 class FakeRemote implements RemoteControls {
   final controller = StreamController<RemoteCommand>.broadcast();
-  final updates = <({bool paused, bool narrating, String? title})>[];
+  final updates = <({bool paused, String? title})>[];
 
   @override
   Stream<RemoteCommand> get commands => controller.stream;
@@ -154,9 +154,8 @@ class FakeRemote implements RemoteControls {
   void update({
     required bool tourActive,
     required bool paused,
-    required bool narrating,
     String? title,
-  }) => updates.add((paused: paused, narrating: narrating, title: title));
+  }) => updates.add((paused: paused, title: title));
 
   @override
   Future<void> dispose() async {}

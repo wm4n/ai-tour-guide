@@ -7,12 +7,7 @@ abstract class RemoteControls {
   Stream<RemoteCommand> get commands;
 
   /// 讓系統（鎖定畫面、耳機）知道現在的狀態。
-  void update({
-    required bool tourActive,
-    required bool paused,
-    required bool narrating,
-    String? title,
-  });
+  void update({required bool tourActive, required bool paused, String? title});
 
   Future<void> dispose();
 }

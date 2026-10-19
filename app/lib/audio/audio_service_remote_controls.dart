@@ -25,12 +25,7 @@ class TourAudioHandler extends BaseAudioHandler implements RemoteControls {
   Future<void> stop() async => _commands.add(RemoteCommand.pause);
 
   @override
-  void update({
-    required bool tourActive,
-    required bool paused,
-    required bool narrating,
-    String? title,
-  }) {
+  void update({required bool tourActive, required bool paused, String? title}) {
     if (!tourActive) {
       playbackState.add(PlaybackState());
       return;

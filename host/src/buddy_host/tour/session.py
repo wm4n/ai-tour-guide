@@ -7,7 +7,8 @@
 
 import asyncio
 import logging
-from collections.abc import Collection
+import time
+from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -23,6 +24,7 @@ from buddy_host.places.models import Location
 logger = logging.getLogger(__name__)
 
 DEFAULT_REPREPARE_DISTANCE_M = 250.0
+DEFAULT_RETRY_AFTER_FAILURE_S = 60.0
 
 
 class TourNotActiveError(RuntimeError):
@@ -59,10 +61,18 @@ class NarrationEvent:
 
 class TourSession:
     def __init__(
-        self, preparer: PreparerLike, *, reprepare_distance_m: float = DEFAULT_REPREPARE_DISTANCE_M
+        self,
+        preparer: PreparerLike,
+        *,
+        reprepare_distance_m: float = DEFAULT_REPREPARE_DISTANCE_M,
+        retry_after_failure_s: float = DEFAULT_RETRY_AFTER_FAILURE_S,
+        monotonic: Callable[[], float] = time.monotonic,
     ):
         self._preparer = preparer
         self._reprepare_distance_m = reprepare_distance_m
+        self._retry_after_failure_s = retry_after_failure_s
+        self._monotonic = monotonic
+        self._failed_at: float | None = None  # 最近一次準備失敗的時間；冷卻後即使沒移動也重試
         self._seq = 0  # 跨趟持續遞增，App 的游標才不會在新的一趟失效
         self._generation = 0
         self._worker: asyncio.Task | None = None
@@ -108,6 +118,7 @@ class TourSession:
         self._worker = None
         self._pending = None
         self._anchor = None
+        self._failed_at = None
         self._events = []
         self._audio = {}
         self.active = False
@@ -116,6 +127,11 @@ class TourSession:
     def _needs_preparation(self, fix: TourFix) -> bool:
         anchor = self._anchor
         if anchor is None:
+            return True
+        if (
+            self._failed_at is not None
+            and self._monotonic() - self._failed_at >= self._retry_after_failure_s
+        ):
             return True
         if fix.traveler.key() != anchor.traveler.key():
             return True
@@ -146,9 +162,11 @@ class TourSession:
                 return
             except Exception:  # 一次準備失敗（網路、逾時…）不結束整趟，等下次移動再試
                 logger.exception("為 %s 準備介紹失敗", fix.location)
+                self._failed_at = self._monotonic()
                 continue
             if generation != self._generation:
                 return
+            self._failed_at = None
             for item in prepared:
                 self._publish(item)
 

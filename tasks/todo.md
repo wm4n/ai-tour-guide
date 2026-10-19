@@ -88,6 +88,15 @@
 - 「額度用完」只在畫面提示；連不上主機時播固定短句 6、自動繼續：不在 #7 範圍，未做
 - 準備中途按「結束」：`asyncio.to_thread` 裡的合成無法取消，舊的合成會跑完（GPU 短暫被占用）
 
+`/code-review` 後已修：暫停時沒釋放 audio session（其他 App 一直被壓低）、載入音檔期間按暫停會照播、準備失敗後 250 公尺內不重試（改為冷卻 60 秒後重試）、用不到的 `narrating` 參數。
+審查指出但**刻意不改**（之後視實測再決定）：
+- 額度（`quota`）停止後不會自動恢復，只能結束再出發；設計文件 §11 的 `resetsAt` 自動繼續不在 #7 範圍
+- App 以 500 公尺丟棄過期介紹，開車或準備太久時景點到貨已走遠會被丟（`_seen` 已記錄，不再補下載）；實測後再調 `staleDistanceM`
+- 狀態改變時，已發佈的景點不會用新狀態重寫（`exclude_ids`）；只有前方新景點用新狀態
+- 固定短句播放完會釋放 audio session，若剛好有主動介紹在播可能提早釋放（極少見）
+- `--max-llm-calls` 是新增的硬上限，與「不設每趟用量上限」的偏好不同：預設不啟用真實準備，要明確指定次數才跑；用量仍由 `usage.jsonl` 記錄
+- 平台殼層（`JustAudioNarrationPlayer`、`GeolocatorLocationSource`、`build_real_preparer`）沒有單元測試，由模擬器整合測試與 #8 實機覆蓋
+
 踩到的坑：
 - `simctl privacy grant location` 要在 App 已安裝後才有效，而 `flutter test` 每次重裝都會重置權限；整合測試期間要用迴圈持續授權，否則系統對話框會蓋住 App
 - `just_audio` 只啟用 audio session 不停用：不主動 `setActive(false, notifyOthersOnDeactivation)`，其他 App 會一直被壓低音量（短句播放器原本也有這個問題，已補）

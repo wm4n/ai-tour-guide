@@ -198,6 +198,24 @@ async def test_one_failed_preparation_does_not_end_the_tour(tmp_path):
     assert [e.name for e in session.narrations_after(0)] == ["B"]
 
 
+async def test_a_failed_preparation_is_retried_after_a_cooldown_even_without_moving(tmp_path):
+    clock = {"now": 1000.0}
+    preparer = FakePreparer(tmp_path, [RuntimeError("overpass down"), ["A"]])
+    session = TourSession(preparer, retry_after_failure_s=60, monotonic=lambda: clock["now"])
+    session.start(fix())
+    await session.wait_idle()
+
+    clock["now"] += 30
+    session.report(fix())  # 冷卻中：不重試，免得對掛掉的服務狂打
+    await session.wait_idle()
+    assert len(preparer.calls) == 1
+
+    clock["now"] += 31
+    session.report(fix())
+    await session.wait_idle()
+    assert [e.name for e in session.narrations_after(0)] == ["A"]
+
+
 async def test_reporting_without_a_tour_is_an_error(tmp_path):
     session = TourSession(FakePreparer(tmp_path))
 

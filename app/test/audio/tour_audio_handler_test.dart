@@ -33,7 +33,7 @@ void main() {
   test('during a tour the system sees "playing" even between narrations', () {
     final handler = TourAudioHandler();
 
-    handler.update(tourActive: true, paused: false, narrating: false);
+    handler.update(tourActive: true, paused: false);
 
     final state = handler.playbackState.value;
     expect(state.playing, isTrue);
@@ -44,7 +44,7 @@ void main() {
   test('paused shows the play key', () {
     final handler = TourAudioHandler();
 
-    handler.update(tourActive: true, paused: true, narrating: false);
+    handler.update(tourActive: true, paused: true);
 
     expect(handler.playbackState.value.playing, isFalse);
     expect(handler.playbackState.value.controls.single, MediaControl.play);
@@ -53,21 +53,16 @@ void main() {
   test('the title is the place being told about', () {
     final handler = TourAudioHandler();
 
-    handler.update(
-      tourActive: true,
-      paused: false,
-      narrating: true,
-      title: '霞海城隍廟',
-    );
+    handler.update(tourActive: true, paused: false, title: '霞海城隍廟');
 
     expect(handler.mediaItem.value?.title, '霞海城隍廟');
   });
 
   test('after the tour ends nothing is playing', () {
     final handler = TourAudioHandler();
-    handler.update(tourActive: true, paused: false, narrating: false);
+    handler.update(tourActive: true, paused: false);
 
-    handler.update(tourActive: false, paused: false, narrating: false);
+    handler.update(tourActive: false, paused: false);
 
     expect(handler.playbackState.value.playing, isFalse);
     expect(

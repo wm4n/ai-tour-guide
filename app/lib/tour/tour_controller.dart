@@ -380,7 +380,6 @@ class TourController extends Notifier<TourState> {
         .update(
           tourActive: state.active,
           paused: state.paused,
-          narrating: state.nowPlaying != null,
           title: title ?? state.nowPlaying,
         );
   }

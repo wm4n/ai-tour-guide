@@ -107,6 +107,15 @@
 - `just_audio` 只啟用 audio session 不停用：不主動 `setActive(false, notifyOthersOnDeactivation)`，其他 App 會一直被壓低音量（短句播放器原本也有這個問題，已補）
 - 選項回呼若用 build 時的狀態，連續快速點選會互相覆蓋（旅人選擇器，測試抓到）
 
+### 下一步：#14 → #13 → #9（不需要實機，2026-10-20）
+
+- 使用者要在 `/clear` 後輸入 `/implement #14`，完成後再 `/implement #13`、`/implement #9`（一次一張）
+- **#13、#14 的 issue 內文過時**：寫「播放『額度用完了…』」「播放『我恢復了…』」，但短句 5、8 已取消（設計文件 §9.3、§11、§12）。**以設計文件為準**：額度用完只在畫面提示、不念；恢復或重新連上後自動繼續、不念；連不上主機才播短句 6（App 已有 `FixedPhrase.hostUnreachable`）。我嘗試更新 issue 內文被權限擋下，尚未更新，需要使用者自己改或授權
+- 先讀：issue、設計文件 §7、§9.3、§11、§12、§13、本節、`app/lib/tour/tour_controller.dart`、`host/src/buddy_host/tour/session.py`
+- #7 留下、這三張會接手的缺口：額度（`quota`）停止後 `TourSession` 不會恢復（#13）；輪詢失敗只 `debugPrint`、沒有「斷線只提示一次、退避重試、連上後不重播」（#14）；`--max-llm-calls` 的 `llm_budget` 停止**不應**自動恢復
+- 驗收方式：#14、#13 用 fake 時鐘／模擬事件做單元測試，再用模擬器關掉主機驗一次（做法見 `app/README.md`「模擬器端到端測試」；`simctl privacy grant location` 要在 App 安裝後、且要持續授權）。#9 單元測試不需要 Claude；「GPX 重播驗證好友會引用剛去過的地方」要真實呼叫 Claude，**先跟使用者講次數**
+- 不需要實機：#8、#15、#17；#12 要使用者的 Google API key（可能計費）；#10、#11 另議
+
 ### 踩到的坑
 - **逐句合成會誤判**：兩個字的「哇！」四個 seed 的 CER 都 ≥ 1；管線改成先併段（約 90 字），整段失敗才往下拆（段 → 句 → 分句）
 - **SSL**：python.org 版 Python 的 urllib 不認這台機器的憑證，用 `truststore`

@@ -37,6 +37,7 @@ dependencies:
   flutter_riverpod: ^3.3.2
   http: ^1.6.0
   shared_preferences: ^2.5.6
+  just_audio: ^0.10.6
 
 dev_dependencies:
   flutter_test:
@@ -59,6 +60,9 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  assets:
+    - assets/phrases/
 
   # To add assets to your application, add an assets section, like this:
   # assets:

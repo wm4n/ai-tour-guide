@@ -43,3 +43,7 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# 固定短句成品（公眾人物聲音的複製）不入 git；由 scripts/install-phrases.sh 複製進來
+assets/phrases/*.wav
+!assets/phrases/.gitkeep

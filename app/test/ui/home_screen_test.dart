@@ -1,3 +1,5 @@
+import 'package:buddy_tour/audio/fixed_phrase.dart';
+import 'package:buddy_tour/audio/phrase_player.dart';
 import 'package:buddy_tour/host/host_client.dart';
 import 'package:buddy_tour/host/host_connection.dart';
 import 'package:buddy_tour/host/host_settings.dart';
@@ -7,12 +9,24 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+class FakePhrasePlayer implements PhrasePlayer {
+  final played = <FixedPhrase>[];
+
+  @override
+  Future<void> play(FixedPhrase phrase) async => played.add(phrase);
+
+  @override
+  Future<void> dispose() async {}
+}
+
 class _FixedClient implements HostClient {
   _FixedClient(this.status);
   final ConnectionStatus status;
   @override
   Future<ConnectionStatus> check(HostSettings settings) async => status;
 }
+
+late FakePhrasePlayer phrases;
 
 Future<void> pumpHome(
   WidgetTester tester,
@@ -23,10 +37,12 @@ Future<void> pumpHome(
     configured ? {'host.url': 'http://h:1'} : {},
   );
   final prefs = await SharedPreferences.getInstance();
+  phrases = FakePhrasePlayer();
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
         sharedPreferencesProvider.overrideWithValue(prefs),
+        phrasePlayerProvider.overrideWithValue(phrases),
         hostClientProvider.overrideWithValue(_FixedClient(status)),
         pollIntervalProvider.overrideWithValue(const Duration(hours: 1)),
       ],
@@ -100,5 +116,17 @@ void main() {
     expect(prefs.getString('host.url'), 'http://100.64.0.1:8765');
     expect(prefs.getString('host.token'), 'tok');
     expect(find.text('主機已連線'), findsOneWidget);
+  });
+
+  testWidgets('按「出發」播放短句 7，按「結束」不播', (tester) async {
+    await pumpHome(tester, ConnectionStatus.connected);
+
+    await tester.tap(find.byKey(const Key('tour-toggle')));
+    await tester.pump();
+    expect(phrases.played, [FixedPhrase.startTour]);
+
+    await tester.tap(find.byKey(const Key('tour-toggle')));
+    await tester.pump();
+    expect(phrases.played, [FixedPhrase.startTour]);
   });
 }

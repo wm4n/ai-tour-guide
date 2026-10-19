@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../audio/fixed_phrase.dart';
+import '../audio/phrase_player.dart';
 import 'host_client.dart';
 import 'host_settings.dart';
 
@@ -93,5 +95,10 @@ class TourActiveNotifier extends Notifier<bool> {
   @override
   bool build() => false;
 
-  void toggle() => state = !state;
+  void toggle() {
+    state = !state;
+    if (state) {
+      unawaited(ref.read(phrasePlayerProvider).play(FixedPhrase.startTour));
+    }
+  }
 }

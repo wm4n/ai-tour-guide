@@ -624,3 +624,20 @@ async def test_a_new_tour_does_not_clear_a_quota_that_is_still_exhausted(tmp_pat
 
     assert session.stopped_reason == "quota"
     assert preparer.calls == []
+
+
+async def test_a_question_probing_the_gate_first_does_not_lose_the_blocked_preparation(tmp_path):
+    clock = WallClock()
+    gate = QuotaGate(wall_clock=clock)
+    gate.trip(resets_at=clock.now + 3600)
+    preparer = FakePreparer(tmp_path, [["A"]])
+    session = TourSession(preparer, quota=gate, wall_clock=clock)
+    session.start(fix())  # 被閘門擋下，沒有準備
+    await session.wait_idle()
+
+    clock.now += 3601
+    assert gate.admit()  # 問答搶先探測，閘門被它打開
+    session.report(fix())  # 人沒移動，但該準備的還沒準備
+    await session.wait_idle()
+
+    assert [e.name for e in session.narrations_after(0)] == ["A"]

@@ -148,7 +148,7 @@ class TourSession:
         if not self.active:
             raise TourNotActiveError("還沒有出發")
         self._journey.touch(self._wall_clock())
-        if self.active and self._quota.may_probe():
+        if self._quota.may_probe():
             self._resume_after_quota(fix)
         elif self.stopped_reason is None and self._needs_preparation(fix):
             self._schedule(fix)
@@ -228,6 +228,9 @@ class TourSession:
         while self._pending is not None and generation == self._generation:
             if not self._quota.admit():  # 問答先撞到額度了：不再呼叫 Claude，等恢復
                 self._pending = None
+                # 這次沒準備成：忘掉錨點，之後不論誰先把閘門打開，下一次回報都會補做，
+                # 不必等人走滿重新準備的距離
+                self._anchor = None
                 return
             fix, self._pending = self._pending, None
             try:

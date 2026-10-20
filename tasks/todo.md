@@ -201,3 +201,27 @@ issue 內文過時（同 #14）：以設計文件為準，額度用完與恢復�
 - App：下載回 404（主機已沒有這段，例如主機重啟）改為丟掉、不重試、不算斷線；`TourApiException` 帶 `statusCode`，連不上、逾時、5xx 仍照斷線處理
 - 主機：`finish_tour`（讀整份 `usage.jsonl`）改用 `asyncio.to_thread`，`/v1/tour/start`（替被丟下的舊趟收尾）與 `/v1/tour/end` 都不再卡住事件迴圈
 - 驗證：host 424 項、app 137 項、ruff／analyze 乾淨
+
+## #20 問答（主機）：文字問答直通（2026-10-20，分支 `feat/v2-qa`）
+
+做了：
+- `POST /v1/qa/ask`（問題＋位置、行進方向、旅人狀態，`more` 表示「再多說一點」）回 id；`GET /v1/qa/answer?id=` 輪詢 `status`（answering／done／failed）、`text`、`searching_web`、`reason`（quota／llm_budget／forbidden_model／error）
+- `qa/prompt.py`：個性檔後面接問答專用指示；prompt 帶附近最多 5 個景點（維基摘要截 200 字）、這趟剛講過的、這些景點以前講過的（沿用 #9 上限）；`more` 時帶 `JourneyMemory.last_told()`（只算 App 回報播完的）
+- 問答固定 Sonnet、每次新對話；用量記錄沿用 `ClaudeCliClient`（`purpose=qa`）；Fable 由既有 `modelUsage` 檢查擋下
+- `ClaudeCliClient`／`BudgetedLlm` 新增 `on_tool`：`content_block_start` 與 `assistant` 兩處的 tool_use 以 id 去重；`WebSearch`／`WebFetch` → `searching_web`
+- 抽出 `llm.quota.QuotaGate`：旅程準備與問答共用，任一邊撞到額度兩邊一起停；到恢復時間後下一次呼叫即探測。`TourSession.stopped_reason` 改為 property（額度看閘門）
+- `AreaPreparer.nearby()`：與 `prepare` 同一組快取查詢範圍；寫稿與問答共用同一個 `BudgetedLlm`（`--max-llm-calls`）；重播模式問答回 503
+
+驗證：host 498 項、ruff 乾淨；全程 fake LLM／假 `claude` 行程，**沒有呼叫真實 Claude**。
+
+code-review 後修正：
+- 競態：旅程被額度閘門擋下後，若問答先在恢復後把閘門打開，旅程要等人走滿 250 公尺才會補準備 → `_run` 被擋下時忘掉錨點（有測試）
+- `report()` 的死條件；`_tool_use` 無 id 時的去重 key
+
+審查指出但刻意不改：
+- 連續發問不去重、不限併發（每題一次 Claude 呼叫）：#22 會處理 GPU 排程；是否要限制再看實測
+- `failed／quota` 不帶恢復時間（App 只要畫面提示，沒要求顯示何時恢復）
+- `llm_budget` 不進共用閘門（用盡就是用盡，不會恢復；問答會多走一趟 `BudgetedLlm` 才失敗，無害）
+- 例外階梯（Budget → Quota → Forbidden）在 session 與 QaService 各一份、`TourFix` 的匯入方向、`model="sonnet"` 與預設值重複（刻意明確釘住）：判斷題，未重構
+
+**還沒做**：真實 Claude 驗證（問答品質、`searching_web` 真實事件）——要使用者先同意次數。

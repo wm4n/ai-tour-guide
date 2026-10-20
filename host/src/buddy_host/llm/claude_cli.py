@@ -114,7 +114,7 @@ class _Stream:
         """同一次工具呼叫會先後出現在 content_block_start 與完整的 assistant 訊息：以 id 去重。"""
         if block.get("type") != "tool_use" or not self.on_tool:
             return
-        key = block.get("id") or f"{block.get('name')}#{len(self._tools_seen)}"
+        key = block.get("id") or str(block.get("name"))  # 沒有 id 時退而以名稱去重
         if key not in self._tools_seen:
             self._tools_seen.add(key)
             self.on_tool(str(block.get("name", "")))

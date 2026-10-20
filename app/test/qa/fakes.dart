@@ -9,9 +9,10 @@ import 'package:buddy_tour/tour/playback_policy.dart';
 import 'package:buddy_tour/tour/traveler_state.dart';
 
 class FakeSession implements RecognitionSession {
-  FakeSession(this.text);
+  FakeSession(this.text, [this.log]);
 
   final String text;
+  final List<String>? log;
   bool finished = false;
   bool cancelled = false;
 
@@ -22,7 +23,10 @@ class FakeSession implements RecognitionSession {
   }
 
   @override
-  Future<void> cancel() async => cancelled = true;
+  Future<void> cancel() async {
+    cancelled = true;
+    log?.add('cancel');
+  }
 }
 
 /// 假的辨識引擎：`heard` 是它「聽到」的字；本機不支援時照規定丟 [OnDeviceUnavailable]。
@@ -39,14 +43,17 @@ class FakeRecognizer implements SpeechRecognizer {
   Completer<void>? gate; // 讓測試卡住「麥克風還沒開好」
   final attempts = <bool>[];
   final sessions = <FakeSession>[];
+  final log = <String>[]; // listen／cancel 發生的順序
 
   @override
   Future<RecognitionSession> listen({required bool onDevice}) async {
     attempts.add(onDevice);
-    await gate?.future;
+    log.add('listen');
+    final wait = gate;
+    await wait?.future;
     if (error != null) throw error!;
     if (onDevice && !onDeviceSupported) throw OnDeviceUnavailable();
-    final session = FakeSession(heard);
+    final session = FakeSession(heard, log);
     sessions.add(session);
     return session;
   }

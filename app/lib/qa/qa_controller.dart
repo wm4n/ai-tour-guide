@@ -111,6 +111,7 @@ class QaController extends Notifier<QaState> {
   bool _holding = false; // 已經通知旅程「正在發問」
   int _openings = 0;
   Future<void> _audio = Future.value(); // 要念、要播的東西排成一列，一件一件來
+  Future<void>? _starting; // 最近一次「開麥克風」；沒收乾淨之前，下一次不能開始
 
   @override
   QaState build() {
@@ -139,28 +140,42 @@ class QaController extends Notifier<QaState> {
     _releaseRequested = false;
     state = QaState(phase: QaPhase.listening, mode: state.mode);
     _hold();
+    final started = _start(generation, _starting);
+    _starting = started.then<void>((_) {}, onError: (Object _) {});
+    final session = await started;
+    if (session == null) return; // 失敗已經顯示，或這次已經被取消
+    _session = session;
+    state = state.copyWith(mode: ref.read(questionListenerProvider).mode);
+    if (_releaseRequested) _submitInBackground(generation);
+  }
+
+  /// 開麥克風。上一次的錄音還沒收乾淨時先等它：舊的那次回來發現已取消，會對同一個辨識引擎
+  /// 呼叫 cancel，不等的話會把新的錄音一起殺掉。回傳 null＝失敗（已顯示）或已被取消。
+  Future<RecognitionSession?> _start(
+    int generation,
+    Future<void>? previous,
+  ) async {
+    if (previous != null) await previous;
+    if (generation != _generation) return null;
     final RecognitionSession session;
-    final listener = ref.read(questionListenerProvider);
     try {
-      session = await listener.start();
+      session = await ref.read(questionListenerProvider).start();
     } on SpeechPermissionDenied {
       _fail(generation, '需要麥克風與語音辨識的權限，請到「設定」開啟');
-      return;
+      return null;
     } on RecognitionFailed catch (error) {
       _fail(generation, '語音辨識失敗：${error.message}');
-      return;
+      return null;
     } on Exception catch (error) {
       debugPrint('開始聽失敗：$error');
       _fail(generation, '無法開始聽，再試一次');
-      return;
+      return null;
     }
     if (generation != _generation) {
       await session.cancel(); // 等麥克風的時候已經取消了
-      return;
+      return null;
     }
-    _session = session;
-    state = state.copyWith(mode: listener.mode);
-    if (_releaseRequested) _submitInBackground(generation);
+    return session;
   }
 
   /// 放開：問完了。辨識、送出、等答案、播答案都在背景進行，這裡立刻回來。
@@ -182,7 +197,10 @@ class QaController extends Notifier<QaState> {
     _unhold();
     state = QaState(mode: state.mode);
     if (session != null) await session.cancel();
-    await ref.read(answerPlayerProvider).stop();
+    await ref.read(phrasePlayerProvider).stop();
+    final player = ref.read(answerPlayerProvider);
+    await player.stop();
+    await player.release(); // 答案各段不釋放 focus；被取消時要補上，不然其他 App 會一直被壓低
   }
 
   void _submitInBackground(int generation) {
@@ -199,6 +217,13 @@ class QaController extends Notifier<QaState> {
     final session = _session!;
     _session = null;
     state = state.copyWith(phase: QaPhase.asking);
+    // 放開的當下就回一句：讓人知道有聽到、在處理，不用等辨識的最終結果（最久要等幾秒）。
+    // 麥克風已經停了，不會把這句錄進去。
+    final opening = _openings.isEven
+        ? FixedPhrase.thinkingLookup
+        : FixedPhrase.thinkingGoodQuestion;
+    _openings++;
+    _say(opening);
     String heard;
     try {
       heard = (await session.finish()).trim();
@@ -217,13 +242,6 @@ class QaController extends Notifier<QaState> {
       _fail(generation, '還沒有定位，等一下再問');
       return;
     }
-
-    // 按住說完，馬上回一句：讓人知道有聽到、在處理，不用乾等
-    final opening = _openings.isEven
-        ? FixedPhrase.thinkingLookup
-        : FixedPhrase.thinkingGoodQuestion;
-    _openings++;
-    _say(opening);
 
     final String id;
     try {
@@ -264,8 +282,8 @@ class QaController extends Notifier<QaState> {
       } on TourApiException catch (error) {
         if (generation != _generation) return;
         failures++;
-        // 主機有回應卻拒絕（例如重啟後不認得這題）重試沒有用；連不上才多試幾次
-        if (error.statusCode != null || failures >= _maxPollFailures) {
+        // 404＝主機已經沒有這題（例如重啟過），重試沒有用；其他失敗跟旅程輪詢一樣多試幾次
+        if (_isGone(error) || failures >= _maxPollFailures) {
           _hostFailed(generation, error, '等不到答案');
           return;
         }
@@ -300,12 +318,12 @@ class QaController extends Notifier<QaState> {
       }
 
       if (poll.status != AnswerStatus.answering) {
-        await _audioDone(generation);
+        await _audio;
         _conclude(generation, poll);
         return;
       }
       if (_now.difference(asked) > timeout) {
-        await _audioDone(generation);
+        await _audio;
         _fail(generation, '答案等太久了，先不等了');
         return;
       }
@@ -334,7 +352,7 @@ class QaController extends Notifier<QaState> {
           .downloadSegment(ref.read(settingsProvider), id, index);
     } on TourApiException catch (error) {
       debugPrint('下載答案第 $index 段失敗：$error');
-      if (error.statusCode == null && generation == _generation) {
+      if (!_isGone(error) && generation == _generation) {
         ref.read(tourProvider.notifier).noteHostFailed();
       }
       return null;
@@ -359,15 +377,19 @@ class QaController extends Notifier<QaState> {
     _ => '這題沒能回答，再問一次看看',
   };
 
+  /// 主機有回應、只是沒有這一段／這一題（例如重啟過）：不算斷線。其他失敗的判斷與旅程輪詢一致。
+  static bool _isGone(TourApiException error) => error.statusCode == 404;
+
   void _hostFailed(int generation, TourApiException error, String what) {
     if (generation != _generation) return;
-    if (error.statusCode == null) {
-      // 連不上：和輪詢失敗一樣算一次斷線（只念一次「連不上」，並退避重試）
-      ref.read(tourProvider.notifier).noteHostFailed();
-      _fail(generation, '$what：連不上主機');
-    } else {
-      _fail(generation, '$what：主機回應 ${error.statusCode}');
+    if (_isGone(error)) {
+      _fail(generation, '$what：主機已經沒有這一題');
+      return;
     }
+    // 和輪詢失敗一樣算一次斷線（只念一次「連不上」，並退避重試）
+    ref.read(tourProvider.notifier).noteHostFailed();
+    final code = error.statusCode;
+    _fail(generation, code == null ? '$what：連不上主機' : '$what：主機回應 $code');
   }
 
   void _fail(int generation, String message) =>
@@ -385,23 +407,22 @@ class QaController extends Notifier<QaState> {
     );
   }
 
-  void _say(FixedPhrase phrase) =>
-      _enqueue(_generation, () => ref.read(phrasePlayerProvider).play(phrase));
+  // 短句不釋放 focus：後面緊接著是答案，整個答案播完才由答案播放器一次恢復其他 App 的音量
+  void _say(FixedPhrase phrase) => _enqueue(
+    _generation,
+    () => ref.read(phrasePlayerProvider).play(phrase, releaseFocus: false),
+  );
 
   void _enqueue(int generation, Future<void> Function() task) {
     _audio = _audio.then((_) async {
       if (generation != _generation) return;
       try {
         await task();
-      } on Exception catch (error) {
+      } catch (error) {
+        // 連 Error 也要接住：否則這一列會永遠是失敗狀態，之後每個答案都沒聲音
         debugPrint('播放答案時出錯：$error');
       }
     });
-  }
-
-  /// 等到目前排好的語音都播完（被取消時也會很快結束）。
-  Future<void> _audioDone(int generation) async {
-    await _audio;
   }
 
   Future<void> _pause() =>

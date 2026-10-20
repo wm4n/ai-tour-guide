@@ -194,8 +194,24 @@ class FakeRemote implements RemoteControls {
 class FakePhrases implements PhrasePlayer {
   final played = <FixedPhrase>[];
 
+  /// 每次 play 是否要求念完就釋放 audio focus。
+  final focusReleasedAfter = <bool>[];
+  var stops = 0;
+  Object? errorOnce; // 下一次 play 丟這個（Error 或 Exception 都可以）
+
   @override
-  Future<void> play(FixedPhrase phrase) async => played.add(phrase);
+  Future<void> play(FixedPhrase phrase, {bool releaseFocus = true}) async {
+    final error = errorOnce;
+    if (error != null) {
+      errorOnce = null;
+      throw error;
+    }
+    played.add(phrase);
+    focusReleasedAfter.add(releaseFocus);
+  }
+
+  @override
+  Future<void> stop() async => stops++;
 
   @override
   Future<void> dispose() async {}

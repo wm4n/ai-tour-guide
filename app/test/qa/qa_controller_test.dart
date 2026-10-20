@@ -89,6 +89,7 @@ Future<QaHarness> makeQaHarness({
   if (startTour) {
     await h.tour.start();
     h.phrases.played.clear(); // 出發的招呼不是這裡要看的
+    h.phrases.focusReleasedAfter.clear();
   }
   return h;
 }
@@ -197,7 +198,6 @@ void main() {
       await h.ask();
 
       expect(h.qaApi.asked, isEmpty);
-      expect(h.phrases.played, isEmpty);
       expect(h.state.phase, QaPhase.idle);
       expect(h.state.error, contains('沒聽清楚'));
     });
@@ -502,18 +502,29 @@ void main() {
     );
 
     test(
-      'a refusing host (not an outage) is only an on-screen error',
+      'a host that answers with an error status is an outage, like polling',
       () async {
         final h = await makeQaHarness();
-        h.qaApi.askError = TourApiException('no', statusCode: 401);
+        h.qaApi.askError = TourApiException('no', statusCode: 503);
 
         await h.ask();
         await h.tour.tick();
 
-        expect(h.state.error, isNotNull);
-        expect(h.phrases.played, isNot(contains(FixedPhrase.hostUnreachable)));
+        expect(h.state.error, contains('503'));
+        expect(h.phrases.played, contains(FixedPhrase.hostUnreachable));
       },
     );
+
+    test('a host that no longer knows the question is not an outage', () async {
+      final h = await makeQaHarness();
+      h.qaApi.askError = TourApiException('gone', statusCode: 404);
+
+      await h.ask();
+      await h.tour.tick();
+
+      expect(h.state.error, isNotNull);
+      expect(h.phrases.played, isNot(contains(FixedPhrase.hostUnreachable)));
+    });
 
     test(
       'losing the host while waiting for the answer gives up after a few tries',
@@ -626,5 +637,77 @@ void main() {
 
       expect(h.qaApi.asked, hasLength(1));
     });
+  });
+
+  group('cancelling and recovering', () {
+    test('cancelling mid-answer gives other apps their volume back', () async {
+      final h = await makeQaHarness();
+      h.qaApi.answers = [poll(segments: 1)];
+      await h.ask();
+      expect(h.answerPlayer.played, ['a1:0']);
+
+      await h.tour.end();
+      await h.settle();
+
+      final events = h.answerPlayer.events;
+      expect(events, contains('stop'));
+      expect(events.indexOf('release'), greaterThan(events.indexOf('stop')));
+    });
+
+    test('cancelling stops a phrase that is still being said', () async {
+      final h = await makeQaHarness();
+      await h.qa.press();
+      await h.qa.cancel();
+
+      expect(h.phrases.stops, 1);
+    });
+
+    test('the opening phrase leaves the volume down for the answer', () async {
+      final h = await makeQaHarness();
+      h.qaApi.answers = [poll(status: AnswerStatus.done, segments: 1)];
+
+      await h.ask();
+      await h.finishSegment();
+
+      // 短句與答案各段都不釋放；整個答案播完才由答案播放器釋放一次
+      expect(h.phrases.focusReleasedAfter, [false]);
+      expect(h.answerPlayer.events.where((e) => e == 'release'), hasLength(1));
+    });
+
+    test(
+      'pressing again right after cancelling does not kill the new recording',
+      () async {
+        final h = await makeQaHarness();
+        h.recognizer.gate = Completer<void>();
+
+        final first = h.qa.press(); // 麥克風還沒開好
+        await h.qa.cancel();
+        final second = h.qa.press();
+        h.recognizer.gate!.complete();
+        await first;
+        await second;
+        await h.settle();
+
+        expect(h.state.phase, QaPhase.listening);
+        expect(h.recognizer.sessions.last.cancelled, isFalse);
+        // 舊的那次先收乾淨，新的才開始聽
+        expect(h.recognizer.log, ['listen', 'cancel', 'listen']);
+      },
+    );
+
+    test(
+      'one unexpected error in the audio queue does not silence later answers',
+      () async {
+        final h = await makeQaHarness();
+        h.phrases.errorOnce = StateError('壞掉的一次');
+        h.qaApi.answers = [poll(status: AnswerStatus.done, segments: 1)];
+        await h.ask();
+        await h.finishSegment();
+
+        await h.ask();
+
+        expect(h.answerPlayer.played, ['a1:0', 'a2:0']);
+      },
+    );
   });
 }

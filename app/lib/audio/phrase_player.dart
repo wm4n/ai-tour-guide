@@ -6,7 +6,12 @@ import 'audio_focus.dart';
 import 'fixed_phrase.dart';
 
 abstract class PhrasePlayer {
-  Future<void> play(FixedPhrase phrase);
+  /// 念完才完成。[releaseFocus] 為 false 時念完先不恢復其他 App 的音量（後面緊接著還有答案要播）。
+  Future<void> play(FixedPhrase phrase, {bool releaseFocus = true});
+
+  /// 立刻停下正在念的短句（例如發問被取消）。
+  Future<void> stop();
+
   Future<void> dispose();
 }
 
@@ -15,15 +20,18 @@ class JustAudioPhrasePlayer implements PhrasePlayer {
   final AudioPlayer _player = AudioPlayer();
 
   @override
-  Future<void> play(FixedPhrase phrase) async {
+  Future<void> play(FixedPhrase phrase, {bool releaseFocus = true}) async {
     try {
       await _player.setAsset(phrase.assetPath);
       await _player.play();
-      await releaseAudioFocus();
+      if (releaseFocus) await releaseAudioFocus();
     } catch (error) {
       debugPrint('固定短句 ${phrase.number} 無法播放（音檔沒放進 assets/phrases/？）：$error');
     }
   }
+
+  @override
+  Future<void> stop() => _player.stop();
 
   @override
   Future<void> dispose() => _player.dispose();

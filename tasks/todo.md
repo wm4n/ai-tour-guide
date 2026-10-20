@@ -297,3 +297,19 @@ code-review 後修正：
 - 實機才驗得到：本機 zh-TW 辨識是否可用（#10）、放開後多久拿到最終文字、麥克風權限對話框、錄音與播放切換的 audio session（plugin 會暫時改成 playAndRecord 並在結束後還原，未實測）
 
 遇到的坑：模擬器第一次建置時 `xcodebuild` 卡在 `ibtoold` 42 分鐘（只用了數秒 CPU）；終止後重跑 75 秒完成。
+
+code-review 後修正（#23）：
+- 取消後不釋放 audio focus（答案各段不釋放，只靠結尾的 release）→ `cancel()` 補 `release()`＋停短句
+- 短句播完會釋放 focus，造成「短句 → 答案」之間音樂跳回來 → 短句也不釋放，整個答案播完一次恢復
+- press → cancel → 立刻再 press 會讓舊的 `session.cancel()` 殺掉新錄音 → 以 `_starting` 串接，舊的收乾淨才開新的（有測試，含 listen／cancel 順序）
+- `_audio` 鏈只攔 `Exception`，一個 `Error` 就讓之後的答案都靜音 → 改接住全部
+- 短句其實排在 `session.finish()`（最久 3 秒）之後 → 放開當下就念，不等最終文字
+- 問答對 HTTP 錯誤的斷線判斷與旅程輪詢不一致 → 對齊：只有 404 不算斷線，其他（含 401、5xx）算
+- 驗證：App 212 項、analyze 乾淨；模擬器端到端重跑
+
+審查指出但刻意不改：
+- 本機 zh-TW 辨識判斷「不支援」靠套件的英文訊息字串、記住後整個 App 生命週期不重試、先成功過之後本機失敗不會降級線上：實機驗證本機辨識時（#10）再決定
+- `SpeechToTextRecognizer` 沒有單元測試（只有實機驗得到）
+- `QaController` 直接呼叫 `TourController` 的多個方法、`reason` 是字串、`(generation, id)` 成對傳遞：判斷題，未重構
+- `FAKE_QUESTION` 的 override 留在正式 `main.dart`（用 dart-define 控制，預設不啟用）
+- 模擬器端到端在修正後重跑通過（全新的 iPhone 16／iOS 18.6 模擬器）。原本那台模擬器跳出「Apple Account Verification」系統對話框（要輸入某個 Apple 帳號的密碼）擋住 App；這是帳號憑證，不由 agent 操作，改建一台沒登入帳號的模擬器繞開

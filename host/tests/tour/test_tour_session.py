@@ -664,3 +664,24 @@ async def test_a_published_narration_has_the_start_of_every_unit_even_when_it_ca
 
     [event] = session.narrations_after(0)
     assert event.unit_starts == (0.0, 1.5)
+
+
+async def test_a_question_probing_the_quota_first_does_not_lose_the_blocked_preparation(
+    tmp_path,
+):
+    clock = WallClock()
+    gate = QuotaGate(wall_clock=clock)
+    preparer = FakePreparer(
+        tmp_path, [QuotaExceededError("limit", resets_at=clock.now + 3600), ["A"]]
+    )
+    session = TourSession(preparer, quota=gate, wall_clock=clock)
+    session.start(fix())
+    await session.wait_idle()
+    assert session.stopped_reason == "quota"
+
+    clock.now += 3601
+    assert gate.admit()  # 問答先探測成功，閘門被它打開
+    session.report(fix())  # 人沒移動，但該準備的還沒準備
+    await session.wait_idle()
+
+    assert [e.name for e in session.narrations_after(0)] == ["A"]

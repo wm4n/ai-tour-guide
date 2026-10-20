@@ -29,7 +29,11 @@ def _require_token(config: HostConfig) -> Callable[..., None]:
     def dependency(x_buddy_token: str | None = Header(default=None)) -> None:
         if config.token is None:
             return
-        if x_buddy_token is None or not hmac.compare_digest(x_buddy_token, config.token):
+        # compare_digest 對含非 ASCII 的 str 會丟 TypeError（變成 500）：改比位元組。
+        # header 在 Starlette 是以 latin-1 解碼的，用 latin-1 還原原始位元組；token 設定檔是 UTF-8。
+        if x_buddy_token is None or not hmac.compare_digest(
+            x_buddy_token.encode("latin-1", errors="replace"), config.token.encode("utf-8")
+        ):
             raise HTTPException(status_code=401, detail="invalid token")
 
     return dependency
@@ -199,11 +203,11 @@ def create_app(
         if not service.photos_enabled:
             raise HTTPException(status_code=503, detail="拍照提問尚未啟用")
         try:
-            image = base64.b64decode(body.image_base64, validate=True)
+            image = await asyncio.to_thread(base64.b64decode, body.image_base64, validate=True)
         except (binascii.Error, ValueError):
             raise HTTPException(status_code=400, detail="照片不是有效的 base64") from None
         try:
-            return {"id": service.ask_photo(body.question, body.to_fix(), image)}
+            return {"id": await service.ask_photo(body.question, body.to_fix(), image)}
         except PhotoTooLarge as error:
             raise HTTPException(status_code=413, detail=str(error)) from None
         except PhotoRejected as error:

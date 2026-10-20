@@ -385,7 +385,12 @@ class AskButton extends ConsumerWidget {
           onPointerDown: (_) => controller.press(),
           onPointerUp: (_) => controller.release(),
           // 手指被系統奪走（例如被當成捲動）：不要把講到一半的話送出去
-          onPointerCancel: (_) => controller.cancel(),
+          onPointerCancel: (_) {
+            // 只有「按住中」才丟掉錄音；答案播放中碰一下又被取消，不該停掉答案
+            if (ref.read(qaProvider).phase == QaPhase.listening) {
+              controller.cancel();
+            }
+          },
           child: Container(
             width: 160,
             height: 160,

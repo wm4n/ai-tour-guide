@@ -328,6 +328,36 @@ void main() {
       await wrapUp(tester);
     });
 
+    testWidgets(
+      'a cancelled touch while the answer is playing does not stop it',
+      (tester) async {
+        await pumpHome(tester, ConnectionStatus.connected);
+        await startTour(tester);
+        qaApi.answers = [poll(segments: 1)]; // 答案的第一段在播
+
+        final first = await tester.startGesture(
+          tester.getCenter(find.byKey(const Key('ask-button'))),
+        );
+        await tester.pump();
+        await first.up();
+        for (var i = 0; i < 5; i++) {
+          await tester.pump();
+        }
+        expect(answerPlayer.played, isNotEmpty);
+
+        // 答案播放中又碰了一下按鈕（按下會被忽略），然後被系統取消
+        final second = await tester.startGesture(
+          tester.getCenter(find.byKey(const Key('ask-button'))),
+        );
+        await tester.pump();
+        await second.cancel();
+        await tester.pump();
+
+        expect(answerPlayer.events, isNot(contains('stop')));
+        await wrapUp(tester);
+      },
+    );
+
     testWidgets('a cancelled touch throws the recording away', (tester) async {
       await pumpHome(tester, ConnectionStatus.connected);
       await startTour(tester);

@@ -271,6 +271,9 @@ class TourSession:
         self._pending = None
         if reason == "quota":
             self._quota.trip(resets_at)
+            # 這次沒準備成：忘掉錨點。額度恢復後若是問答先探測成功、把閘門打開，
+            # 下一次回報才會補準備，不必等人走滿重新準備的距離
+            self._anchor = None
         else:
             self._stopped_reason = reason
         logger.warning("停止準備介紹：%s", reason)

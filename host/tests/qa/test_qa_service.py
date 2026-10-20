@@ -672,7 +672,7 @@ async def test_a_photo_question_saves_the_photo_and_hands_it_to_claude(persona):
     service, _, store = make_with_photos(persona, llm=llm)
     compass_fix = TourFix(Location(25.056, 121.51, heading_deg=270.0), TRAVELER)
 
-    answer_id = service.ask_photo("這是什麼？", compass_fix, JPEG)
+    answer_id = await service.ask_photo("這是什麼？", compass_fix, JPEG)
     await service.wait_idle()
 
     [saved] = list(store.directory.iterdir())
@@ -688,7 +688,7 @@ async def test_a_photo_question_saves_the_photo_and_hands_it_to_claude(persona):
 async def test_the_photo_is_kept_after_the_answer_until_the_retention_period_ends(persona):
     service, _, store = make_with_photos(persona)
 
-    service.ask_photo("這是什麼？", FIX, JPEG)
+    await service.ask_photo("這是什麼？", FIX, JPEG)
     await service.wait_idle()
 
     assert len(list(store.directory.iterdir())) == 1
@@ -699,7 +699,7 @@ async def test_something_that_is_not_a_photo_is_refused_before_anything_starts(p
     service, _, store = make_with_photos(persona, llm=llm)
 
     with pytest.raises(PhotoRejected):
-        service.ask_photo("這是什麼？", FIX, b"not an image")
+        await service.ask_photo("這是什麼？", FIX, b"not an image")
     await service.wait_idle()
 
     assert llm.requests == []
@@ -711,7 +711,7 @@ async def test_photo_questions_are_unavailable_without_a_photo_store(persona):
 
     assert service.photos_enabled is False
     with pytest.raises(PhotosUnavailable):
-        service.ask_photo("這是什麼？", FIX, JPEG)
+        await service.ask_photo("這是什麼？", FIX, JPEG)
 
 
 async def test_a_photo_question_goes_through_the_same_quota_gate(persona):
@@ -719,7 +719,7 @@ async def test_a_photo_question_goes_through_the_same_quota_gate(persona):
     service, parts, _ = make_with_photos(persona, llm=llm)
     parts["quota"].trip(resets_at=parts["clock"].now + 3600)
 
-    answer_id = service.ask_photo("這是什麼？", FIX, JPEG)
+    answer_id = await service.ask_photo("這是什麼？", FIX, JPEG)
     await service.wait_idle()
 
     assert service.answer(answer_id).reason == "quota"
@@ -757,3 +757,18 @@ async def test_purge_photos_without_a_store_does_nothing(persona):
     service, _ = make(persona)
 
     assert service.purge_photos() == 0
+
+
+async def test_stored_audio_left_by_an_earlier_run_can_be_cleared(persona):
+    service, _ = make(persona)
+    answer = await ask_and_wait(service)
+    stale = persona.parent / "qa" / "old-run-answer"
+    stale.mkdir(parents=True)
+    (stale / "seg-0.wav").write_bytes(b"RIFF")
+
+    service.clear_stored_audio()
+
+    assert not (
+        persona.parent / "qa"
+    ).exists()  # 舊的與這次的都清掉（記憶體裡的答案也就沒有音檔了）
+    assert service.audio_path(answer.id, 0) is not None  # 記錄還在，檔案已經沒了：下載會 404

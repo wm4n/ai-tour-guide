@@ -360,8 +360,8 @@ class QaController extends Notifier<QaState> {
       } on TourApiException catch (error) {
         if (generation != _generation) return;
         failures++;
-        // 404＝主機已經沒有這題（例如重啟過），重試沒有用；其他失敗跟旅程輪詢一樣多試幾次
-        if (_isGone(error) || failures >= _maxPollFailures) {
+        // 主機明確拒絕（4xx，含 404＝已經沒有這題）重試沒有用；連不上或 5xx 多試幾次
+        if (!_isOutage(error) || failures >= _maxPollFailures) {
           _hostFailed(generation, error, '等不到答案');
           return;
         }
@@ -430,7 +430,7 @@ class QaController extends Notifier<QaState> {
           .downloadSegment(ref.read(settingsProvider), id, index);
     } on TourApiException catch (error) {
       debugPrint('下載答案第 $index 段失敗：$error');
-      if (!_isGone(error) && generation == _generation) {
+      if (_isOutage(error) && generation == _generation) {
         ref.read(tourProvider.notifier).noteHostFailed();
       }
       return null;
@@ -455,13 +455,22 @@ class QaController extends Notifier<QaState> {
     _ => '這題沒能回答，再問一次看看',
   };
 
-  /// 主機有回應、只是沒有這一段／這一題（例如重啟過）：不算斷線。其他失敗的判斷與旅程輪詢一致。
+  /// 主機有回應、只是拒絕這個請求（404＝沒有這一段／這一題，例如重啟過；400、401、413…）：
+  /// 不算斷線，只在畫面顯示。算斷線的是沒有回應（連不上、逾時）與 5xx。
+  static bool _isOutage(TourApiException error) {
+    final code = error.statusCode;
+    return code == null || code >= 500;
+  }
+
   static bool _isGone(TourApiException error) => error.statusCode == 404;
 
   void _hostFailed(int generation, TourApiException error, String what) {
     if (generation != _generation) return;
-    if (_isGone(error)) {
-      _fail(generation, '$what：主機已經沒有這一題');
+    if (!_isOutage(error)) {
+      _fail(
+        generation,
+        _isGone(error) ? '$what：主機已經沒有這一題' : '$what：主機回應 ${error.statusCode}',
+      );
       return;
     }
     // 和輪詢失敗一樣算一次斷線（只念一次「連不上」，並退避重試）

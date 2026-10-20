@@ -520,6 +520,53 @@ void main() {
       },
     );
 
+    test(
+      'a request the host rejected (400, 401, 413) is not an outage',
+      () async {
+        for (final code in [400, 401, 413]) {
+          final h = await makeQaHarness();
+          h.qaApi.askError = TourApiException('no', statusCode: code);
+
+          await h.ask();
+          await h.tour.tick();
+
+          expect(h.state.error, contains('$code'), reason: '$code');
+          // 主機有回應：不念「連不上」，旅程也不停位置回報
+          expect(
+            h.phrases.played,
+            isNot(contains(FixedPhrase.hostUnreachable)),
+            reason: '$code',
+          );
+        }
+      },
+    );
+
+    test('a rejected answer poll is not retried', () async {
+      final h = await makeQaHarness();
+      h.qaApi.answerError = TourApiException('no', statusCode: 400);
+
+      await h.ask();
+
+      expect(h.qaApi.answerPolls, hasLength(1));
+      expect(h.state.error, isNotNull);
+    });
+
+    test(
+      'a server error while polling is retried like a lost connection',
+      () async {
+        final h = await makeQaHarness();
+        h.qaApi.answerError = TourApiException('oops', statusCode: 503);
+        h.qaApi.answerFailures = 2;
+        h.qaApi.answers = [poll(status: AnswerStatus.done, segments: 1)];
+
+        await h.ask();
+        await h.finishSegment();
+
+        expect(h.state.error, isNull);
+        expect(h.answerPlayer.played, ['a1:0']);
+      },
+    );
+
     test('a host that no longer knows the question is not an outage', () async {
       final h = await makeQaHarness();
       h.qaApi.askError = TourApiException('gone', statusCode: 404);

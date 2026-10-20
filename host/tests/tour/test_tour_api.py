@@ -376,3 +376,23 @@ def test_the_narration_carries_the_start_time_of_each_sentence(tmp_path, prepare
         body = wait_for(client, 1)
 
     assert body["narrations"][0]["unit_starts"] == [0.0, 1.5]
+
+
+def test_a_non_ascii_token_is_an_authentication_failure_not_a_server_error(tmp_path, preparer):
+    config = HostConfig(home=tmp_path, token="s3cret")
+    with TestClient(create_app(config, preparer=preparer)) as bare:
+        response = bare.get(
+            "/v1/tour/narrations", headers={"X-Buddy-Token": "café".encode("latin-1")}
+        )
+
+    assert response.status_code == 401
+
+
+def test_a_configured_token_with_non_ascii_characters_still_works(tmp_path, preparer):
+    config = HostConfig(home=tmp_path, token="通關密語")
+    with TestClient(create_app(config, preparer=preparer)) as client:
+        ok = client.get("/v1/tour/narrations", headers={"X-Buddy-Token": "通關密語".encode()})
+        wrong = client.get("/v1/tour/narrations", headers={"X-Buddy-Token": "別的".encode()})
+
+    assert ok.status_code == 200
+    assert wrong.status_code == 401

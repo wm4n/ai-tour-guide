@@ -72,7 +72,7 @@ def build_real_services(max_llm_calls: int):
     )
 
     def answerer(quota, journey):
-        return QaService(
+        service = QaService(
             llm,
             preparer,
             speech.answers,
@@ -83,6 +83,8 @@ def build_real_services(max_llm_calls: int):
             latency_log=UsageLog(home / QA_LATENCY_LOG),
             photos=open_photo_store(),
         )
+        service.clear_stored_audio()  # 上次執行留下的答案音檔
+        return service
 
     return preparer, answerer
 
@@ -107,7 +109,7 @@ def main() -> None:
         preparer = ReplayPreparer(args.replay_dir)
 
         def answerer(quota, journey):
-            return QaService(
+            service = QaService(
                 CannedLlm(),
                 NoNearby(),
                 ToneSpeech(),
@@ -117,6 +119,8 @@ def main() -> None:
                 journey=journey,
                 photos=open_photo_store(),
             )
+            service.clear_stored_audio()
+            return service
 
     elif args.max_llm_calls is not None:
         preparer, answerer = build_real_services(args.max_llm_calls)

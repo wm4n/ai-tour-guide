@@ -407,3 +407,21 @@ code-review 後修正（#8）：
 - #8：Always 權限請求與提示完成；鎖屏 15 分鐘、鎖定畫面暫停鍵、耗電要實機
 
 另外：`implement` skill 設定為只能由使用者以 `/implement` 啟動（`disable-model-invocation`），agent 不能呼叫；這次是照它的內容手動執行（TDD → 型別檢查／單一測試檔 → 最後跑全套 → `/code-review` → commit）。
+
+## PR #26 review 之後（2026-10-20）
+
+PR 上的獨立整合審查（https://github.com/wm4n/ai-tour-guide/pull/26）發現並已修：
+- **MUST**：旅程自己撞額度後，若問答先探測成功把閘門打開，介紹要等人走滿 250 公尺才會補準備（`_stop` 的 quota 分支漏清 `_anchor`；有測試重現）
+- 非 ASCII 的 `X-Buddy-Token` 讓主機回 500（`compare_digest` 對非 ASCII 的 str 丟 TypeError）→ 改比位元組（header 以 latin-1 還原、token 以 UTF-8）；設定檔的 token 含中文也能用
+- 問答把主機有回應的 4xx（400／401／413）當成「連不上主機」→ 只有沒回應與 5xx 才算斷線，4xx 只在畫面顯示且不重試
+- 答案播放中碰一下按鈕又被系統取消，會停掉整個答案 → 只有「按住中」才因 pointerCancel 取消
+- 主機重啟後 `out/answers/` 舊音檔永遠不清 → 啟動時 `clear_stored_audio()`
+- 照片 base64 解碼與存檔改在執行緒裡，不卡事件迴圈
+
+**還沒處理（需要設計或真實呼叫）**：
+- App 放棄的問答（旅程結束、逾時），主機不知道、仍占額度與 GPU 號碼牌：需要取消端點（`POST /v1/qa/cancel`）或在 `tour/end` 時一併取消
+- `--tools` 對所有呼叫生效、尚未用真實 Claude 驗證：須使用者同意呼叫次數（使用者決定自己在實機驗）
+- 提早失敗時開場短句與被打斷的介紹可能同時播（MAY）
+- App／主機 JSON 契約沒有契約測試（MAY）
+
+驗證：host 616 項、ruff 乾淨；App 274 項、analyze 乾淨。

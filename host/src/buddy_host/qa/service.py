@@ -128,7 +128,7 @@ class QaService:
         """收下問題、開始回答，回傳答案的 id（App 用它輪詢）。需要在事件迴圈裡呼叫。"""
         return self._start(question, fix, more=more, photo=None)
 
-    def ask_photo(self, question: str, fix: TourFix, image: bytes) -> str:
+    async def ask_photo(self, question: str, fix: TourFix, image: bytes) -> str:
         """拍照提問：照片存在主機本機（有保留期限），Claude 用 Read 工具看。
 
         `fix.location.heading_deg` 是拍照時手機的指南針方向。不是照片（或太大）時丟 PhotoRejected，
@@ -136,7 +136,7 @@ class QaService:
         """
         if self._photos is None:
             raise PhotosUnavailable("沒有照片存放處")
-        path = self._photos.save(image)
+        path = await asyncio.to_thread(self._photos.save, image)  # 最大 8 MB 的寫檔，不卡事件迴圈
         return self._start(
             question, fix, more=False, photo=PhotoInput(path, fix.location.heading_deg)
         )
@@ -155,6 +155,10 @@ class QaService:
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
         return answer.id
+
+    def clear_stored_audio(self) -> None:
+        """清掉磁碟上所有答案的音檔。答案只存在記憶體裡，主機重啟後舊的目錄沒有人認領。"""
+        shutil.rmtree(self._out_dir, ignore_errors=True)
 
     def answer(self, answer_id: str) -> Answer | None:
         return self._answers.get(answer_id)

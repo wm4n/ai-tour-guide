@@ -8,7 +8,7 @@ uv sync --group speech       # 要實際合成語音時（torch、KittenTTS 2、
 uv run pytest
 uv run ruff check . && uv run ruff format --check .
 uv run python -m buddy_host  # 啟動服務（旅程與問答端點會回 503，沒有指定準備器）
-uv run python -m buddy_host --replay-dir DIR     # 重播既有介紹，不呼叫 Claude
+uv run python -m buddy_host --replay-dir DIR     # 重播既有介紹，不呼叫 Claude；問答回固定的假答案（提示音）
 uv run python -m buddy_host --max-llm-calls N    # 真實準備與問答；兩者共用 Claude 呼叫硬上限 N 次
 ```
 
@@ -74,7 +74,7 @@ uv run python -m buddy_host.speech --text-file 稿子.txt --name demo
 
 ## 問答 API（`buddy_host.qa`）
 
-都需要 `X-Buddy-Token`。問答只在 `--max-llm-calls` 模式開放（重播模式回 503）。語音辨識由 App 做，主機收文字，回的是**語音**（逐段下載）。
+都需要 `X-Buddy-Token`。問答在 `--max-llm-calls` 模式是真的（Claude＋語音管線）；`--replay-dir` 模式回**固定的假答案**（`qa.replay`：固定文字、每段一個提示音，問題裡有「上網」兩字時假裝動用上網工具），只用來在桌上或模擬器跑通 App 流程，不消耗額度。兩者都不給時回 503。語音辨識由 App 做，主機收文字，回的是**語音**（逐段下載）。
 
 | 端點 | 用途 |
 |---|---|

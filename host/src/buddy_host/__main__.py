@@ -1,7 +1,8 @@
 """啟動 Buddy Host。
 
 介紹準備器有兩種，都要明確指定，沒指定時旅程端點回 503：
-- `--replay-dir`：重播先前做好的介紹，不呼叫 Claude，用來在桌上跑通 App 流程。
+- `--replay-dir`：重播先前做好的介紹，不呼叫 Claude，用來在桌上跑通 App 流程；
+  問答也開放，但答案是固定的假答案（`qa.replay`）、語音是提示音。
 - `--max-llm-calls N`：真的寫稿與合成，同時開放問答。每次呼叫都消耗 Claude Pro 額度，
   寫稿與問答共用這 N 次，用完就停止準備、問答回報 `llm_budget`。
 """
@@ -87,11 +88,25 @@ def main() -> None:
         sys.exit("--replay-dir 與 --max-llm-calls 擇一")
 
     preparer = None
-    answerer = None  # 重播模式不呼叫 Claude，問答端點回 503
+    answerer = None
     if args.replay_dir:
+        from buddy_host.qa.replay import CannedLlm, NoNearby, ToneSpeech
+        from buddy_host.qa.service import QaService
         from buddy_host.tour.replay import ReplayPreparer
 
         preparer = ReplayPreparer(args.replay_dir)
+
+        def answerer(quota, journey):
+            return QaService(
+                CannedLlm(),
+                NoNearby(),
+                ToneSpeech(),
+                persona_path=PERSONA,
+                out_dir=default_home() / "out" / "answers-replay",
+                quota=quota,
+                journey=journey,
+            )
+
     elif args.max_llm_calls is not None:
         preparer, answerer = build_real_services(args.max_llm_calls)
 

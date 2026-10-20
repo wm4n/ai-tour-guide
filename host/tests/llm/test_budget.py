@@ -60,3 +60,24 @@ async def test_a_failed_call_still_counts():
 def test_a_negative_budget_is_rejected():
     with pytest.raises(ValueError):
         BudgetedLlm(FakeLlm(), max_calls=-1)
+
+
+async def test_tool_callback_is_forwarded_only_when_given():
+    seen = []
+
+    class ToolLlm(FakeLlm):
+        async def run(self, request, on_text=None, on_tool=None):
+            seen.append(on_tool)
+            return await super().run(request, on_text)
+
+    llm = BudgetedLlm(ToolLlm(), max_calls=3)
+    callback = lambda name: None  # noqa: E731
+
+    await llm.run(REQUEST, on_tool=callback)
+    await llm.run(REQUEST)
+
+    assert seen == [callback, None]
+
+
+async def test_old_style_llms_without_on_tool_still_work_when_no_callback_is_given():
+    await BudgetedLlm(FakeLlm(), max_calls=1).run(REQUEST)

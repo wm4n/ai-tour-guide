@@ -2,7 +2,8 @@
 
 介紹準備器有兩種，都要明確指定，沒指定時旅程端點回 503：
 - `--replay-dir`：重播先前做好的介紹，不呼叫 Claude，用來在桌上跑通 App 流程。
-- `--max-llm-calls N`：真的寫稿與合成。每次呼叫都消耗 Claude Pro 額度，用完 N 次就停止準備。
+- `--max-llm-calls N`：真的寫稿與合成，同時開放問答。每次呼叫都消耗 Claude Pro 額度，
+  寫稿與問答共用這 N 次，用完就停止準備、問答回報 `llm_budget`。
 """
 
 import argparse
@@ -19,7 +20,8 @@ PERSONA = Path(__file__).resolve().parents[2] / "config" / "buddy.md"
 DAY = 24 * 3600
 
 
-def build_real_preparer(max_llm_calls: int):
+def build_real_services(max_llm_calls: int):
+    """回傳（介紹準備器, 問答服務的工廠）；兩邊共用同一個有上限的 Claude 客戶端。"""
     import httpx2
     import truststore
 
@@ -30,6 +32,7 @@ def build_real_preparer(max_llm_calls: int):
     from buddy_host.places.fetch import RetryingHttp
     from buddy_host.places.overpass import OverpassClient
     from buddy_host.places.wikipedia import WikipediaClient
+    from buddy_host.qa.service import QaService
     from buddy_host.speech.engines import KittenSynthesizer, WhisperRecognizer
     from buddy_host.speech.pipeline import PipelineConfig, SpeechPipeline
     from buddy_host.speech.voice import load_reference
@@ -42,14 +45,20 @@ def build_real_preparer(max_llm_calls: int):
         PipelineConfig(),
     )
     http = RetryingHttp(httpx2.AsyncClient(timeout=30))
-    return AreaPreparer(
+    llm = BudgetedLlm(ClaudeCliClient(ClaudeSettings.for_home(home)), max_calls=max_llm_calls)
+    preparer = AreaPreparer(
         OverpassClient(http, JsonCache(home / "cache" / "overpass", DAY)),
         WikipediaClient(http, JsonCache(home / "cache" / "wikipedia", 7 * DAY)),
-        BudgetedLlm(ClaudeCliClient(ClaudeSettings.for_home(home)), max_calls=max_llm_calls),
+        llm,
         speech,
         persona_path=PERSONA,
         out_dir=home / "out" / "narrations",
     )
+
+    def answerer(quota, journey):
+        return QaService(llm, preparer, persona_path=PERSONA, quota=quota, journey=journey)
+
+    return preparer, answerer
 
 
 def main() -> None:
@@ -63,12 +72,13 @@ def main() -> None:
         sys.exit("--replay-dir 與 --max-llm-calls 擇一")
 
     preparer = None
+    answerer = None  # 重播模式不呼叫 Claude，問答端點回 503
     if args.replay_dir:
         from buddy_host.tour.replay import ReplayPreparer
 
         preparer = ReplayPreparer(args.replay_dir)
     elif args.max_llm_calls is not None:
-        preparer = build_real_preparer(args.max_llm_calls)
+        preparer, answerer = build_real_services(args.max_llm_calls)
 
     config = load_config()
     home = default_home()
@@ -79,6 +89,7 @@ def main() -> None:
         reports_dir=home / "out" / "reports",
         # 重播模式只在桌上跑通流程，不寫進真實的「講過哪些地方」
         journey_path=None if args.replay_dir else home / "journey.json",
+        answerer_factory=answerer,
     )
     uvicorn.run(app, host=config.listen_host, port=config.listen_port)
 

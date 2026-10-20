@@ -84,6 +84,40 @@ if mode in ("quota", "quota_text"):
 if mode == "fable":
     MODEL_USAGE = {"claude-fable-5-1": {"inputTokens": 1, "outputTokens": 1, "costUSD": 0.5}}
 
+if mode == "tool":
+    # 與真實輸出一致：tool_use 先出現在 content_block_start，之後再出現在 assistant 訊息
+    emit(
+        {
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_start",
+                "index": 1,
+                "content_block": {
+                    "type": "tool_use",
+                    "id": "toolu_1",
+                    "name": "WebSearch",
+                    "input": {},
+                },
+            },
+        }
+    )
+    emit(
+        {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "toolu_1",
+                        "name": "WebSearch",
+                        "input": {"query": "x"},
+                    },
+                    {"type": "tool_use", "id": "toolu_2", "name": "Read", "input": {}},
+                ]
+            },
+        }
+    )
+
 if mode == "no_partial":
     emit(
         {

@@ -124,16 +124,8 @@ class AreaPreparer:
         on_ready: Callable[[PreparedNarration], None] | None = None,
     ) -> list[PreparedNarration]:
         """on_ready：每做好一段就呼叫（合成很慢，呼叫端不必等整批）。"""
-        snapped = (round(location.lat, SNAP_DECIMALS), round(location.lon, SNAP_DECIMALS))
-        query_radius = self._radius_m + SNAP_MARGIN_M
-        merged = await gather_candidates(self._overpass, self._wiki, *snapped, query_radius)
-        ranked = rank(
-            merged,
-            location,
-            limit=self._limit,
-            radius_m=self._radius_m,
-            exclude_ids=exclude_ids,
-            recent_themes=recent_themes,
+        ranked = await self._ranked(
+            location, self._limit, exclude_ids=exclude_ids, recent_themes=recent_themes
         )
 
         told = told_before or {}
@@ -195,6 +187,46 @@ class AreaPreparer:
             for task in scripts.values():
                 task.cancel()
         return prepared
+
+    async def nearby(self, location: Location, *, limit: int = 5) -> list[ScriptContext]:
+        """附近值得一提的地方與它們的維基摘要，給問答用：只查資料，不寫稿也不合成。
+
+        查詢範圍與 `prepare` 相同，Overpass／維基的快取才共用。已經講過的地方不排除：
+        使用者問的就是眼前的東西，不管講過沒有。
+        """
+        ranked = await self._ranked(location, limit)
+        extracts = await asyncio.gather(
+            *(self._summary(item.candidate) for item in ranked), return_exceptions=True
+        )
+        return [
+            ScriptContext(
+                candidate=item.candidate,
+                wiki_extract=None if isinstance(extract, BaseException) else extract,
+                distance_m=item.distance_m,
+                bearing_relative_deg=_relative_bearing(location, item.bearing_deg),
+            )
+            for item, extract in zip(ranked, extracts, strict=True)
+        ]
+
+    async def _ranked(
+        self,
+        location: Location,
+        limit: int,
+        *,
+        exclude_ids: Collection[str] = (),
+        recent_themes: Collection[str] = (),
+    ) -> list[Ranked]:
+        snapped = (round(location.lat, SNAP_DECIMALS), round(location.lon, SNAP_DECIMALS))
+        query_radius = self._radius_m + SNAP_MARGIN_M
+        merged = await gather_candidates(self._overpass, self._wiki, *snapped, query_radius)
+        return rank(
+            merged,
+            location,
+            limit=limit,
+            radius_m=self._radius_m,
+            exclude_ids=exclude_ids,
+            recent_themes=recent_themes,
+        )
 
     def _paths(self, candidate: Candidate) -> tuple[Path, Path]:
         base = self._out_dir / _safe(candidate.id)

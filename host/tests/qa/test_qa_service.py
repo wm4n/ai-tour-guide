@@ -1,0 +1,327 @@
+import asyncio
+from datetime import datetime, timedelta, timezone
+
+import pytest
+
+from buddy_host.llm.budget import LlmBudgetExhaustedError
+from buddy_host.llm.claude_cli import LlmError, QuotaExceededError
+from buddy_host.llm.models import ForbiddenModelError, LlmResult, Purpose
+from buddy_host.llm.quota import QuotaGate
+from buddy_host.narration.prompt import ScriptContext
+from buddy_host.narration.traveler import Companions, TravelerContext, TravelMode
+from buddy_host.places.models import Candidate, Location
+from buddy_host.qa.service import QaService
+from buddy_host.tour.journey import JourneyMemory
+from buddy_host.tour.session import TourFix
+
+HERE = Location(25.056, 121.51, heading_deg=0.0)
+TAIPEI = timezone(timedelta(hours=8))
+TRAVELER = TravelerContext(
+    TravelMode.WALKING, Companions.SOLO, False, datetime(2026, 10, 20, 15, 0, tzinfo=TAIPEI)
+)
+FIX = TourFix(HERE, TRAVELER)
+
+
+class FakeLlm:
+    """依序回傳排好的結果（例外就拋出）；`tools` 在回答中依序回報；`hold` 讓測試卡住呼叫。"""
+
+    def __init__(
+        self, results=("好的，是拜城隍爺。",), tools=(), hold: asyncio.Event | None = None
+    ):
+        self.results = list(results)
+        self.tools = tools
+        self.hold = hold
+        self.requests = []
+
+    async def run(self, request, on_text=None, on_tool=None):
+        self.requests.append(request)
+        for tool in self.tools:
+            if on_tool:
+                on_tool(tool)
+        if self.hold:
+            await self.hold.wait()
+        result = self.results.pop(0) if self.results else "好的。"
+        if isinstance(result, BaseException):
+            raise result
+        return LlmResult(result, "claude-sonnet-5-5", {}, {}, {}, 10)
+
+
+class FakeNearby:
+    def __init__(self, places=(), error: BaseException | None = None, delay: float = 0.0):
+        self.places = list(places)
+        self.error = error
+        self.delay = delay
+        self.calls = []
+
+    async def nearby(self, location, *, limit=5):
+        self.calls.append((location, limit))
+        if self.delay:
+            await asyncio.sleep(self.delay)
+        if self.error:
+            raise self.error
+        return self.places
+
+
+def temple() -> ScriptContext:
+    return ScriptContext(
+        candidate=Candidate("wiki:霞海城隍廟", "霞海城隍廟", 25.0561, 121.5100, {"tourism": "x"}),
+        wiki_extract="霞海城隍廟主祀城隍爺。",
+        distance_m=15.0,
+        bearing_relative_deg=0.0,
+    )
+
+
+class Clock:
+    def __init__(self, now: float = 1000.0):
+        self.now = now
+
+    def __call__(self) -> float:
+        return self.now
+
+
+@pytest.fixture
+def persona(tmp_path):
+    path = tmp_path / "buddy.md"
+    path.write_text("你是小花。", encoding="utf-8")
+    return path
+
+
+def make(persona, llm=None, nearby=None, clock=None, journey=None, **kw):
+    clock = clock or Clock()
+    parts = dict(
+        llm=llm or FakeLlm(),
+        nearby=nearby or FakeNearby([temple()]),
+        quota=QuotaGate(wall_clock=clock),
+        journey=journey or JourneyMemory(None),
+        clock=clock,
+    )
+    service = QaService(
+        parts["llm"],
+        parts["nearby"],
+        persona_path=persona,
+        quota=parts["quota"],
+        journey=parts["journey"],
+        **kw,
+    )
+    return service, parts
+
+
+async def ask_and_wait(service, question="那間廟拜的是誰？", fix=FIX, **kw):
+    answer_id = service.ask(question, fix, **kw)
+    await service.wait_idle()
+    return service.answer(answer_id)
+
+
+async def test_an_answer_starts_as_answering_and_ends_done_with_the_text(persona):
+    hold = asyncio.Event()
+    service, _ = make(persona, llm=FakeLlm(hold=hold))
+
+    answer_id = service.ask("那間廟拜的是誰？", FIX)
+    await asyncio.sleep(0)
+    pending = service.answer(answer_id)
+    assert (pending.status, pending.text, pending.reason) == ("answering", "", None)
+
+    hold.set()
+    await service.wait_idle()
+
+    done = service.answer(answer_id)
+    assert (done.status, done.text, done.reason) == ("done", "好的，是拜城隍爺。", None)
+
+
+async def test_the_answer_text_is_stripped(persona):
+    service, _ = make(persona, llm=FakeLlm(["  \n拜城隍爺。\n"]))
+
+    answer = await ask_and_wait(service)
+
+    assert answer.text == "拜城隍爺。"
+
+
+async def test_unknown_answer_ids_are_none(persona):
+    service, _ = make(persona)
+
+    assert service.answer("nope") is None
+
+
+async def test_the_request_has_persona_question_nearby_facts_and_journey(persona):
+    journey = JourneyMemory(None)
+    journey.begin(1000.0)
+    journey.record_told(1010.0, "wiki:迪化街", "迪化街", "迪化街的稿子")
+    llm = FakeLlm()
+    nearby = FakeNearby([temple()])
+    service, _ = make(persona, llm=llm, nearby=nearby, journey=journey)
+
+    await ask_and_wait(service)
+
+    [request] = llm.requests
+    assert request.purpose is Purpose.QA and request.model == "sonnet"
+    assert request.system_prompt.startswith("你是小花。")
+    assert "那間廟拜的是誰？" in request.prompt
+    assert "霞海城隍廟主祀城隍爺。" in request.prompt  # 附近景點資料
+    assert "迪化街" in request.prompt  # 旅程摘要
+    assert "走路" in request.prompt or "走" in request.prompt  # 旅人狀態
+    assert nearby.calls[0][0] == HERE
+
+
+async def test_the_persona_is_re_read_for_every_question(persona):
+    llm = FakeLlm()
+    service, _ = make(persona, llm=llm)
+    await ask_and_wait(service)
+
+    persona.write_text("你是小葉。", encoding="utf-8")
+    await ask_and_wait(service)
+
+    assert [r.system_prompt.split("\n")[0] for r in llm.requests] == ["你是小花。", "你是小葉。"]
+
+
+async def test_asking_for_more_carries_what_was_just_told_and_only_what_was_played(persona):
+    journey = JourneyMemory(None)
+    journey.begin(1000.0)
+    journey.record_told(1010.0, "wiki:迪化街", "迪化街", "迪化街的稿子")  # 播完才會記
+    llm = FakeLlm()
+    service, _ = make(persona, llm=llm, journey=journey)
+
+    await ask_and_wait(service, "再多說一點", more=True)
+
+    assert "迪化街的稿子" in llm.requests[0].prompt
+
+
+async def test_each_question_is_a_fresh_conversation(persona):
+    llm = FakeLlm()
+    service, _ = make(persona, llm=llm)
+
+    await ask_and_wait(service, "第一題")
+    await ask_and_wait(service, "第二題")
+
+    assert len(llm.requests) == 2
+    assert "第一題" not in llm.requests[1].prompt
+
+
+@pytest.mark.parametrize(
+    ("tool", "searching"), [("WebSearch", True), ("WebFetch", True), ("Read", False)]
+)
+async def test_using_a_web_tool_is_reported_while_answering(persona, tool, searching):
+    hold = asyncio.Event()
+    service, _ = make(persona, llm=FakeLlm(tools=[tool], hold=hold))
+
+    answer_id = service.ask("這間店現在有開嗎？", FIX)
+    await asyncio.sleep(0)
+
+    assert service.answer(answer_id).searching_web is searching
+    hold.set()
+    await service.wait_idle()
+    assert service.answer(answer_id).status == "done"
+
+
+async def test_a_quota_hit_fails_the_answer_and_stops_further_questions(persona):
+    clock = Clock()
+    llm = FakeLlm([QuotaExceededError("limit", resets_at=clock.now + 3600), "不該被呼叫"])
+    service, parts = make(persona, llm=llm, clock=clock)
+
+    first = await ask_and_wait(service)
+    second = await ask_and_wait(service)
+
+    assert (first.status, first.reason) == ("failed", "quota")
+    assert (second.status, second.reason) == ("failed", "quota")
+    assert len(llm.requests) == 1  # 第二題連 Claude 都沒呼叫
+    assert parts["quota"].blocked()
+
+
+async def test_questions_resume_by_themselves_once_the_limit_resets(persona):
+    clock = Clock()
+    llm = FakeLlm([QuotaExceededError("limit", resets_at=clock.now + 3600), "恢復了。"])
+    service, _ = make(persona, llm=llm, clock=clock)
+    await ask_and_wait(service)
+
+    clock.now += 3601
+    answer = await ask_and_wait(service)
+
+    assert (answer.status, answer.text) == ("done", "恢復了。")
+
+
+async def test_a_probe_that_is_still_rejected_blocks_again(persona):
+    clock = Clock()
+    llm = FakeLlm(
+        [
+            QuotaExceededError("limit", resets_at=clock.now + 60),
+            QuotaExceededError("limit", resets_at=clock.now + 7200),
+        ]
+    )
+    service, parts = make(persona, llm=llm, clock=clock)
+    await ask_and_wait(service)
+    clock.now += 61
+
+    probe = await ask_and_wait(service)
+
+    assert (probe.status, probe.reason) == ("failed", "quota")
+    assert parts["quota"].blocked()
+
+
+async def test_a_gate_tripped_elsewhere_blocks_questions_without_calling_claude(persona):
+    clock = Clock()
+    llm = FakeLlm()
+    service, parts = make(persona, llm=llm, clock=clock)
+    parts["quota"].trip(resets_at=clock.now + 3600)  # 主動介紹先撞到額度
+
+    answer = await ask_and_wait(service)
+
+    assert (answer.status, answer.reason) == ("failed", "quota")
+    assert llm.requests == []
+
+
+async def test_the_call_limit_is_reported_apart_from_the_quota_and_does_not_trip_the_gate(persona):
+    llm = FakeLlm([LlmBudgetExhaustedError("budget")])
+    service, parts = make(persona, llm=llm)
+
+    answer = await ask_and_wait(service)
+
+    assert (answer.status, answer.reason) == ("failed", "llm_budget")
+    assert not parts["quota"].tripped
+
+
+async def test_a_forbidden_model_is_reported(persona):
+    service, _ = make(persona, llm=FakeLlm([ForbiddenModelError("fable")]))
+
+    answer = await ask_and_wait(service)
+
+    assert (answer.status, answer.reason) == ("failed", "forbidden_model")
+
+
+@pytest.mark.parametrize("failure", [LlmError("boom"), RuntimeError("boom"), "   "])
+async def test_other_failures_and_empty_answers_fail_with_a_generic_reason(persona, failure):
+    service, parts = make(persona, llm=FakeLlm([failure]))
+
+    answer = await ask_and_wait(service)
+
+    assert (answer.status, answer.reason) == ("failed", "error")
+    assert not parts["quota"].tripped
+
+
+async def test_a_failed_nearby_lookup_does_not_stop_the_answer(persona):
+    llm = FakeLlm()
+    service, _ = make(persona, llm=llm, nearby=FakeNearby(error=RuntimeError("overpass down")))
+
+    answer = await ask_and_wait(service)
+
+    assert answer.status == "done"
+    assert "附近沒有查到" in llm.requests[0].prompt
+
+
+async def test_a_slow_nearby_lookup_is_given_up_on(persona):
+    llm = FakeLlm()
+    nearby = FakeNearby([temple()], delay=5)
+    service, _ = make(persona, llm=llm, nearby=nearby, nearby_timeout_s=0.01)
+
+    answer = await ask_and_wait(service)
+
+    assert answer.status == "done"
+    assert "附近沒有查到" in llm.requests[0].prompt
+
+
+async def test_only_the_most_recent_answers_are_kept(persona):
+    service, _ = make(persona, keep=2)
+
+    ids = [service.ask(f"問題{i}", FIX) for i in range(3)]
+    await service.wait_idle()
+
+    assert service.answer(ids[0]) is None
+    assert service.answer(ids[1]) is not None and service.answer(ids[2]) is not None

@@ -7,9 +7,9 @@ uv sync                      # 一般開發（FastAPI、測試）
 uv sync --group speech       # 要實際合成語音時（torch、KittenTTS 2、Whisper，約數 GB）
 uv run pytest
 uv run ruff check . && uv run ruff format --check .
-uv run python -m buddy_host  # 啟動服務（旅程端點會回 503，沒有指定準備器）
+uv run python -m buddy_host  # 啟動服務（旅程與問答端點會回 503，沒有指定準備器）
 uv run python -m buddy_host --replay-dir DIR     # 重播既有介紹，不呼叫 Claude
-uv run python -m buddy_host --max-llm-calls N    # 真實準備；Claude 呼叫硬上限 N 次
+uv run python -m buddy_host --max-llm-calls N    # 真實準備與問答；兩者共用 Claude 呼叫硬上限 N 次
 ```
 
 主機上的設定與機密一律放在 `~/.buddy-host/`（可用 `BUDDY_HOST_HOME` 改位置），**不入 repo**：
@@ -69,7 +69,22 @@ uv run python -m buddy_host.speech --text-file 稿子.txt --name demo
 **額度與用量報告**（設計文件第 11 節）：
 - Claude 回報額度用完（`rate_limit_event` 的 `status=rejected`，或錯誤文字 `hit your … limit`）時，`stopped_reason` 變成 `quota`，主機停止準備；不設每趟用量上限。
 - 恢復：App 每次回報位置時檢查，過了 `resetsAt`（epoch 秒）就以最新位置重新準備，這次準備本身就是探測，仍被拒絕就依新的 `resetsAt` 再等。事件沒帶 `resetsAt` 時隔 15 分鐘再試。`llm_budget`、`forbidden_model` 不會自動恢復。額度恢復時 App 的提示自動消失，不念語音。
+- **旅程準備與問答共用同一個額度閘門**（`llm.quota.QuotaGate`）：任一邊撞到上限，兩邊一起停（問答直接回 `failed／quota`，不再呼叫 Claude）；恢復後下一次要呼叫 Claude 的就是探測。
 - 用量報告從 `usage.jsonl` 篩出本趟（開始到結束）的呼叫：每次呼叫的用途、模型、時間、token、`unifiedWindows`（5 小時／7 天）用量與是否撞到上限；`totals.utilization` 的「變化」是第一次與最後一次呼叫之後的差（不含第一次呼叫本身的消耗）。
+
+## 問答 API（`buddy_host.qa`）
+
+都需要 `X-Buddy-Token`。問答只在 `--max-llm-calls` 模式開放（重播模式回 503）。語音辨識由 App 做，主機收文字。
+
+| 端點 | 用途 |
+|---|---|
+| `POST /v1/qa/ask` | 發問。帶 `question`（1～500 字）、位置與旅人狀態（欄位同 `/v1/tour/start`），`more: true` 表示「再多說一點」；回 `{"id": …}` |
+| `GET /v1/qa/answer?id=…` | 輪詢：`status`（`answering`／`done`／`failed`）、`text`（`done` 時才有）、`searching_web`（Claude 動用了上網工具，App 可以說「我上網查一下」）、`reason`（`failed` 時：`quota`／`llm_budget`／`forbidden_model`／`error`）；不認得的 id 回 404 |
+
+- 每個問題都是一次**全新**的 Claude 呼叫（Sonnet，不接受覆寫；Fable 會被擋下），用量照常寫進 `usage.jsonl`（`purpose=qa`）。
+- 送給 Claude 的 prompt：問題、位置與行進方向、旅人狀態、附近最多 5 個景點（維基摘要各截 200 字）、這趟剛講過的地方、這些景點以前講過的稿子（沿用旅程記憶的長度上限）。附近景點查不到（或超過 10 秒）就空手回答。
+- `more: true` 時再帶「剛剛講的那段」：**只算 App 回報播完的**（`/v1/tour/played`），準備好但還沒播的不算。
+- 回答過程中 Claude 使用 `WebSearch`／`WebFetch` 時，`searching_web` 變成 `true`。
 
 **旅程記憶**（`buddy_host.tour.journey`，設計文件第 7 節）：
 - 「講過」以 App 回報播完為準；主機準備好但 App 丟掉的不算。App 送不出去的回報會留著，下次輪詢連上時補送。

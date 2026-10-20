@@ -4,15 +4,18 @@ from collections.abc import Callable
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
+from typing import Annotated
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 
 from buddy_host import __version__
 from buddy_host.config import HostConfig
+from buddy_host.llm.quota import QuotaGate
 from buddy_host.narration.traveler import Companions, TravelerContext, TravelMode
 from buddy_host.places.models import Location
+from buddy_host.qa.service import QaService
 from buddy_host.tour.journey import JourneyMemory
 from buddy_host.tour.session import PreparerLike, TourFix, TourNotActiveError, TourSession
 from buddy_host.tour.usage_report import finish_tour
@@ -51,6 +54,16 @@ class FixBody(BaseModel):
         )
 
 
+class AskBody(FixBody):
+    """一個問題，連同提問當下的位置與旅人狀態。`more`＝「再多說一點」：接著剛播完的那段講。"""
+
+    question: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
+    more: bool = False
+
+
+AnswererFactory = Callable[[QuotaGate, JourneyMemory], QaService]
+
+
 def create_app(
     config: HostConfig,
     preparer: PreparerLike | None = None,
@@ -58,17 +71,25 @@ def create_app(
     usage_log_path: Path | None = None,
     reports_dir: Path | None = None,
     journey_path: Path | None = None,
+    answerer_factory: AnswererFactory | None = None,
 ) -> FastAPI:
+    """`answerer_factory` 拿到與旅程共用的額度閘門和旅程記憶，回傳問答服務；沒給就不開問答。"""
     app = FastAPI(title="Buddy Host", version=__version__)
     authed = Depends(_require_token(config))
-    session = (
-        TourSession(preparer, journey=JourneyMemory(journey_path)) if preparer is not None else None
-    )
+    journey = JourneyMemory(journey_path)
+    quota = QuotaGate()  # 旅程準備與問答共用：任一邊撞到額度，兩邊一起停
+    session = TourSession(preparer, journey=journey, quota=quota) if preparer is not None else None
+    answerer = answerer_factory(quota, journey) if answerer_factory is not None else None
 
     def tour() -> TourSession:
         if session is None:
             raise HTTPException(status_code=503, detail="介紹準備尚未啟用")
         return session
+
+    def qa() -> QaService:
+        if answerer is None:
+            raise HTTPException(status_code=503, detail="問答尚未啟用")
+        return answerer
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -123,5 +144,16 @@ def create_app(
         if path is None or not path.exists():
             raise HTTPException(status_code=404, detail="找不到這段介紹")
         return FileResponse(path, media_type="audio/wav")
+
+    @app.post("/v1/qa/ask", dependencies=[authed])
+    async def qa_ask(body: AskBody) -> dict[str, str]:
+        return {"id": qa().ask(body.question, body.to_fix(), more=body.more)}
+
+    @app.get("/v1/qa/answer", dependencies=[authed])
+    async def qa_answer(id: str) -> dict:
+        answer = qa().answer(id)
+        if answer is None:
+            raise HTTPException(status_code=404, detail="找不到這個問題的答案")
+        return asdict(answer)
 
     return app

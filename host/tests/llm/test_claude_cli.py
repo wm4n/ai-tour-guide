@@ -223,3 +223,23 @@ async def test_unparseable_stdout_lines_are_counted_in_the_usage_record(home, re
     assert result.text == "你好，這是串流回覆。"
     [entry] = UsageLog(home / "usage.jsonl").read_all()
     assert entry["unparsed_lines"] == 2
+
+
+async def test_reports_each_tool_use_once_even_though_it_appears_twice_in_the_stream(
+    home, record, monkeypatch
+):
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", "tool")
+    tools: list[str] = []
+
+    result = await make_client(home).run(request(), on_tool=tools.append)
+
+    assert tools == ["WebSearch", "Read"]
+    assert result.text == "你好，這是串流回覆。"
+
+
+async def test_on_tool_is_optional(home, record, monkeypatch):
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", "tool")
+
+    result = await make_client(home).run(request())
+
+    assert result.text

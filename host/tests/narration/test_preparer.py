@@ -426,3 +426,46 @@ async def test_the_journey_summary_in_the_prompt_stays_within_its_caps(tmp_path)
     assert all(len(line) <= 2 + 40 for line in told_lines)
     assert "地方0" not in prompt and "p0" not in prompt  # 以前別的地方不帶
     assert len(prompt) < 2000
+
+
+async def test_nearby_describes_places_without_calling_claude_or_the_speech_engine(tmp_path):
+    wiki = FakeWiki(summaries={"霞海城隍廟": "霞海城隍廟是大稻埕的廟宇。"})
+    cands = [osm("霞海城隍廟", 100, wiki_title="霞海城隍廟"), osm("普通景點", 300)]
+    preparer, parts = make(tmp_path, cands, wiki)
+
+    places = await preparer.nearby(HERE, limit=5)
+
+    assert [p.candidate.name for p in places] == ["霞海城隍廟", "普通景點"]
+    first, second = places
+    assert first.wiki_extract == "霞海城隍廟是大稻埕的廟宇。"
+    assert second.wiki_extract is None
+    assert 90 < first.distance_m < 110
+    assert first.bearing_relative_deg == 0  # 正前方（朝北、景點在正北）
+    assert parts["llm"].requests == [] and parts["speech"].texts == []
+
+
+async def test_nearby_respects_the_limit_and_does_not_hide_places_already_told(tmp_path):
+    cands = [osm("A", 100), osm("B", 200), osm("C", 300)]
+    preparer, _ = make(tmp_path, cands)
+
+    places = await preparer.nearby(HERE, limit=2)
+
+    assert [p.candidate.name for p in places] == ["A", "B"]
+
+
+async def test_nearby_queries_the_same_snapped_area_as_preparation(tmp_path):
+    preparer, parts = make(tmp_path, [osm("A", 100)])
+    boxes = []
+    original = parts["overpass"].nearby
+
+    async def recording(box):
+        boxes.append(box)
+        return await original(box)
+
+    parts["overpass"].nearby = recording
+
+    await preparer.nearby(HERE, limit=3)
+    await preparer.prepare(Location(HERE.lat + 0.0001, HERE.lon, 0.0))  # 同一格內的另一點
+
+    # 問答與主動介紹查同一個範圍，Overpass／維基的快取才共用
+    assert len(boxes) == 2 and boxes[0] == boxes[1]

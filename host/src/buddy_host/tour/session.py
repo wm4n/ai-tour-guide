@@ -8,7 +8,7 @@
 import asyncio
 import logging
 import time
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -20,6 +20,7 @@ from buddy_host.narration.preparer import PreparedNarration
 from buddy_host.narration.traveler import TravelerContext
 from buddy_host.places.geo import haversine_m
 from buddy_host.places.models import Location
+from buddy_host.tour.journey import JourneyMemory
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,8 @@ class PreparerLike(Protocol):
         *,
         exclude_ids: Collection[str] = (),
         traveler: TravelerContext | None = None,
+        recent_topics: tuple[str, ...] = (),
+        told_before: Mapping[str, tuple[str, ...]] | None = None,
         on_ready: Callable[[PreparedNarration], None] | None = None,
     ) -> list[PreparedNarration]: ...
 
@@ -62,6 +65,12 @@ class TourRecap:
 
 
 @dataclass(frozen=True)
+class StartOutcome:
+    resumed: bool  # 接續了上一趟（重開 App 時距離上次活動不到 2 小時）
+    abandoned: TourRecap | None  # 上一趟沒按結束就被丟下了：呼叫端替它寫用量報告
+
+
+@dataclass(frozen=True)
 class NarrationEvent:
     seq: int
     id: str
@@ -81,6 +90,7 @@ class TourSession:
         quota_retry_after_s: float = DEFAULT_QUOTA_RETRY_AFTER_S,
         monotonic: Callable[[], float] = time.monotonic,
         wall_clock: Callable[[], float] = time.time,  # 額度恢復時間（resetsAt）是牆鐘時間
+        journey: JourneyMemory | None = None,
     ):
         self._preparer = preparer
         self._reprepare_distance_m = reprepare_distance_m
@@ -88,6 +98,7 @@ class TourSession:
         self._quota_retry_after_s = quota_retry_after_s
         self._monotonic = monotonic
         self._wall_clock = wall_clock
+        self._journey = journey if journey is not None else JourneyMemory(None)
         self._started_at: float | None = None
         self._quota_resumes_at: float | None = None  # 額度停止中：何時可以再試
         self._failed_at: float | None = None  # 最近一次準備失敗的時間；冷卻後即使沒移動也重試
@@ -98,6 +109,7 @@ class TourSession:
         self._anchor: TourFix | None = None  # 最近一次排進準備的回報，之後的移動以它為準
         self._events: list[NarrationEvent] = []
         self._audio: dict[str, Path] = {}
+        self._published: dict[str, PreparedNarration] = {}
         self.active = False
         self.stopped_reason: str | None = None
 
@@ -105,15 +117,30 @@ class TourSession:
     def preparing(self) -> bool:
         return self._worker is not None and not self._worker.done()
 
-    def start(self, fix: TourFix) -> None:
+    def start(self, fix: TourFix) -> StartOutcome:
         self._reset()
+        now = self._wall_clock()
+        began = self._journey.begin(now)
         self.active = True
-        self._started_at = self._wall_clock()
+        self._started_at = self._journey.trip_started_at  # 接續時，報告要涵蓋整趟
         self._schedule(fix)
+        abandoned = began.abandoned
+        return StartOutcome(
+            began.resumed,
+            TourRecap(
+                started_at=abandoned.started_at,
+                ended_at=abandoned.last_activity_at,
+                narrations=len(abandoned.stops),
+                stopped_reason=None,
+            )
+            if abandoned
+            else None,
+        )
 
     def report(self, fix: TourFix) -> None:
         if not self.active:
             raise TourNotActiveError("還沒有出發")
+        self._journey.touch(self._wall_clock())
         if self._quota_may_have_recovered():
             self._resume_after_quota(fix)
         elif self.stopped_reason is None and self._needs_preparation(fix):
@@ -126,8 +153,18 @@ class TourSession:
             recap = TourRecap(
                 self._started_at, self._wall_clock(), len(self._events), self.stopped_reason
             )
+        if self.active:
+            self._journey.finish(self._wall_clock())
         self._reset()
         return recap
+
+    def mark_played(self, narration_id: str) -> bool:
+        """App 回報這段播完了：這時才算「講過」，記進旅程記憶。重送不會重複記。"""
+        item = self._published.get(narration_id)
+        if item is None:
+            return False
+        self._journey.record_told(self._wall_clock(), item.candidate_id, item.name, item.script)
+        return True
 
     def narrations_after(self, seq: int) -> list[NarrationEvent]:
         return [event for event in self._events if event.seq > seq]
@@ -151,6 +188,7 @@ class TourSession:
         self._failed_at = None
         self._events = []
         self._audio = {}
+        self._published = {}
         self.active = False
         self.stopped_reason = None
 
@@ -195,8 +233,10 @@ class TourSession:
             try:
                 prepared = await self._preparer.prepare(
                     fix.location,
-                    exclude_ids=set(self._audio),
+                    exclude_ids=set(self._audio) | self._journey.stop_ids(),
                     traveler=fix.traveler,
+                    recent_topics=self._journey.recent_topics(),
+                    told_before=self._journey.told_before(),
                     # 準備一段要數分鐘：做好一段就通知一段，不等整批
                     on_ready=lambda item: self._publish_if_current(generation, item),
                 )
@@ -238,6 +278,7 @@ class TourSession:
     def _publish(self, item: PreparedNarration) -> None:
         self._seq += 1
         self._audio[item.candidate_id] = item.wav_path
+        self._published[item.candidate_id] = item
         self._events.append(
             NarrationEvent(
                 self._seq, item.candidate_id, item.name, item.lat, item.lon, item.audio_seconds

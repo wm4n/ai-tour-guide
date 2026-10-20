@@ -244,3 +244,52 @@ def test_ending_a_tour_that_never_started_has_no_summary(client):
     body = client.post("/v1/tour/end").json()
 
     assert body == {"status": "ended", "summary": None}
+
+
+def test_played_narrations_are_remembered_and_unknown_ones_are_ignored(tmp_path, preparer):
+    config = HostConfig(home=tmp_path)
+    app = create_app(config, preparer=preparer, journey_path=tmp_path / "journey.json")
+    with TestClient(app) as client:
+        client.post("/v1/tour/start", json=BODY)
+        wait_for(client, 1)
+
+        known = client.post("/v1/tour/played", json={"id": "wiki:霞海城隍廟"})
+        unknown = client.post("/v1/tour/played", json={"id": "wiki:沒有這段"})
+        again = client.post("/v1/tour/played", json={"id": "wiki:霞海城隍廟"})
+
+    assert (known.status_code, unknown.status_code, again.status_code) == (200, 200, 200)
+    saved = json.loads((tmp_path / "journey.json").read_text(encoding="utf-8"))
+    assert list(saved["visited"]) == ["wiki:霞海城隍廟"]
+    assert [stop["id"] for stop in saved["trip"]["stops"]] == ["wiki:霞海城隍廟"]
+
+
+def test_start_says_whether_it_continued_the_previous_trip(tmp_path, preparer):
+    config = HostConfig(home=tmp_path)
+    app = create_app(config, preparer=preparer, journey_path=tmp_path / "journey.json")
+    with TestClient(app) as client:
+        first = client.post("/v1/tour/start", json=BODY).json()
+        second = client.post("/v1/tour/start", json=BODY).json()  # 沒按結束就又出發
+        client.post("/v1/tour/end")
+        third = client.post("/v1/tour/start", json=BODY).json()
+
+    assert first["resumed"] is False
+    assert second["resumed"] is True
+    assert third["resumed"] is False
+
+
+def test_the_report_of_an_abandoned_trip_is_still_written(tmp_path, preparer):
+    from buddy_host.tour.journey import JourneyMemory
+
+    journey_path = tmp_path / "journey.json"
+    old = JourneyMemory(journey_path)
+    old.begin(1000.0)  # 很久以前出發、一直沒按結束
+    old.touch(2000.0)
+    config = HostConfig(home=tmp_path)
+    reports = tmp_path / "reports"
+    app = create_app(config, preparer=preparer, journey_path=journey_path, reports_dir=reports)
+    with TestClient(app) as client:
+        client.post("/v1/tour/start", json=BODY)
+
+    [report_file] = reports.glob("tour-*.json")
+    report = json.loads(report_file.read_text(encoding="utf-8"))
+    assert report["started_at"].startswith("1970-01-01T00:16:40")

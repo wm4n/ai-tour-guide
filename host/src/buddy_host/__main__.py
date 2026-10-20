@@ -77,6 +77,8 @@ def main() -> None:
         preparer,
         usage_log_path=ClaudeSettings.for_home(home).usage_log_path,
         reports_dir=home / "out" / "reports",
+        # 重播模式只在桌上跑通流程，不寫進真實的「講過哪些地方」
+        journey_path=None if args.replay_dir else home / "journey.json",
     )
     uvicorn.run(app, host=config.listen_host, port=config.listen_port)
 

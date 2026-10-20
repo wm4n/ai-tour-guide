@@ -88,6 +88,9 @@ abstract class TourApi {
     TravelerState traveler,
   );
   Future<TourSummary?> end(HostSettings settings);
+
+  /// 這段介紹播完了，主機才把它記成「講過」。
+  Future<void> markPlayed(HostSettings settings, String id);
   Future<NarrationPoll> poll(HostSettings settings, {required int after});
   Future<Uint8List> downloadAudio(HostSettings settings, String id);
 }
@@ -118,6 +121,10 @@ class HttpTourApi implements TourApi {
     PositionFix fix,
     TravelerState traveler,
   ) => _post(settings, '/v1/tour/location', body: _body(fix, traveler));
+
+  @override
+  Future<void> markPlayed(HostSettings settings, String id) =>
+      _post(settings, '/v1/tour/played', body: {'id': id});
 
   /// 摘要只是附帶的：主機沒給或格式不對時回傳 null，不讓它擋住結束。
   @override

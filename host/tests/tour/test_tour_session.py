@@ -9,6 +9,7 @@ from buddy_host.llm.claude_cli import QuotaExceededError
 from buddy_host.narration.preparer import PreparedNarration
 from buddy_host.narration.traveler import Companions, TravelerContext, TravelMode
 from buddy_host.places.models import Location
+from buddy_host.tour.journey import JourneyMemory
 from buddy_host.tour.session import TourFix, TourNotActiveError, TourSession
 
 TAIPEI = timezone(timedelta(hours=8))
@@ -52,9 +53,25 @@ class FakePreparer:
         self.report_progressively = False
         self.gate_after_first: asyncio.Event | None = None
 
-    async def prepare(self, location, *, exclude_ids=(), traveler=None, on_ready=None, **_):
+    async def prepare(
+        self,
+        location,
+        *,
+        exclude_ids=(),
+        traveler=None,
+        on_ready=None,
+        recent_topics=(),
+        told_before=None,
+        **_,
+    ):
         self.calls.append(
-            {"location": location, "exclude_ids": set(exclude_ids), "traveler": traveler}
+            {
+                "location": location,
+                "exclude_ids": set(exclude_ids),
+                "traveler": traveler,
+                "recent_topics": tuple(recent_topics),
+                "told_before": dict(told_before or {}),
+            }
         )
         self.running += 1
         self.max_running = max(self.max_running, self.running)
@@ -440,3 +457,104 @@ async def test_ending_a_tour_returns_what_happened_in_it(tmp_path):
     assert recap.narrations == 2
     assert recap.stopped_reason is None
     assert session.end() is None  # 沒有進行中的旅程
+
+
+async def test_only_what_the_app_finished_playing_counts_as_told(tmp_path):
+    preparer = FakePreparer(tmp_path, [["A", "B"], ["C"]])
+    session = TourSession(preparer, reprepare_distance_m=100, journey=JourneyMemory(None))
+    session.start(fix())
+    await session.wait_idle()
+
+    assert session.mark_played("wiki:A") is True  # A 播完了；B 被 App 丟掉，沒播
+    session.report(fix(north_of(START, 200)))
+    await session.wait_idle()
+
+    second = preparer.calls[1]
+    assert second["recent_topics"] == ("A",)
+    assert set(second["told_before"]) == {"wiki:A"}
+    assert {"wiki:A", "wiki:B"} <= second["exclude_ids"]  # 這趟已準備過的都不再準備
+
+
+async def test_marking_an_unknown_narration_is_ignored(tmp_path):
+    session = TourSession(FakePreparer(tmp_path, [["A"]]), journey=JourneyMemory(None))
+    session.start(fix())
+    await session.wait_idle()
+
+    assert session.mark_played("wiki:不存在") is False
+    assert session.mark_played("wiki:A") is True
+    assert session.mark_played("wiki:A") is True  # 重送也沒事
+
+
+async def test_a_second_start_soon_after_continues_the_trip_and_does_not_repeat_places(tmp_path):
+    clock = WallClock()
+    path = tmp_path / "journey.json"
+    first = TourSession(
+        FakePreparer(tmp_path, [["A"]]), wall_clock=clock, journey=JourneyMemory(path)
+    )
+    first.start(fix())
+    await first.wait_idle()
+    first.mark_played("wiki:A")
+
+    clock.now += 3600  # App 被關掉，主機也重啟，一小時後重開 App 再按出發
+    preparer = FakePreparer(tmp_path, [["B"]])
+    second = TourSession(preparer, wall_clock=clock, journey=JourneyMemory(path))
+    outcome = second.start(fix())
+    await second.wait_idle()
+
+    assert outcome.resumed is True
+    assert preparer.calls[0]["recent_topics"] == ("A",)
+    assert "wiki:A" in preparer.calls[0]["exclude_ids"]
+
+
+async def test_the_report_of_a_resumed_trip_covers_the_whole_trip(tmp_path):
+    clock = WallClock()
+    path = tmp_path / "journey.json"
+    first = TourSession(FakePreparer(tmp_path, []), wall_clock=clock, journey=JourneyMemory(path))
+    first.start(fix())
+    await first.wait_idle()
+    trip_started = clock.now
+
+    clock.now += 1800
+    second = TourSession(FakePreparer(tmp_path, []), wall_clock=clock, journey=JourneyMemory(path))
+    second.start(fix())
+    await second.wait_idle()
+    clock.now += 600
+
+    assert second.end().started_at == trip_started
+
+
+async def test_a_trip_left_open_for_too_long_is_handed_back_when_a_new_one_starts(tmp_path):
+    clock = WallClock()
+    path = tmp_path / "journey.json"
+    first = TourSession(
+        FakePreparer(tmp_path, [["A"]]), wall_clock=clock, journey=JourneyMemory(path)
+    )
+    first.start(fix())
+    await first.wait_idle()
+    first.mark_played("wiki:A")
+    first.report(fix())  # 最後一次活動
+    last_activity = clock.now
+
+    clock.now += 3 * 3600
+    second = TourSession(FakePreparer(tmp_path, []), wall_clock=clock, journey=JourneyMemory(path))
+    outcome = second.start(fix())
+
+    assert outcome.resumed is False
+    assert outcome.abandoned.started_at == 1_000_000.0
+    assert outcome.abandoned.ended_at == last_activity
+    assert outcome.abandoned.narrations == 1
+
+
+async def test_pressing_end_closes_the_trip_in_the_journey(tmp_path):
+    clock = WallClock()
+    journey = JourneyMemory(None)
+    session = TourSession(FakePreparer(tmp_path, [["A"]]), wall_clock=clock, journey=journey)
+    session.start(fix())
+    await session.wait_idle()
+    session.mark_played("wiki:A")
+
+    session.end()
+    outcome = session.start(fix())
+
+    assert outcome.resumed is False
+    assert outcome.abandoned is None

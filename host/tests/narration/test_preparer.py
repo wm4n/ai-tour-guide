@@ -381,3 +381,48 @@ async def test_on_ready_fires_for_each_narration_in_order_including_cache_hits(t
 
     assert seen == ["A", "B"]
     assert [p.name for p in result] == seen
+
+
+async def test_what_was_just_covered_reaches_the_prompt_and_invalidates_the_cache(tmp_path):
+    preparer, parts = make(tmp_path, [osm("霞海城隍廟", 100)], limit=1)
+    await preparer.prepare(HERE)
+    await preparer.prepare(HERE)
+    assert len(parts["llm"].requests) == 1  # 同樣的狀況：快取命中
+
+    await preparer.prepare(HERE, recent_topics=("龍山寺",))
+
+    assert len(parts["llm"].requests) == 2  # 稿子會寫「剛剛的龍山寺」，不能沿用沒去過那裡的舊稿
+    assert "龍山寺" in parts["llm"].requests[-1].prompt
+
+
+async def test_the_journey_summary_in_the_prompt_stays_within_its_caps(tmp_path):
+    from buddy_host.tour.journey import JourneyMemory
+
+    journey = JourneyMemory(None, max_recent=3, told_per_place=2, told_chars=40)
+    for index in range(30):  # 很長的一趟：三十個地方
+        journey.begin(1000.0 + index * 100_000)
+        journey.record_told(1000.0 + index * 100_000 + 1, f"p{index}", f"地方{index}", "稿" * 500)
+        journey.finish(1000.0 + index * 100_000 + 2)
+    journey.begin(5_000_000.0)
+    for index in range(10):
+        journey.record_told(5_000_001.0 + index, f"q{index}", f"站{index}", "稿" * 500)
+    candidate = osm("霞海城隍廟", 100)
+    for index in range(5):  # 這個地方以前講過很多次
+        journey.begin(9_000_000.0 + index * 100_000)
+        journey.record_told(
+            9_000_001.0 + index * 100_000, candidate.id, candidate.name, f"第{index}次" + "字" * 500
+        )
+        journey.finish(9_000_002.0 + index * 100_000)
+    journey.begin(20_000_000.0)
+    preparer, parts = make(tmp_path, [candidate], limit=1)
+
+    await preparer.prepare(
+        HERE, recent_topics=journey.recent_topics(), told_before=journey.told_before()
+    )
+
+    prompt = parts["llm"].requests[0].prompt
+    told_lines = [line for line in prompt.splitlines() if line.startswith("- 第")]
+    assert len(told_lines) == 2  # 每個地方最多帶最近兩次
+    assert all(len(line) <= 2 + 40 for line in told_lines)
+    assert "地方0" not in prompt and "p0" not in prompt  # 以前別的地方不帶
+    assert len(prompt) < 2000

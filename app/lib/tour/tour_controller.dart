@@ -139,6 +139,9 @@ class TourController extends Notifier<TourState> {
 
   /// 剛斷線、還沒念 [FixedPhrase.hostUnreachable]；播放中或暫停時先等，等念得出來才念，一次斷線只念一次。
   bool _unreachableDue = false;
+  final _unreportedPlayed = <String>[]; // 播完了、還沒成功告訴主機的
+  static const _maxUnreportedPlayed = 20;
+  bool _reportingPlayed = false;
   bool _polling = false; // 輪詢逾時比 tick 間隔長，不讓它們疊在一起
   final _queue = <QueuedNarration>[];
   final _audio = <String, Future<Uint8List?>>{};
@@ -262,6 +265,7 @@ class TourController extends Notifier<TourState> {
           .poll(settings, after: _cursor);
       if (session != _session) return false;
       _onHostReached();
+      unawaited(_reportPlayed(session)); // 連得上了：把之前送不出去的補送
       state = state.copyWith(stoppedReason: poll.stoppedReason);
       if (!poll.active) {
         await _restartOnHost(session);
@@ -433,6 +437,14 @@ class TourController extends Notifier<TourState> {
       await ref
           .read(narrationPlayerProvider)
           .play(bytes, title: item.info.name);
+      if (session == _session) {
+        // 播到最後才算講過（結束時被打斷的不算）；主機一直不收就只留最近的，不無限累積
+        _unreportedPlayed.add(item.info.id);
+        if (_unreportedPlayed.length > _maxUnreportedPlayed) {
+          _unreportedPlayed.removeAt(0);
+        }
+        unawaited(_reportPlayed(session));
+      }
     } on Exception catch (error) {
       debugPrint('播放 ${item.info.id} 失敗：$error');
     } finally {
@@ -442,6 +454,26 @@ class TourController extends Notifier<TourState> {
         state = state.copyWith(nowPlaying: null);
         _syncRemote();
       }
+    }
+  }
+
+  /// 一次一個、照順序送；送不出去就留著，下次輪詢連上時再送。不算斷線（輪詢才是心跳）。
+  Future<void> _reportPlayed(int session) async {
+    if (_reportingPlayed) return;
+    _reportingPlayed = true;
+    try {
+      while (_unreportedPlayed.isNotEmpty && session == _session) {
+        final id = _unreportedPlayed.first;
+        await ref
+            .read(tourApiProvider)
+            .markPlayed(ref.read(settingsProvider), id);
+        if (session != _session) return;
+        _unreportedPlayed.remove(id);
+      }
+    } on TourApiException catch (error) {
+      debugPrint('回報播完失敗（連上後再送）：$error');
+    } finally {
+      if (session == _session) _reportingPlayed = false;
     }
   }
 
@@ -472,6 +504,8 @@ class TourController extends Notifier<TourState> {
     _host = HostReachability();
     _unreachableDue = false;
     _polling = false;
+    _unreportedPlayed.clear();
+    _reportingPlayed = false;
     _queue.clear();
     _audio.clear();
     _seen.clear();

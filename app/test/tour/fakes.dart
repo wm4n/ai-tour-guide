@@ -23,6 +23,8 @@ class FakeTourApi implements TourApi {
   final reported = <(PositionFix, TravelerState)>[];
   final polls = <int>[];
   final downloads = <String>[];
+  final played = <String>[];
+  Object? playedError;
   var polled = <NarrationPoll>[];
   Object? startError;
   Object? pollError;
@@ -78,6 +80,13 @@ class FakeTourApi implements TourApi {
     calls.add('end');
     if (endError != null) throw endError!;
     return summary;
+  }
+
+  @override
+  Future<void> markPlayed(s, String id) async {
+    calls.add('played');
+    if (playedError != null) throw playedError!;
+    played.add(id);
   }
 
   @override

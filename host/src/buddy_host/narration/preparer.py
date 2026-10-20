@@ -66,9 +66,17 @@ SNAP_DECIMALS = 3  # 約 110 公尺；相近的位置共用同一份 Overpass／
 SNAP_MARGIN_M = 150.0  # 吸附造成的位移上限（約 80 公尺）再留餘裕
 
 
-def _fingerprint(persona: str, told_before: tuple[str, ...], traveler_key: str) -> str:
-    # 個性檔、「講過什麼」或使用者的狀態變了，舊稿就不能再用（設計文件 6.2：改了下次呼叫就生效）
-    payload = json.dumps([persona, list(told_before), traveler_key], ensure_ascii=False)
+def _fingerprint(
+    persona: str,
+    told_before: tuple[str, ...],
+    traveler_key: str,
+    recent_topics: tuple[str, ...],
+) -> str:
+    # 個性檔、「講過什麼」、「這趟剛講過什麼」或使用者的狀態變了，舊稿就不能再用
+    # （設計文件 6.2：改了下次呼叫就生效；稿子會寫「剛剛的 A」，不能用在沒去過 A 的另一趟）
+    payload = json.dumps(
+        [persona, list(told_before), traveler_key, list(recent_topics)], ensure_ascii=False
+    )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
@@ -132,7 +140,10 @@ class AreaPreparer:
         persona = load_persona(self._persona_path)
         prints = {
             item.candidate.id: _fingerprint(
-                persona, told.get(item.candidate.id, ()), traveler.key() if traveler else ""
+                persona,
+                told.get(item.candidate.id, ()),
+                traveler.key() if traveler else "",
+                tuple(recent_topics),
             )
             for item in ranked
         }

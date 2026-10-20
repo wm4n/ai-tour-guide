@@ -464,6 +464,98 @@ void main() {
     });
   });
 
+  group('telling the host what was heard', () {
+    test('a narration that played to the end is reported as told', () async {
+      final h = await makeHarness();
+      await h.tour.start();
+      await h.moveTo(nearFix());
+      h.api.queue([info('A')]);
+      await h.tick();
+      expect(h.api.played, isEmpty); // 還在播，還不算講過
+
+      h.player.finish();
+      await h.settle();
+
+      expect(h.api.played, ['A']);
+    });
+
+    test(
+      'a narration dropped as stale was never heard, so not reported',
+      () async {
+        final h = await makeHarness();
+        await h.tour.start();
+        h.api.queue([info('A')]);
+        await h.tick(); // 人在很遠的地方，不會播
+
+        await h.tick(after: const Duration(hours: 1)); // 放太久被丟掉
+
+        expect(h.api.played, isEmpty);
+      },
+    );
+
+    test(
+      'ending in the middle of a narration does not count it as told',
+      () async {
+        final h = await makeHarness();
+        await h.tour.start();
+        await h.moveTo(nearFix());
+        h.api.queue([info('A')]);
+        await h.tick();
+
+        await h.tour.end();
+        await h.settle();
+
+        expect(h.api.played, isEmpty);
+      },
+    );
+
+    test('reports the host keeps refusing do not pile up forever', () async {
+      final h = await makeHarness();
+      await h.tour.start();
+      await h.moveTo(nearFix());
+      h.api.playedError = TourApiException('500');
+
+      for (var i = 0; i < 30; i++) {
+        h.api.queue([info('N$i', seq: i + 1)]);
+        await h.tick(after: const Duration(minutes: 5));
+        h.player.finish();
+        await h.settle();
+      }
+      expect(h.player.played, hasLength(30));
+
+      h.api.playedError = null;
+      await h.tick(after: const Duration(minutes: 5));
+      await h.settle();
+
+      expect(h.api.played.length, lessThanOrEqualTo(20)); // 只留最近的
+      expect(h.api.played.last, 'N29');
+    });
+
+    test(
+      'a report that could not be sent is sent again once the host is back',
+      () async {
+        final h = await makeHarness();
+        await h.tour.start();
+        await h.moveTo(nearFix());
+        h.api.queue([info('A')]);
+        await h.tick();
+        h.api.playedError = TourApiException('down');
+        h.player.finish();
+        await h.settle();
+        expect(h.api.played, isEmpty);
+
+        h.api.playedError = null;
+        await h.tick(after: const Duration(minutes: 1));
+        await h.settle();
+
+        expect(h.api.played, ['A']);
+
+        await h.tick(after: const Duration(minutes: 1));
+        expect(h.api.played, ['A']); // 送過就不再送
+      },
+    );
+  });
+
   group('usage summary', () {
     const summary = TourSummary(
       calls: 4,

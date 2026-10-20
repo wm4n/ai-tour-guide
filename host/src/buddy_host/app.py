@@ -12,6 +12,7 @@ from buddy_host import __version__
 from buddy_host.config import HostConfig
 from buddy_host.narration.traveler import Companions, TravelerContext, TravelMode
 from buddy_host.places.models import Location
+from buddy_host.tour.journey import JourneyMemory
 from buddy_host.tour.session import PreparerLike, TourFix, TourNotActiveError, TourSession
 from buddy_host.tour.usage_report import finish_tour
 
@@ -24,6 +25,10 @@ def _require_token(config: HostConfig) -> Callable[..., None]:
             raise HTTPException(status_code=401, detail="invalid token")
 
     return dependency
+
+
+class PlayedBody(BaseModel):
+    id: str
 
 
 class FixBody(BaseModel):
@@ -51,10 +56,13 @@ def create_app(
     *,
     usage_log_path: Path | None = None,
     reports_dir: Path | None = None,
+    journey_path: Path | None = None,
 ) -> FastAPI:
     app = FastAPI(title="Buddy Host", version=__version__)
     authed = Depends(_require_token(config))
-    session = TourSession(preparer) if preparer is not None else None
+    session = (
+        TourSession(preparer, journey=JourneyMemory(journey_path)) if preparer is not None else None
+    )
 
     def tour() -> TourSession:
         if session is None:
@@ -70,9 +78,11 @@ def create_app(
         return {"status": "ok", "version": __version__}
 
     @app.post("/v1/tour/start", dependencies=[authed])
-    async def tour_start(body: FixBody) -> dict[str, str]:
-        tour().start(body.to_fix())
-        return {"status": "started"}
+    async def tour_start(body: FixBody) -> dict:
+        outcome = tour().start(body.to_fix())
+        if outcome.abandoned is not None:  # 上一趟沒按結束就被丟下：替它收尾
+            finish_tour(outcome.abandoned, usage_log_path, reports_dir)
+        return {"status": "started", "resumed": outcome.resumed}
 
     @app.post("/v1/tour/location", dependencies=[authed])
     async def tour_location(body: FixBody) -> dict[str, str]:
@@ -80,6 +90,11 @@ def create_app(
             tour().report(body.to_fix())
         except TourNotActiveError:
             raise HTTPException(status_code=409, detail="還沒有出發") from None
+        return {"status": "ok"}
+
+    @app.post("/v1/tour/played", dependencies=[authed])
+    async def tour_played(body: PlayedBody) -> dict[str, str]:
+        tour().mark_played(body.id)  # 不認得的（重啟、重新出發之前的）直接忽略，App 才不會一直重送
         return {"status": "ok"}
 
     @app.post("/v1/tour/end", dependencies=[authed])

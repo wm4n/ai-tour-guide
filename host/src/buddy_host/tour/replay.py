@@ -26,6 +26,7 @@ class ReplayPreparer:
         exclude_ids: Collection[str] = (),
         traveler: TravelerContext | None = None,
         on_ready: Callable[[PreparedNarration], None] | None = None,
+        **_: object,  # 旅程記憶（recent_topics、told_before）：重播的是現成的稿子，用不到
     ) -> list[PreparedNarration]:
         found: list[tuple[float, PreparedNarration]] = []
         for meta_path in sorted(self._directory.glob("*.meta.json")):

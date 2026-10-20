@@ -20,6 +20,7 @@ uv run python -m buddy_host --max-llm-calls N    # 真實準備；Claude 呼叫�
 | `claude-token` | `claude setup-token` 產生的 OAuth token（只用 Claude Pro 訂閱，不用 API key） |
 | `voice/F2/` | 參考聲音 `ref_24k.wav` 與逐字稿 `ref_text.txt`（缺逐字稿會直接報錯） |
 | `usage.jsonl` | 每次 Claude 呼叫的用量紀錄 |
+| `journey.json` | 旅程記憶：這趟去過哪裡、永久記錄講過的景點與稿子（是位置歷史，不入 repo；壞檔會改名留存） |
 | `out/`、`cache/` | 合成產物、驗收紀錄、Overpass／Wikipedia 快取 |
 | `out/reports/` | 每趟一份用量報告 `tour-<開始時間>.json`（見下方「額度與用量報告」） |
 
@@ -55,8 +56,9 @@ uv run python -m buddy_host.speech --text-file 稿子.txt --name demo
 
 | 端點 | 用途 |
 |---|---|
-| `POST /v1/tour/start` | 出發。帶 `lat`、`lon`、`heading_deg`、`mode`（walking／driving）、`companions`（solo／couple／family／friends）、`with_children`、`local_time`（帶時區的 ISO）；立刻準備起點周邊 |
+| `POST /v1/tour/start` | 出發。帶 `lat`、`lon`、`heading_deg`、`mode`（walking／driving）、`companions`（solo／couple／family／friends）、`with_children`、`local_time`（帶時區的 ISO）；立刻準備起點周邊；回應 `resumed`：距離上次活動不到 2 小時且上一趟沒按結束，就接續同一趟 |
 | `POST /v1/tour/location` | 位置與旅人狀態回報（同上欄位）；還沒出發回 409 |
+| `POST /v1/tour/played` | App 回報一段介紹**播完**了（`{"id": …}`），主機才記成「講過」；不認得的 id 直接忽略（回 200） |
 | `POST /v1/tour/end` | 結束；回傳 `summary`（本趟用量摘要，沒有進行中的旅程時是 `null`），並寫出用量報告 |
 | `GET /v1/tour/narrations?after=N` | 輪詢：`active`、`preparing`、`stopped_reason`（`quota`／`llm_budget`／`forbidden_model`）、序號大於 N 的介紹（含景點座標與秒數） |
 | `GET /v1/tour/audio?id=…` | 下載一段介紹的 wav |
@@ -68,3 +70,10 @@ uv run python -m buddy_host.speech --text-file 稿子.txt --name demo
 - Claude 回報額度用完（`rate_limit_event` 的 `status=rejected`，或錯誤文字 `hit your … limit`）時，`stopped_reason` 變成 `quota`，主機停止準備；不設每趟用量上限。
 - 恢復：App 每次回報位置時檢查，過了 `resetsAt`（epoch 秒）就以最新位置重新準備，這次準備本身就是探測，仍被拒絕就依新的 `resetsAt` 再等。事件沒帶 `resetsAt` 時隔 15 分鐘再試。`llm_budget`、`forbidden_model` 不會自動恢復。額度恢復時 App 的提示自動消失，不念語音。
 - 用量報告從 `usage.jsonl` 篩出本趟（開始到結束）的呼叫：每次呼叫的用途、模型、時間、token、`unifiedWindows`（5 小時／7 天）用量與是否撞到上限；`totals.utilization` 的「變化」是第一次與最後一次呼叫之後的差（不含第一次呼叫本身的消耗）。
+
+**旅程記憶**（`buddy_host.tour.journey`，設計文件第 7 節）：
+- 「講過」以 App 回報播完為準；主機準備好但 App 丟掉的不算。App 送不出去的回報會留著，下次輪詢連上時補送。
+- 一趟從出發到按結束；沒按結束（App 被關掉）而隔不到 2 小時再出發就接續同一趟，接續時用量報告涵蓋整趟；超過 2 小時的舊趟會先替它寫完用量報告再開新的一趟。
+- 每次寫稿都帶：這趟最近 5 個講過的地方名（`recent_topics`），以及這個地方以前最近 2 次講過的稿子、各截 300 字（`told_before`）。經過以前講過的地方，個性檔要求換個角度講。
+- **快取**：稿子的指紋包含 `recent_topics`（稿子可能寫「剛剛的 A」），所以同一條路線重跑不再保證命中舊稿；起點那一段（還沒講過任何地方）仍可命中。
+- `--replay-dir` 模式不寫 `journey.json`（桌上測試不該污染真實的永久記錄）。

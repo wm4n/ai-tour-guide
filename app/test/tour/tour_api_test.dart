@@ -122,6 +122,21 @@ void main() {
     expect(seen.url.path, '/v1/tour/end');
   });
 
+  test('markPlayed tells the host which narration was heard', () async {
+    late http.Request seen;
+    final api = apiWith((request) async {
+      seen = request;
+      return http.Response('{"status":"ok"}', 200);
+    });
+
+    await api.markPlayed(settings, 'wiki:霞海城隍廟');
+
+    expect(seen.method, 'POST');
+    expect(seen.url.path, '/v1/tour/played');
+    expect(seen.headers['X-Buddy-Token'], 's3cret');
+    expect(jsonDecode(seen.body), {'id': 'wiki:霞海城隍廟'});
+  });
+
   test('poll asks for narrations after the cursor and parses them', () async {
     late http.Request seen;
     final api = apiWith((request) async {

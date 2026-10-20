@@ -196,3 +196,8 @@ issue 內文過時（同 #14）：以設計文件為準，額度用完與恢復�
 - 只記「播完的景點」，不記實際走過的位置；「必要時才跳過」（設計文件 §7.6）沒做，一律換角度再講
 - `recent_themes`（排序避免重複主題）issue 沒要求，未接
 - 巢狀 dict 的 `_visited`、`JourneyMemory` 的可調參數維持簡單，不拆 dataclass／儲存層
+
+### PR #18 review 的兩則建議（2026-10-20）
+- App：下載回 404（主機已沒有這段，例如主機重啟）改為丟掉、不重試、不算斷線；`TourApiException` 帶 `statusCode`，連不上、逾時、5xx 仍照斷線處理
+- 主機：`finish_tour`（讀整份 `usage.jsonl`）改用 `asyncio.to_thread`，`/v1/tour/start`（替被丟下的舊趟收尾）與 `/v1/tour/end` 都不再卡住事件迴圈
+- 驗證：host 424 項、app 137 項、ruff／analyze 乾淨

@@ -1,4 +1,5 @@
 import json
+import threading
 import time
 from datetime import UTC, datetime
 
@@ -293,3 +294,64 @@ def test_the_report_of_an_abandoned_trip_is_still_written(tmp_path, preparer):
     [report_file] = reports.glob("tour-*.json")
     report = json.loads(report_file.read_text(encoding="utf-8"))
     assert report["started_at"].startswith("1970-01-01T00:16:40")
+
+
+def test_writing_the_usage_report_does_not_block_the_event_loop(tmp_path, preparer, monkeypatch):
+    """報告要讀整份 usage.jsonl，只會越來越大：不能在事件迴圈的執行緒上做。"""
+    from buddy_host import app as app_module
+    from buddy_host.tour.session import TourSession
+
+    seen: dict[str, int] = {}
+    real_end = TourSession.end
+
+    def end(self):
+        seen["loop"] = threading.get_ident()  # tour_end 在事件迴圈上呼叫它
+        return real_end(self)
+
+    def fake_finish(recap, usage_log_path, reports_dir):
+        seen.setdefault("reports", []).append(threading.get_ident())
+        return {"calls": 0}
+
+    monkeypatch.setattr(TourSession, "end", end)
+    monkeypatch.setattr(app_module, "finish_tour", fake_finish)
+    config = HostConfig(home=tmp_path)
+    with TestClient(create_app(config, preparer=preparer)) as client:
+        client.post("/v1/tour/start", json=BODY)
+        wait_for(client, 1)
+        response = client.post("/v1/tour/end")
+
+    assert response.json()["summary"] == {"calls": 0}
+    assert seen["reports"] and seen["loop"] not in seen["reports"]
+
+
+def test_the_report_of_an_abandoned_trip_is_not_written_on_the_event_loop_either(
+    tmp_path, preparer, monkeypatch
+):
+    from buddy_host import app as app_module
+    from buddy_host.tour.journey import JourneyMemory
+
+    old = JourneyMemory(tmp_path / "journey.json")
+    old.begin(1000.0)  # 很久以前出發、一直沒按結束
+    seen: dict[str, list[int]] = {"reports": []}
+    loop_threads: list[int] = []
+
+    def fake_finish(recap, usage_log_path, reports_dir):
+        seen["reports"].append(threading.get_ident())
+
+    from buddy_host.tour.session import TourSession
+
+    real_start = TourSession.start
+
+    def start(self, fix):
+        loop_threads.append(threading.get_ident())
+        return real_start(self, fix)
+
+    monkeypatch.setattr(TourSession, "start", start)
+    monkeypatch.setattr(app_module, "finish_tour", fake_finish)
+    config = HostConfig(home=tmp_path)
+    app = create_app(config, preparer=preparer, journey_path=tmp_path / "journey.json")
+    with TestClient(app) as client:
+        client.post("/v1/tour/start", json=BODY)
+
+    assert len(seen["reports"]) == 1
+    assert loop_threads[0] not in seen["reports"]

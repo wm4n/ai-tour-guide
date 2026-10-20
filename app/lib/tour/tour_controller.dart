@@ -146,6 +146,7 @@ class TourController extends Notifier<TourState> {
   final _queue = <QueuedNarration>[];
   final _audio = <String, Future<Uint8List?>>{};
   final _seen = <String>{};
+  final _gone = <String>{}; // 主機已經沒有的介紹（下載回 404）：丟掉，不重試
 
   @override
   TourState build() {
@@ -322,6 +323,7 @@ class TourController extends Notifier<TourState> {
   }
 
   /// 失敗回傳 null：算一次斷線，介紹留在佇列裡，主機回來後再抓。
+  /// 例外是 404：主機還在、只是這段已經不存在（例如主機重啟過），不算斷線，直接丟掉。
   Future<Uint8List?> _download(String id, int session) async {
     try {
       final bytes = await ref
@@ -331,6 +333,10 @@ class TourController extends Notifier<TourState> {
       return bytes;
     } on TourApiException catch (error) {
       debugPrint('下載 $id 失敗：$error');
+      if (error.statusCode == 404) {
+        if (session == _session) _gone.add(id);
+        return null;
+      }
       _onHostFailed(session);
       return null;
     }
@@ -383,6 +389,11 @@ class TourController extends Notifier<TourState> {
       );
       return; // 短句念完前不開始介紹，下一輪再評估
     }
+    for (final item
+        in _queue.where((q) => _gone.contains(q.info.id)).toList()) {
+      _queue.remove(item);
+      _audio.remove(item.info.id);
+    }
     if (_host.canTry(_now)) {
       for (final item in _queue) {
         _audio.putIfAbsent(
@@ -418,8 +429,8 @@ class TourController extends Notifier<TourState> {
     final bytes = await _audio.remove(item.info.id);
     if (session != _session) return;
     if (bytes == null) {
-      // 下載失敗：放回去，主機回來後 _evaluate 會再抓
-      _queue.insert(0, item);
+      // 下載失敗：放回去，主機回來後 _evaluate 會再抓（已經不存在的就不放回去）
+      if (!_gone.contains(item.info.id)) _queue.insert(0, item);
       _busy = false;
       return;
     }
@@ -509,5 +520,6 @@ class TourController extends Notifier<TourState> {
     _queue.clear();
     _audio.clear();
     _seen.clear();
+    _gone.clear();
   }
 }

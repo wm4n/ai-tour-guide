@@ -396,3 +396,14 @@ code-review 後修正（#8）：
 - 驗證：App 270 項、analyze 乾淨；`flutter build ios --simulator` 通過
 
 審查指出但刻意不改：`TourState.locationAccess`（預設 always）與 `GeolocatorLocationSource.access`（預設 denied）的預設值不一致、且有「要先呼叫 ensurePermission」的時序耦合——紅字只在旅程進行中顯示，目前不會出錯；之後可讓 `ensurePermission` 直接回傳 `LocationAccess`
+
+## 收尾對照（2026-10-20）
+
+追蹤器上 `ready-for-agent` 的 open issue 剛好是這 8 張（#8、#10、#11、#20～#24），都已處理到 agent 能做的程度。**沒有關任何 issue、沒有 push**。
+
+- #20～#24：完成，合併後可關
+- #10（父單）：子單 #20～#24 完成；它的實機項目已拆成 **#25（ready-for-human）**，由使用者在實機上做，所以 #10 要等 #25 才能關
+- #11：程式完成；「Claude 真的讀得到照片並答對」要真實呼叫 Claude（須使用者同意次數）
+- #8：Always 權限請求與提示完成；鎖屏 15 分鐘、鎖定畫面暫停鍵、耗電要實機
+
+另外：`implement` skill 設定為只能由使用者以 `/implement` 啟動（`disable-model-invocation`），agent 不能呼叫；這次是照它的內容手動執行（TDD → 型別檢查／單一測試檔 → 最後跑全套 → `/code-review` → commit）。

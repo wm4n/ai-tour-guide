@@ -78,7 +78,7 @@ class Answer:
     segments: list[AnswerSegment] = field(default_factory=list)  # 已經可以下載的段落，依序
     first_segment_seconds: float | None = None  # 收到問題 → 第一段可下載
     searching_web: bool = False  # Claude 動用了上網工具：App 可以說「我上網查一下」
-    # failed 時：quota／llm_budget／forbidden_model／no_audio／error
+    # failed 時：quota／llm_budget／forbidden_model／no_audio／cancelled（App 放棄）／error
     reason: str | None = None
 
 
@@ -115,6 +115,7 @@ class QaService:
         self._keep = keep
         self._answers: OrderedDict[str, Answer] = OrderedDict()
         self._tasks: set[asyncio.Task] = set()
+        self._task_of: dict[str, asyncio.Task] = {}  # 還在進行的答案 → 它的任務，取消用
 
     @property
     def photos_enabled(self) -> bool:
@@ -153,8 +154,23 @@ class QaService:
             self._answer(answer, question.strip(), fix, more, started, photo)
         )
         self._tasks.add(task)
+        self._task_of[answer.id] = task
         task.add_done_callback(self._tasks.discard)
+        task.add_done_callback(lambda _: self._task_of.pop(answer.id, None))
         return answer.id
+
+    def cancel(self, answer_id: str) -> bool:
+        """App 不要這個答案了（取消、逾時）：停掉 Claude 的呼叫與還沒做的合成、還掉 GPU 的號碼牌。
+
+        回傳是否真的取消了一個進行中的答案；已經結束或不認得的 id 沒有影響。需要在事件迴圈裡呼叫。
+        """
+        answer = self._answers.get(answer_id)
+        task = self._task_of.get(answer_id)
+        if answer is None or task is None or answer.status != "answering":
+            return False
+        self._fail(answer, "cancelled")  # 先標失敗：還在排隊的合成看到就不做了
+        task.cancel()
+        return True
 
     def clear_stored_audio(self) -> None:
         """清掉磁碟上所有答案的音檔。答案只存在記憶體裡，主機重啟後舊的目錄沒有人認領。"""
@@ -191,12 +207,19 @@ class QaService:
         turn = self._speech.begin()  # 從開始回答起就算問答優先，介紹不會趁 Claude 寫字的空檔插進來
         speaker = asyncio.create_task(self._speak(answer, segments, started, turn))
         try:
-            reason = await self._converse(answer, question, fix, more, photo, segments, speaker)
+            try:
+                reason = await self._converse(answer, question, fix, more, photo, segments, speaker)
+            except asyncio.CancelledError:
+                self._fail(answer, "cancelled")
+                raise
+            finally:
+                # 不論成功、失敗或被取消都收掉合成的任務：已經做好的段落留著，還沒做的不做了
+                speaker.cancel()
+                await asyncio.gather(speaker, return_exceptions=True)
         finally:
-            # 不論成功、失敗或被取消都收掉合成的任務：已經做好的段落留著，還沒做的不做了
-            speaker.cancel()
-            await asyncio.gather(speaker, return_exceptions=True)
-            turn.end()  # 還有一段在合成時，排程器會等它做完才讓出 GPU
+            # 收尾時又被取消也一定要還：號碼牌沒還，之後所有介紹都會卡住。
+            # 還有一段在合成時，排程器會等它做完才讓出 GPU
+            turn.end()
         if reason is None:
             answer.status = "done"
         else:

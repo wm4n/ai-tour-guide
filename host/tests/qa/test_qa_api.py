@@ -1,6 +1,8 @@
 import asyncio
 import base64
+import json
 import time
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -408,3 +410,56 @@ def test_the_request_limit_matches_the_photo_limit(client):
 
     limit = AskPhotoBody.model_fields["image_base64"].metadata[0].max_length
     assert 8 * 1024 * 1024 * 4 // 3 <= limit <= 8 * 1024 * 1024 * 4 // 3 + 100_000
+
+
+def test_an_answer_the_app_gave_up_on_can_be_cancelled(tmp_path, wav, persona):
+    llm = FakeLlm(hold=asyncio.Event())  # 永遠不放行：模擬 Claude 還在寫
+    with build_client(tmp_path, wav, persona, llm) as client:
+        answer_id = client.post("/v1/qa/ask", json=BODY).json()["id"]
+
+        response = client.post("/v1/qa/cancel", params={"id": answer_id})
+
+        assert response.status_code == 200
+        assert response.json() == {"cancelled": True}
+        body = wait_for_answer(client, answer_id)
+        assert (body["status"], body["reason"]) == ("failed", "cancelled")
+        assert client.post("/v1/qa/cancel", params={"id": answer_id}).json() == {"cancelled": False}
+
+
+def test_cancelling_an_unknown_answer_is_404_and_needs_the_token(tmp_path, wav, persona, llm):
+    with build_client(tmp_path, wav, persona, llm) as client:
+        assert client.post("/v1/qa/cancel", params={"id": "nope"}).status_code == 404
+        del client.headers["X-Buddy-Token"]
+        assert client.post("/v1/qa/cancel", params={"id": "x"}).status_code == 401
+
+
+CONTRACT = Path(__file__).parents[3] / "contract"
+
+
+def contract(name: str) -> dict:
+    return json.loads((CONTRACT / f"{name}.json").read_text(encoding="utf-8"))
+
+
+def stable(body: dict) -> dict:
+    """答案 id 與延遲秒數每次不同，換成契約檔裡的固定值再比。"""
+    body = dict(body)
+    if "id" in body:
+        body["id"] = "a1b2c3d4e5f6"
+    if body.get("first_segment_seconds") is not None:
+        body["first_segment_seconds"] = 0.5
+    return body
+
+
+def test_the_responses_match_the_contract_the_app_is_tested_against(tmp_path, wav, persona):
+    hold = asyncio.Event()
+    with build_client(tmp_path, wav, persona, FakeLlm()) as client:
+        asked = client.post("/v1/qa/ask", json=BODY).json()
+        done = wait_for_answer(client, asked["id"])
+        assert stable(asked) == contract("qa-ask")
+        assert stable(done) == contract("qa-answer-done")
+    with build_client(tmp_path, wav, persona, FakeLlm(hold=hold)) as client:
+        answer_id = client.post("/v1/qa/ask", json=BODY).json()["id"]
+        cancelled = client.post("/v1/qa/cancel", params={"id": answer_id}).json()
+        failed = wait_for_answer(client, answer_id)
+        assert cancelled == contract("qa-cancel")
+        assert stable(failed) == contract("qa-answer-failed")

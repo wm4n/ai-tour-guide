@@ -72,6 +72,9 @@ abstract class QaApi {
 
   Future<AnswerPoll> answer(HostSettings settings, String id);
 
+  /// 這個答案不要了（取消、等太久）：主機停掉 Claude 的呼叫與還沒做的合成，不再占額度與 GPU。
+  Future<void> cancel(HostSettings settings, String id);
+
   Future<Uint8List> downloadSegment(
     HostSettings settings,
     String id,
@@ -173,6 +176,11 @@ class HttpQaApi implements QaApi {
     } on TypeError {
       throw TourApiException('unexpected answer response');
     }
+  }
+
+  @override
+  Future<void> cancel(HostSettings settings, String id) async {
+    await _host.post(settings, '/v1/qa/cancel', query: {'id': id});
   }
 
   @override

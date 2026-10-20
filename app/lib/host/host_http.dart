@@ -71,6 +71,7 @@ class HostHttp {
     HostSettings settings,
     String path, {
     Map<String, Object>? body,
+    Map<String, String>? query,
     Duration? timeout,
   }) => send(
     settings,
@@ -83,6 +84,7 @@ class HostHttp {
       body: body == null ? null : jsonEncode(body),
     ),
     path,
+    query: query,
     timeout: timeout,
   );
 

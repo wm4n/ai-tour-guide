@@ -123,10 +123,15 @@ class QaController extends Notifier<QaState> {
   int _openings = 0;
   Future<void> _audio = Future.value(); // 要念、要播的東西排成一列，一件一件來
   Future<void>? _starting; // 最近一次「開麥克風」；沒收乾淨之前，下一次不能開始
+  String? _answerId; // 主機已經收下、還在等的答案；放棄時要通知主機
+  bool _disposed = false;
 
   @override
   QaState build() {
-    ref.onDispose(() => _generation++);
+    ref.onDispose(() {
+      _generation++;
+      _disposed = true;
+    });
     ref.listen(tourProvider, (previous, next) {
       // 旅程結束：還在進行的發問就不用了
       if ((previous?.active ?? false) &&
@@ -207,6 +212,9 @@ class QaController extends Notifier<QaState> {
     _releaseRequested = false;
     _unhold();
     state = QaState(mode: state.mode);
+    final answerId = _answerId;
+    _answerId = null;
+    if (answerId != null) _abandon(answerId);
     if (session != null) await session.cancel();
     await ref.read(phrasePlayerProvider).stop();
     final player = ref.read(answerPlayerProvider);
@@ -285,7 +293,7 @@ class QaController extends Notifier<QaState> {
     }
     if (generation != _generation) return;
     if (photo == null) {
-      _finish(generation); // 使用者取消：沒有發生過這件事
+      unawaited(_finish(generation)); // 使用者取消：沒有發生過這件事
       return;
     }
     // 照片拍完、手機還對著那個東西：這時讀指南針
@@ -328,9 +336,25 @@ class QaController extends Notifier<QaState> {
       _hostFailed(generation, error, failure);
       return;
     }
-    if (generation != _generation) return;
+    if (generation != _generation) {
+      _abandon(id); // 等主機回應的時候已經取消了：這題主機已經開始做，要請它停
+      return;
+    }
     tour.noteHostReached();
+    _answerId = id;
     await _follow(generation, id);
+  }
+
+  /// 通知主機這個答案不要了。送不到也沒關係（主機最多多做一個答案），所以不等、不報錯。
+  void _abandon(String id) {
+    if (_disposed) return;
+    unawaited(
+      ref.read(qaApiProvider).cancel(ref.read(settingsProvider), id).catchError(
+        (Object error) {
+          debugPrint('通知主機放棄答案失敗：$error');
+        },
+      ),
+    );
   }
 
   void _sayOpening() {
@@ -402,6 +426,8 @@ class QaController extends Notifier<QaState> {
       }
       if (_now.difference(asked) > timeout) {
         await _audio;
+        if (generation != _generation) return;
+        _abandon(id);
         _fail(generation, '答案等太久了，先不等了');
         return;
       }
@@ -441,10 +467,12 @@ class QaController extends Notifier<QaState> {
     if (generation != _generation) return;
     final reason = poll.reason;
     final failed = poll.status == AnswerStatus.failed;
-    _finish(
-      generation,
-      error: failed && reason != 'quota' ? _failureText(reason) : null,
-      quotaExhausted: failed && reason == 'quota',
+    unawaited(
+      _finish(
+        generation,
+        error: failed && reason != 'quota' ? _failureText(reason) : null,
+        quotaExhausted: failed && reason == 'quota',
+      ),
     );
   }
 
@@ -480,13 +508,22 @@ class QaController extends Notifier<QaState> {
   }
 
   void _fail(int generation, String message) =>
-      _finish(generation, error: message);
+      unawaited(_finish(generation, error: message));
 
-  void _finish(int generation, {String? error, bool quotaExhausted = false}) {
+  /// 收尾：回到待命、恢復其他 App 的音量、讓暫停的介紹接著播。
+  /// 還在念的短句（例如「好，我來查一下」）先念完，不然提早失敗時介紹會和它疊在一起。
+  Future<void> _finish(
+    int generation, {
+    String? error,
+    bool quotaExhausted = false,
+  }) async {
+    if (generation != _generation) return;
+    await _audio;
     if (generation != _generation) return;
     unawaited(ref.read(answerPlayerProvider).release());
     _unhold();
     _session = null;
+    _answerId = null;
     state = QaState(
       error: error,
       quotaExhausted: quotaExhausted,

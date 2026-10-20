@@ -215,6 +215,13 @@ def create_app(
         except PhotosUnavailable:
             raise HTTPException(status_code=503, detail="拍照提問尚未啟用") from None
 
+    @app.post("/v1/qa/cancel", dependencies=[authed])
+    async def qa_cancel(id: str) -> dict[str, bool]:
+        service = qa()
+        if service.answer(id) is None:
+            raise HTTPException(status_code=404, detail="找不到這個問題的答案")
+        return {"cancelled": service.cancel(id)}
+
     @app.get("/v1/qa/answer", dependencies=[authed])
     async def qa_answer(id: str) -> dict:
         answer = qa().answer(id)

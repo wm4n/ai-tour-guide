@@ -1,4 +1,6 @@
+import asyncio
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -202,6 +204,23 @@ async def test_timeout_kills_the_process(home, record, monkeypatch):
 
     with pytest.raises(LlmError, match="逾時"):
         await make_client(home).run(request(timeout=0.5))
+
+
+async def test_cancelling_the_call_kills_the_process(home, record, monkeypatch):
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", "hang")
+    task = asyncio.create_task(make_client(home).run(request(timeout=30)))
+    for _ in range(100):  # 等假的 claude 起來、寫下自己的 pid
+        if record.exists() and record.read_text(encoding="utf-8"):
+            break
+        await asyncio.sleep(0.05)
+    pid = seen(record)["pid"]
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    with pytest.raises(ProcessLookupError):  # 行程已經被殺掉、也收掉了
+        os.kill(pid, 0)
 
 
 async def test_each_call_is_independent(home, record):

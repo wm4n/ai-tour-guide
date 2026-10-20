@@ -231,4 +231,32 @@ void main() {
       );
     });
   });
+
+  group('cancel', () {
+    test('posts the answer id to the cancel endpoint', () async {
+      late http.Request seen;
+      final api = apiWith((request) async {
+        seen = request;
+        return http.Response('{"cancelled":true}', 200);
+      });
+
+      await api.cancel(settings, 'a1');
+
+      expect(seen.method, 'POST');
+      expect(seen.url.path, '/v1/qa/cancel');
+      expect(seen.url.queryParameters, {'id': 'a1'});
+      expect(seen.headers['X-Buddy-Token'], 's3cret');
+    });
+
+    test('a host that no longer knows the answer is reported', () async {
+      final api = apiWith((_) async => http.Response('no', 404));
+
+      await expectLater(
+        api.cancel(settings, 'a1'),
+        throwsA(
+          isA<TourApiException>().having((e) => e.statusCode, 'status', 404),
+        ),
+      );
+    });
+  });
 }

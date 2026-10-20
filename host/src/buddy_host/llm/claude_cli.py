@@ -270,7 +270,7 @@ class ClaudeCliClient:
             returncode = await asyncio.wait_for(
                 converse(), request.timeout or self._s.default_timeout
             )
-        except TimeoutError:
+        except (TimeoutError, asyncio.CancelledError):  # 逾時或呼叫端放棄：行程不能留著繼續耗額度
             proc.kill()
             await proc.wait()
             stderr_task.cancel()

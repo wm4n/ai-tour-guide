@@ -114,6 +114,8 @@ class FakeQaApi implements QaApi {
   Object? downloadError;
   var failingSegments = <int>{}; // 這幾段下載時回 404
   Completer<void>? downloadGate;
+  final cancelled = <String>[]; // 通知主機放棄的答案 id
+  Object? cancelError;
 
   @override
   Future<String> ask(
@@ -158,6 +160,12 @@ class FakeQaApi implements QaApi {
       throw answerError!;
     }
     return answers.length > 1 ? answers.removeAt(0) : answers.first;
+  }
+
+  @override
+  Future<void> cancel(HostSettings settings, String id) async {
+    cancelled.add(id);
+    if (cancelError != null) throw cancelError!;
   }
 
   @override

@@ -17,6 +17,7 @@ if record_path:
                 "env": dict(os.environ),
                 "stdin": stdin_text,
                 "cwd": os.getcwd(),
+                "pid": os.getpid(),
             },
             f,
         )

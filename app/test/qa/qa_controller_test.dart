@@ -272,6 +272,7 @@ void main() {
       );
 
       await h.qa.press();
+      await h.settle();
 
       expect(h.state.phase, QaPhase.idle);
       expect(h.state.error, contains('權限'));
@@ -283,6 +284,7 @@ void main() {
       );
 
       await h.qa.press();
+      await h.settle();
 
       expect(h.state.phase, QaPhase.idle);
       expect(h.state.error, isNotNull);
@@ -483,10 +485,35 @@ void main() {
 
       expect(h.state.phase, QaPhase.idle);
       expect(h.state.error, contains('太久'));
+      expect(h.qaApi.cancelled, ['a1']); // 主機也不用再替它忙
     });
   });
 
   group('host trouble', () {
+    test(
+      'a question that fails at once waits for the opening phrase before the tour carries on',
+      () async {
+        final h = await makeQaHarness();
+        h.phrases.gate = Completer<void>(); // 「好，我來查一下」還在念
+        h.qaApi.askError = TourApiException('no', statusCode: 400);
+
+        await h.qa.press();
+        await h.qa.release();
+        await h.settle();
+
+        // 短句還沒念完：被打斷的介紹不能現在接著播，其他 App 的音量也還不能恢復
+        expect(h.state.phase, QaPhase.asking);
+        expect(h.answerPlayer.events, isNot(contains('release')));
+
+        h.phrases.gate!.complete();
+        await h.settle();
+
+        expect(h.state.phase, QaPhase.idle);
+        expect(h.state.error, isNotNull);
+        expect(h.answerPlayer.events, contains('release'));
+      },
+    );
+
     test(
       'an unreachable host when asking is an outage: said once, quietly retried',
       () async {
@@ -666,6 +693,76 @@ void main() {
       final polls = h.qaApi.answerPolls.length;
       await h.settle();
       expect(h.qaApi.answerPolls.length, polls); // 不再輪詢
+    });
+
+    test('ending the tour tells the host to drop the answer', () async {
+      final h = await makeQaHarness();
+      h.qaApi.answers = [poll(segments: 1)];
+      await h.ask();
+
+      await h.tour.end();
+      await h.settle();
+
+      expect(h.qaApi.cancelled, ['a1']);
+    });
+
+    test(
+      'a host that cannot be told about the cancel is not an error',
+      () async {
+        final h = await makeQaHarness();
+        h.qaApi.answers = [poll(segments: 1)];
+        h.qaApi.cancelError = TourApiException('down');
+        await h.ask();
+
+        await h.qa.cancel();
+        await h.settle();
+
+        expect(h.qaApi.cancelled, ['a1']);
+        expect(h.state.phase, QaPhase.idle);
+        expect(h.state.error, isNull);
+      },
+    );
+
+    test(
+      'cancelling before the host has answered drops it on arrival',
+      () async {
+        final h = await makeQaHarness();
+        h.qaApi.askGate = Completer<void>();
+        await h.qa.press();
+        await h.qa.release();
+        await h.settle();
+
+        await h.qa.cancel();
+        h.qaApi.askGate!.complete();
+        await h.settle();
+
+        expect(h.qaApi.cancelled, ['a1']);
+        expect(h.qaApi.answerPolls, isEmpty);
+      },
+    );
+
+    test(
+      'a question cancelled while listening never reaches the host',
+      () async {
+        final h = await makeQaHarness();
+        await h.qa.press();
+
+        await h.qa.cancel();
+        await h.settle();
+
+        expect(h.qaApi.cancelled, isEmpty);
+      },
+    );
+
+    test('an answer that finished normally is not cancelled', () async {
+      final h = await makeQaHarness();
+      h.qaApi.answers = [poll(status: AnswerStatus.done, segments: 1)];
+
+      await h.ask();
+      await h.finishSegment();
+      await h.qa.cancel();
+
+      expect(h.qaApi.cancelled, isEmpty);
     });
 
     test('cancelling while listening throws the recording away', () async {

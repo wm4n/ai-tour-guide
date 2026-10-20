@@ -418,10 +418,13 @@ PR 上的獨立整合審查（https://github.com/wm4n/ai-tour-guide/pull/26）�
 - 主機重啟後 `out/answers/` 舊音檔永遠不清 → 啟動時 `clear_stored_audio()`
 - 照片 base64 解碼與存檔改在執行緒裡，不卡事件迴圈
 
-**還沒處理（需要設計或真實呼叫）**：
-- App 放棄的問答（旅程結束、逾時），主機不知道、仍占額度與 GPU 號碼牌：需要取消端點（`POST /v1/qa/cancel`）或在 `tour/end` 時一併取消
-- `--tools` 對所有呼叫生效、尚未用真實 Claude 驗證：須使用者同意呼叫次數（使用者決定自己在實機驗）
-- 提早失敗時開場短句與被打斷的介紹可能同時播（MAY）
-- App／主機 JSON 契約沒有契約測試（MAY）
+第二輪（2026-10-21，使用者要求把還沒處理的建議修完）：
+- **取消端點** `POST /v1/qa/cancel?id=`：`QaService.cancel` 先標 `failed／cancelled`、取消任務；`_answer` 收尾拆成兩層 `finally`，收尾時又被取消也一定 `turn.end()`（否則 GPU 號碼牌洩漏、之後所有介紹卡住）。`ClaudeCliClient` 被取消時和逾時一樣殺掉 claude 行程（原本只殺逾時，取消會留下行程繼續耗額度）。App：旅程結束／`cancel()`、逾時、「送出時就已取消、主機回應才到」三條路都通知主機（送不到不報錯）
+- 提早失敗時開場短句與被打斷的介紹疊在一起 → `_finish` 先等還在念的短句念完才恢復音量、讓介紹接著播（失敗訊息因此晚約一句短句的時間才出現）
+- JSON 契約測試：`contract/` 放主機實際輸出的範例，主機測試比對、App 測試讀同一份
 
-驗證：host 616 項、ruff 乾淨；App 274 項、analyze 乾淨。
+**還沒處理（需要真實呼叫）**：
+- `--tools` 對所有呼叫生效、尚未用真實 Claude 驗證（見下方「真實 Claude 驗證」）
+- 取消時 `to_thread` 裡已在跑的那一段合成仍會做完才讓出 GPU（無法中止執行緒）
+
+驗證：host 623 項、ruff 乾淨；App 282 項、analyze 乾淨。

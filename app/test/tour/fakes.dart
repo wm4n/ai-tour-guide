@@ -217,6 +217,7 @@ class FakePhrases implements PhrasePlayer {
   final focusReleasedAfter = <bool>[];
   var stops = 0;
   Object? errorOnce; // 下一次 play 丟這個（Error 或 Exception 都可以）
+  Completer<void>? gate; // 讓測試卡住「短句還在念」
 
   @override
   Future<void> play(FixedPhrase phrase, {bool releaseFocus = true}) async {
@@ -227,6 +228,7 @@ class FakePhrases implements PhrasePlayer {
     }
     played.add(phrase);
     focusReleasedAfter.add(releaseFocus);
+    await gate?.future;
   }
 
   @override

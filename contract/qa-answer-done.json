@@ -1,0 +1,14 @@
+{
+  "id": "a1b2c3d4e5f6",
+  "status": "done",
+  "text": "拜城隍爺。",
+  "segments": [
+    {
+      "index": 0,
+      "audio_seconds": 2.0
+    }
+  ],
+  "first_segment_seconds": 0.5,
+  "searching_web": false,
+  "reason": null
+}

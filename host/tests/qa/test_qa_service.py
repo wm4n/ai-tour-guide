@@ -772,3 +772,39 @@ async def test_stored_audio_left_by_an_earlier_run_can_be_cleared(persona):
         persona.parent / "qa"
     ).exists()  # 舊的與這次的都清掉（記憶體裡的答案也就沒有音檔了）
     assert service.audio_path(answer.id, 0) is not None  # 記錄還在，檔案已經沒了：下載會 404
+
+
+async def test_cancelling_an_answer_stops_it_and_gives_the_speech_turn_back(persona):
+    hold = asyncio.Event()
+    speech = FakeSpeech()
+    service, _ = make(persona, speech=speech, llm=FakeLlm([FIRST], events=[FIRST, hold]))
+    answer_id = service.ask("問題", FIX)
+    await wait_until(lambda: service.answer(answer_id).segments)
+
+    assert service.cancel(answer_id) is True
+    await service.wait_idle()
+
+    answer = service.answer(answer_id)
+    assert (answer.status, answer.reason) == ("failed", "cancelled")
+    assert [turn.ended for turn in speech.turns] == [True]  # 不再占 GPU 的號碼牌
+
+
+async def test_an_answer_cancelled_before_it_starts_never_calls_claude(persona):
+    llm = FakeLlm()
+    service, _ = make(persona, llm=llm)
+    answer_id = service.ask("問題", FIX)
+
+    assert service.cancel(answer_id) is True
+    await service.wait_idle()
+
+    assert llm.requests == []
+    assert service.answer(answer_id).reason == "cancelled"
+
+
+async def test_cancelling_a_finished_or_unknown_answer_changes_nothing(persona):
+    service, _ = make(persona)
+    answer = await ask_and_wait(service)
+
+    assert service.cancel(answer.id) is False
+    assert service.cancel("nope") is False
+    assert service.answer(answer.id).status == "done"

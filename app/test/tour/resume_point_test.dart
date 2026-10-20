@@ -28,14 +28,14 @@ void main() {
   test(
     'interrupted in the silence before a sentence resumes at that sentence',
     () {
-      // 句子前面至少有 0.3 秒的靜音（主機偵測的門檻）：落在靜音裡就等於剛好在句界
+      // 單位前面有 0.45 秒以上的靜音（管線預設）：落在靜音裡就等於剛好在句界
       expect(resumePoint(s(3.3), starts), s(3.5));
       expect(resumePoint(s(1.25), starts), s(1.5));
     },
   );
 
   test('just before that silence it is still the previous sentence', () {
-    expect(resumePoint(s(3.19), starts), s(1.5));
+    expect(resumePoint(s(3.0), starts), s(1.5));
   });
 
   test('before the first sentence it starts at the first sentence', () {

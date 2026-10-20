@@ -176,8 +176,8 @@ class FakePlayer implements NarrationPlayer {
   Future<void> resume() async => events.add('resume');
 
   @override
-  Future<void> stop() async {
-    events.add('stop');
+  Future<void> stop({bool releaseFocus = true}) async {
+    events.add(releaseFocus ? 'stop' : 'stop(keep focus)');
     if (_current?.isCompleted == false) _current!.complete(false);
   }
 

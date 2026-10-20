@@ -62,3 +62,14 @@ def test_a_file_that_is_not_a_wav_has_no_units(tmp_path):
     bad.write_bytes(b"not a wav")
 
     assert unit_starts(bad) == ()
+
+
+def test_only_16_bit_mono_is_understood(tmp_path):
+    stereo = tmp_path / "stereo.wav"
+    with wave.open(str(stereo), "wb") as f:
+        f.setnchannels(2)
+        f.setsampwidth(2)
+        f.setframerate(SR)
+        f.writeframes((np.full(4000, 9000)).astype("<i2").tobytes())
+
+    assert unit_starts(stereo) == ()

@@ -149,7 +149,7 @@ class TourController extends Notifier<TourState> {
   final _seen = <String>{};
   final _gone = <String>{}; // 主機已經沒有的介紹（下載回 404）：丟掉，不重試
   int _questionHolds = 0; // 使用者正在發問、等答案或聽答案：不開始新的主動介紹
-  _Playing? _playing; // 正在播（含使用者暫停中）的介紹
+  _Playing? _playing; // 正在播（含使用者暫停中、或被問題打斷等著接續）的介紹
   _Interrupted? _interrupted; // 被問題打斷、等答完從那一句的開頭接著播
 
   @override
@@ -475,7 +475,7 @@ class TourController extends Notifier<TourState> {
     await _playBytes(session, item, bytes, Duration.zero);
   }
 
-  /// 播一段介紹（或從 [start] 接著播）。被問題打斷時不算播完，也不放掉「正在播」的狀態。
+  /// 播一段介紹（或從 [start] 接著播）。被問題打斷時不算播完，也不收尾（還在「講」這一段）。
   Future<void> _playBytes(
     int session,
     QueuedNarration item,
@@ -484,12 +484,16 @@ class TourController extends Notifier<TourState> {
   ) async {
     state = state.copyWith(nowPlaying: item.info.name);
     _syncRemote(title: item.info.name);
-    _playing = _Playing(item, bytes);
+    final playing = _Playing(item, bytes);
+    _playing = playing;
     try {
       final completed = await ref
           .read(narrationPlayerProvider)
           .play(bytes, title: item.info.name, start: start);
       if (completed && session == _session) {
+        playing.finished = true;
+        // 剛好在播完的同一刻被問：已經講完了，答完不用再接
+        if (_interrupted?.playing == playing) _interrupted = null;
         // 播到最後才算講過（被打斷、結束時被停掉的不算）；主機一直不收就只留最近的，不無限累積
         _unreportedPlayed.add(item.info.id);
         if (_unreportedPlayed.length > _maxUnreportedPlayed) {
@@ -500,38 +504,50 @@ class TourController extends Notifier<TourState> {
     } on Exception catch (error) {
       debugPrint('播放 ${item.info.id} 失敗：$error');
     } finally {
-      // 被問題打斷時（等答完接著播）還在「講」這一段，不收尾
-      if (session == _session && _interrupted?.item != item) {
-        _playing = null;
+      if (session == _session && (playing.finished || !playing.interrupted)) {
+        if (identical(_playing, playing)) _playing = null;
         _lastFinishedAt = _now;
         _busy = false;
         state = state.copyWith(nowPlaying: null);
         _syncRemote();
       }
+      playing.done.complete(); // 這一次播放（含收尾）結束了：接續才可以開始
     }
   }
 
   /// 發問開始：停下正在播的介紹，記住要從哪一句的開頭接著播。
   Future<void> _interruptNarration() async {
     final playing = _playing;
-    if (playing == null) return;
+    // 已經播完的不用打斷；已經在等著接續的（例如使用者暫停中又問一次）要保留原本的接續點，
+    // 這時播放器已經停了，位置不可靠
+    if (playing == null || playing.finished || playing.interrupted) return;
+    playing.interrupted = true;
     final player = ref.read(narrationPlayerProvider);
     _interrupted = _Interrupted(
-      playing.item,
-      playing.bytes,
+      playing,
       resumePoint(player.position, playing.item.info.unitStarts),
     );
-    await player.stop();
+    // 不釋放 audio focus：緊接著要念短句、播答案，其他 App 的音量不要在中間跳回來
+    await player.stop(releaseFocus: false);
   }
 
   Future<void> _resumeInterrupted() async {
     final interrupted = _interrupted;
     if (interrupted == null) return;
     _interrupted = null; // 同步清掉，下一次評估不會再接一次
+    final session = _session;
+    // 被停掉的那一次播放要先收尾完（播放器、暫存檔），才能開始下一次
+    await interrupted.playing.done.future;
+    if (session != _session) return;
+    if (_questionHolds > 0 || state.paused) {
+      // 等收尾的時候又開始發問、或使用者按了暫停：接續點留著，等之後
+      _interrupted = interrupted;
+      return;
+    }
     await _playBytes(
-      _session,
-      interrupted.item,
-      interrupted.bytes,
+      session,
+      interrupted.playing.item,
+      interrupted.playing.bytes,
       interrupted.resumeAt,
     );
   }
@@ -595,18 +611,27 @@ class TourController extends Notifier<TourState> {
   }
 }
 
+/// 一次播放。每次播放各有一個，旗標與完成訊號不會和下一次混在一起。
 class _Playing {
-  const _Playing(this.item, this.bytes);
+  _Playing(this.item, this.bytes);
 
   final QueuedNarration item;
   final Uint8List bytes;
+
+  /// 被問題打斷了（等答完接著播）。
+  bool interrupted = false;
+
+  /// 自然播到最後。
+  bool finished = false;
+
+  /// 這一次播放（含收尾）結束。
+  final done = Completer<void>();
 }
 
 class _Interrupted {
-  const _Interrupted(this.item, this.bytes, this.resumeAt);
+  const _Interrupted(this.playing, this.resumeAt);
 
-  final QueuedNarration item;
-  final Uint8List bytes;
+  final _Playing playing;
 
   /// 答完要從這裡接著播（被打斷那一句的開頭）。
   final Duration resumeAt;

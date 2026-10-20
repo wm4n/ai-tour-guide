@@ -22,8 +22,9 @@ def unit_starts(path: Path, *, min_gap_seconds: float = MIN_GAP_SECONDS) -> tupl
         with wave.open(str(path), "rb") as wav:
             rate = wav.getframerate()
             width = wav.getsampwidth()
+            channels = wav.getnchannels()
             raw = wav.readframes(wav.getnframes())
-        if width != 2:
+        if width != 2 or channels != 1:  # 語音管線只產生 16-bit 單聲道；別的格式秒數會算錯
             return ()
         samples = np.frombuffer(raw, dtype="<i2")
     except (OSError, EOFError, wave.Error):

@@ -1061,7 +1061,8 @@ void main() {
 
         h.tour.beginQuestion();
         await h.settle();
-        expect(h.player.events, contains('stop'));
+        // 不釋放 audio focus：緊接著要念短句、播答案，其他 App 的音量不要在中間跳回來
+        expect(h.player.events, contains('stop(keep focus)'));
 
         h.tour.endQuestion();
         await h.settle();
@@ -1237,6 +1238,77 @@ void main() {
 
       expect(h.player.starts.last, at(7.25));
     });
+
+    test(
+      'an answer that is over almost at once still resumes exactly once and keeps others waiting',
+      () async {
+        final h = await playing();
+        h.api.queue([
+          NarrationInfo(
+            seq: 2,
+            id: 'B',
+            name: '景點B',
+            lat: placeLat,
+            lon: placeLon,
+            audioSeconds: 30,
+          ),
+        ]);
+        h.player.positionNow = at(2.0);
+
+        h.tour.beginQuestion();
+        h.tour.endQuestion(); // 問題極短或辨識為空：幾乎馬上就答完了
+        await h.settle();
+        await h.tick();
+
+        expect(h.player.played, ['A', 'A']);
+        expect(h.player.starts.last, at(1.5));
+        expect(h.state.nowPlaying, '景點A'); // 還在講 A，B 不能疊上來
+
+        h.player.finish();
+        await h.settle();
+        expect(h.api.played, ['A']);
+      },
+    );
+
+    test(
+      'a narration that finishes at the very moment a question starts is not played again',
+      () async {
+        final h = await playing();
+
+        h.player.finish();
+        h.tour.beginQuestion(); // 同一刻
+        await h.settle();
+        h.tour.endQuestion();
+        await h.settle();
+
+        expect(h.player.played, ['A']);
+        expect(h.api.played, ['A']);
+        expect(h.state.nowPlaying, isNull);
+      },
+    );
+
+    test(
+      'a second question while already waiting does not move the resume point',
+      () async {
+        final h = await playing();
+        h.tour.pause();
+        h.player.positionNow = at(2.0);
+        h.tour.beginQuestion();
+        await h.settle();
+        h.tour.endQuestion(); // 暫停中：不自己接著講，接續點留著
+        await h.settle();
+
+        h.player.positionNow = Duration.zero; // 播放器已經停了，位置不可靠
+        h.tour.beginQuestion();
+        await h.settle();
+        h.tour.endQuestion();
+        await h.settle();
+        h.tour.resume();
+        await h.settle();
+
+        expect(h.player.starts.last, at(1.5));
+      },
+    );
 
     test(
       'a finished narration is reported once and the gap rule starts from then',

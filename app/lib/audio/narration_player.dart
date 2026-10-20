@@ -25,7 +25,8 @@ abstract class NarrationPlayer {
 
   Future<void> resume();
 
-  Future<void> stop();
+  /// 停下。[releaseFocus] 為 false 時不恢復其他 App 的音量（接著還有別的聲音要播）。
+  Future<void> stop({bool releaseFocus = true});
 
   Future<void> dispose();
 }

@@ -81,6 +81,7 @@ class TourState {
     this.nowPlaying,
     this.stoppedReason,
     this.error,
+    this.summary,
   });
 
   final bool active;
@@ -93,12 +94,16 @@ class TourState {
   final String? stoppedReason;
   final String? error;
 
+  /// 上一趟結束時主機回報的用量摘要；下一次出發就清掉。
+  final TourSummary? summary;
+
   TourState copyWith({
     bool? active,
     bool? paused,
     Object? nowPlaying = _keep,
     Object? stoppedReason = _keep,
     Object? error = _keep,
+    Object? summary = _keep,
   }) => TourState(
     active: active ?? this.active,
     paused: paused ?? this.paused,
@@ -109,6 +114,7 @@ class TourState {
         ? this.stoppedReason
         : stoppedReason as String?,
     error: identical(error, _keep) ? this.error : error as String?,
+    summary: identical(summary, _keep) ? this.summary : summary as TourSummary?,
   );
 }
 
@@ -208,7 +214,8 @@ class TourController extends Notifier<TourState> {
     _syncRemote();
     await ref.read(narrationPlayerProvider).stop();
     try {
-      await ref.read(tourApiProvider).end(settings);
+      final summary = await ref.read(tourApiProvider).end(settings);
+      if (!state.active) state = state.copyWith(summary: summary);
     } on TourApiException catch (error) {
       debugPrint('通知主機結束失敗（主機會在下次出發時重置）：$error');
     }

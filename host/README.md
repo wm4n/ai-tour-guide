@@ -21,6 +21,7 @@ uv run python -m buddy_host --max-llm-calls N    # 真實準備；Claude 呼叫�
 | `voice/F2/` | 參考聲音 `ref_24k.wav` 與逐字稿 `ref_text.txt`（缺逐字稿會直接報錯） |
 | `usage.jsonl` | 每次 Claude 呼叫的用量紀錄 |
 | `out/`、`cache/` | 合成產物、驗收紀錄、Overpass／Wikipedia 快取 |
+| `out/reports/` | 每趟一份用量報告 `tour-<開始時間>.json`（見下方「額度與用量報告」） |
 
 ## 語音管線（`buddy_host.speech`）
 
@@ -56,9 +57,14 @@ uv run python -m buddy_host.speech --text-file 稿子.txt --name demo
 |---|---|
 | `POST /v1/tour/start` | 出發。帶 `lat`、`lon`、`heading_deg`、`mode`（walking／driving）、`companions`（solo／couple／family／friends）、`with_children`、`local_time`（帶時區的 ISO）；立刻準備起點周邊 |
 | `POST /v1/tour/location` | 位置與旅人狀態回報（同上欄位）；還沒出發回 409 |
-| `POST /v1/tour/end` | 結束 |
+| `POST /v1/tour/end` | 結束；回傳 `summary`（本趟用量摘要，沒有進行中的旅程時是 `null`），並寫出用量報告 |
 | `GET /v1/tour/narrations?after=N` | 輪詢：`active`、`preparing`、`stopped_reason`（`quota`／`llm_budget`／`forbidden_model`）、序號大於 N 的介紹（含景點座標與秒數） |
 | `GET /v1/tour/audio?id=…` | 下載一段介紹的 wav |
 
 **Claude 用量保護**：`--max-llm-calls N` 用 `BudgetedLlm` 包住 Claude 呼叫，次數用完就停止準備並回報 `llm_budget`。
 一次準備最多 `limit(2) × (1 + 重寫次數)` 次呼叫；整趟次數 ≈ 起點那次 ＋ 路線長度 ÷ 250 公尺 × 2。
+
+**額度與用量報告**（設計文件第 11 節）：
+- Claude 回報額度用完（`rate_limit_event` 的 `status=rejected`，或錯誤文字 `hit your … limit`）時，`stopped_reason` 變成 `quota`，主機停止準備；不設每趟用量上限。
+- 恢復：App 每次回報位置時檢查，過了 `resetsAt`（epoch 秒）就以最新位置重新準備，這次準備本身就是探測，仍被拒絕就依新的 `resetsAt` 再等。事件沒帶 `resetsAt` 時隔 15 分鐘再試。`llm_budget`、`forbidden_model` 不會自動恢復。額度恢復時 App 的提示自動消失，不念語音。
+- 用量報告從 `usage.jsonl` 篩出本趟（開始到結束）的呼叫：每次呼叫的用途、模型、時間、token、`unifiedWindows`（5 小時／7 天）用量與是否撞到上限；`totals.utilization` 的「變化」是第一次與最後一次呼叫之後的差（不含第一次呼叫本身的消耗）。

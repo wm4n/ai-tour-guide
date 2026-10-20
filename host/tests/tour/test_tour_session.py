@@ -286,3 +286,157 @@ async def test_audio_is_only_served_for_narrations_of_this_tour(tmp_path):
     assert session.audio_path("wiki:A") == tmp_path / "A.wav"
     assert session.audio_path("../../etc/passwd") is None
     assert session.audio_path("wiki:nope") is None
+
+
+class WallClock:
+    def __init__(self, now=1_000_000.0):
+        self.now = now
+
+    def __call__(self):
+        return self.now
+
+
+async def test_a_quota_stop_ends_by_itself_once_the_limit_resets(tmp_path):
+    clock = WallClock()
+    preparer = FakePreparer(
+        tmp_path, [QuotaExceededError("limit", resets_at=clock.now + 3600), ["A"]]
+    )
+    session = TourSession(preparer, wall_clock=clock)
+    session.start(fix())
+    await session.wait_idle()
+    assert session.stopped_reason == "quota"
+
+    clock.now += 3599
+    session.report(fix())
+    await session.wait_idle()
+    assert session.stopped_reason == "quota"  # 還沒到
+    assert len(preparer.calls) == 1
+
+    clock.now += 2
+    session.report(fix())
+    await session.wait_idle()
+
+    assert session.stopped_reason is None
+    assert [e.name for e in session.narrations_after(0)] == ["A"]
+
+
+async def test_recovery_prepares_around_the_latest_position_even_if_barely_moved(tmp_path):
+    clock = WallClock()
+    preparer = FakePreparer(
+        tmp_path, [QuotaExceededError("limit", resets_at=clock.now + 60), ["A"]]
+    )
+    session = TourSession(preparer, wall_clock=clock)
+    session.start(fix())
+    await session.wait_idle()
+
+    near = north_of(START, 40)  # 離準備失敗的那一點不到重新準備的距離
+    session.report(fix(near))
+    clock.now += 61
+    session.report(fix(near))
+    await session.wait_idle()
+
+    assert preparer.calls[1]["location"] == near
+
+
+async def test_without_a_reset_time_the_preparation_is_retried_after_a_cooldown(tmp_path):
+    clock = WallClock()
+    preparer = FakePreparer(tmp_path, [QuotaExceededError("limit"), ["A"]])
+    session = TourSession(preparer, wall_clock=clock, quota_retry_after_s=900)
+    session.start(fix())
+    await session.wait_idle()
+
+    clock.now += 899
+    session.report(fix())
+    await session.wait_idle()
+    assert len(preparer.calls) == 1
+
+    clock.now += 2
+    session.report(fix())
+    await session.wait_idle()
+
+    assert session.stopped_reason is None
+    assert len(preparer.calls) == 2
+
+
+async def test_a_limit_that_is_still_hit_stops_again_with_the_new_reset_time(tmp_path):
+    clock = WallClock()
+    preparer = FakePreparer(
+        tmp_path,
+        [
+            QuotaExceededError("limit", resets_at=clock.now + 60),
+            QuotaExceededError("limit", resets_at=clock.now + 7200),
+            ["A"],
+        ],
+    )
+    session = TourSession(preparer, wall_clock=clock)
+    session.start(fix())
+    await session.wait_idle()
+
+    clock.now += 61
+    session.report(fix())
+    await session.wait_idle()
+    assert session.stopped_reason == "quota"
+
+    clock.now += 3600
+    session.report(fix())
+    await session.wait_idle()
+    assert len(preparer.calls) == 2  # 新的恢復時間還沒到，不再試
+
+    clock.now += 3601
+    session.report(fix())
+    await session.wait_idle()
+    assert session.stopped_reason is None
+    assert len(preparer.calls) == 3
+
+
+async def test_a_reset_time_already_in_the_past_does_not_cause_a_retry_on_every_report(tmp_path):
+    clock = WallClock()
+    preparer = FakePreparer(
+        tmp_path,
+        [
+            QuotaExceededError("limit", resets_at=clock.now - 100),
+            QuotaExceededError("limit"),
+            ["A"],
+        ],
+    )
+    session = TourSession(preparer, wall_clock=clock, quota_retry_after_s=900)
+    session.start(fix())
+    await session.wait_idle()
+
+    for _ in range(5):
+        clock.now += 10
+        session.report(fix())
+        await session.wait_idle()
+
+    assert len(preparer.calls) == 1  # 過期的時間當作不知道，一樣等冷卻
+
+
+async def test_the_call_limit_never_recovers_by_itself(tmp_path):
+    clock = WallClock()
+    preparer = FakePreparer(tmp_path, [LlmBudgetExhaustedError("budget"), ["A"]])
+    session = TourSession(preparer, wall_clock=clock, quota_retry_after_s=1)
+    session.start(fix())
+    await session.wait_idle()
+
+    clock.now += 10_000
+    session.report(fix(north_of(START, 1000)))
+    await session.wait_idle()
+
+    assert session.stopped_reason == "llm_budget"
+    assert len(preparer.calls) == 1
+
+
+async def test_ending_a_tour_returns_what_happened_in_it(tmp_path):
+    clock = WallClock()
+    session = TourSession(FakePreparer(tmp_path, [["A", "B"]]), wall_clock=clock)
+    session.start(fix())
+    await session.wait_idle()
+    clock.now += 600
+
+    recap = session.end()
+
+    assert recap.started_at == 1_000_000.0
+    assert recap.ended_at == 1_000_600.0
+    assert recap.narrations == 2
+    assert recap.stopped_reason is None
+    assert session.end() is None  # 沒有進行中的旅程

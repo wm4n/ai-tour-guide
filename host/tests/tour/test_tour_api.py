@@ -1,4 +1,6 @@
+import json
 import time
+from datetime import UTC, datetime
 
 import pytest
 from fastapi.testclient import TestClient
@@ -189,3 +191,56 @@ def test_tour_endpoints_are_unavailable_without_a_preparer(tmp_path):
     config = HostConfig(home=tmp_path)
     with TestClient(create_app(config)) as client:
         assert client.post("/v1/tour/start", json=BODY).status_code == 503
+
+
+def usage_entry() -> dict:
+    return {
+        "timestamp": datetime.now(UTC).isoformat(),
+        "purpose": "write",
+        "model_requested": "sonnet",
+        "modelUsage": {"claude-sonnet-5-5": {"inputTokens": 2, "outputTokens": 300}},
+        "rate_limit_events": [
+            {"status": "allowed", "unifiedWindows": {"five_hour": {"utilization": 0.3}}}
+        ],
+        "is_error": False,
+        "error": None,
+    }
+
+
+def test_ending_a_tour_writes_a_usage_report_and_returns_its_summary(tmp_path, preparer):
+    from buddy_host.llm.usage_log import UsageLog
+
+    log_path = tmp_path / "usage.jsonl"
+    reports = tmp_path / "reports"
+    config = HostConfig(home=tmp_path)
+    app = create_app(config, preparer=preparer, usage_log_path=log_path, reports_dir=reports)
+    with TestClient(app) as client:
+        client.post("/v1/tour/start", json=BODY)
+        wait_for(client, 1)
+        UsageLog(log_path).append(usage_entry())
+
+        response = client.post("/v1/tour/end")
+
+    summary = response.json()["summary"]
+    assert summary["calls"] == 1
+    assert summary["narrations"] == 1
+    assert summary["hit_limit"] is False
+    assert summary["utilization"]["five_hour"]["last"] == 0.3
+    [report_file] = reports.glob("tour-*.json")
+    assert len(json.loads(report_file.read_text(encoding="utf-8"))["calls"]) == 1
+
+
+def test_ending_without_a_usage_log_still_summarizes_the_tour(client):
+    client.post("/v1/tour/start", json=BODY)
+    wait_for(client, 1)
+
+    summary = client.post("/v1/tour/end").json()["summary"]
+
+    assert summary["calls"] == 0
+    assert summary["narrations"] == 1
+
+
+def test_ending_a_tour_that_never_started_has_no_summary(client):
+    body = client.post("/v1/tour/end").json()
+
+    assert body == {"status": "ended", "summary": None}

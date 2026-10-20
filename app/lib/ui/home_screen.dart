@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../host/host_client.dart';
 import '../host/host_connection.dart';
 import '../host/host_settings.dart';
+import '../tour/tour_api.dart';
 import '../tour/tour_controller.dart';
 import '../tour/traveler_state.dart';
 
@@ -65,6 +66,10 @@ class HomeScreen extends ConsumerWidget {
                   ),
                 ],
                 const SizedBox(height: 24),
+                if (!tour.active && tour.summary != null) ...[
+                  TourSummaryCard(summary: tour.summary!),
+                  const SizedBox(height: 24),
+                ],
                 if (!tour.active) const TravelerPicker(),
                 const SizedBox(height: 24),
                 FilledButton(
@@ -251,6 +256,53 @@ class TravelerPicker extends ConsumerWidget {
               notifier.save(current().copyWith(withChildren: value)),
         ),
       ],
+    );
+  }
+}
+
+/// 一趟結束後顯示的用量摘要（設計文件第 11、13 節）。
+class TourSummaryCard extends StatelessWidget {
+  const TourSummaryCard({super.key, required this.summary});
+
+  final TourSummary summary;
+
+  static const _windowNames = {'five_hour': '5 小時', 'seven_day': '7 天'};
+
+  static String _percent(double value) => '${(value * 100).round()}%';
+
+  static String _change(double value) {
+    final points = (value * 100).round();
+    return points >= 0 ? '+$points%' : '$points%';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final minutes = (summary.durationSeconds / 60).round();
+    return Card(
+      key: const Key('tour-summary'),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('這一趟', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 8),
+            Text('${summary.narrations} 段介紹，走了約 $minutes 分鐘'),
+            Text('呼叫 Claude ${summary.calls} 次'),
+            for (final entry in summary.utilization.entries)
+              Text(
+                '${_windowNames[entry.key] ?? entry.key}額度 '
+                '${_percent(entry.value.last)}'
+                '（本趟 ${_change(entry.value.change)}）',
+              ),
+            if (summary.hitLimit)
+              Text(
+                '這趟撞到額度上限了',
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+          ],
+        ),
+      ),
     );
   }
 }

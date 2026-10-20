@@ -23,6 +23,7 @@ from buddy_host.llm.models import (
     is_fable,
     resolve_model,
 )
+from buddy_host.llm.quota import quota_hit, reset_time
 from buddy_host.llm.usage_log import UsageLog
 
 logger = logging.getLogger(__name__)
@@ -37,7 +38,9 @@ class LlmError(RuntimeError):
 
 
 class QuotaExceededError(LlmError):
-    pass
+    def __init__(self, message: str | None = None, resets_at: float | None = None):
+        super().__init__(message)
+        self.resets_at = resets_at  # epoch 秒；不知道時是 None
 
 
 @dataclass(frozen=True)
@@ -147,9 +150,8 @@ class ClaudeCliClient:
         if any(is_fable(name) for name in model_usage):
             raise ForbiddenModelError(f"modelUsage 出現 Fable：{sorted(model_usage)}")
         if is_error:
-            rejected = any(r.get("status") == "rejected" for r in stream.rate_limits)
-            if rejected or "hit your" in (error or "").lower():
-                raise QuotaExceededError(error)
+            if quota_hit(stream.rate_limits, error):
+                raise QuotaExceededError(error, reset_time(stream.rate_limits))
             raise LlmError(error)
 
         return LlmResult(

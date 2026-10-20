@@ -2,6 +2,7 @@ import hmac
 from collections.abc import Callable
 from dataclasses import asdict
 from datetime import datetime
+from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse
@@ -12,6 +13,7 @@ from buddy_host.config import HostConfig
 from buddy_host.narration.traveler import Companions, TravelerContext, TravelMode
 from buddy_host.places.models import Location
 from buddy_host.tour.session import PreparerLike, TourFix, TourNotActiveError, TourSession
+from buddy_host.tour.usage_report import finish_tour
 
 
 def _require_token(config: HostConfig) -> Callable[..., None]:
@@ -43,7 +45,13 @@ class FixBody(BaseModel):
         )
 
 
-def create_app(config: HostConfig, preparer: PreparerLike | None = None) -> FastAPI:
+def create_app(
+    config: HostConfig,
+    preparer: PreparerLike | None = None,
+    *,
+    usage_log_path: Path | None = None,
+    reports_dir: Path | None = None,
+) -> FastAPI:
     app = FastAPI(title="Buddy Host", version=__version__)
     authed = Depends(_require_token(config))
     session = TourSession(preparer) if preparer is not None else None
@@ -75,9 +83,11 @@ def create_app(config: HostConfig, preparer: PreparerLike | None = None) -> Fast
         return {"status": "ok"}
 
     @app.post("/v1/tour/end", dependencies=[authed])
-    async def tour_end() -> dict[str, str]:
-        tour().end()
-        return {"status": "ended"}
+    async def tour_end() -> dict:
+        recap = tour().end()
+        if recap is None:
+            return {"status": "ended", "summary": None}
+        return {"status": "ended", "summary": finish_tour(recap, usage_log_path, reports_dir)}
 
     @app.get("/v1/tour/narrations", dependencies=[authed])
     async def tour_narrations(after: int = 0) -> dict:

@@ -13,6 +13,7 @@ import uvicorn
 
 from buddy_host.app import create_app
 from buddy_host.config import default_home, load_config
+from buddy_host.llm.claude_cli import ClaudeSettings
 
 PERSONA = Path(__file__).resolve().parents[2] / "config" / "buddy.md"
 DAY = 24 * 3600
@@ -23,7 +24,7 @@ def build_real_preparer(max_llm_calls: int):
     import truststore
 
     from buddy_host.llm.budget import BudgetedLlm
-    from buddy_host.llm.claude_cli import ClaudeCliClient, ClaudeSettings
+    from buddy_host.llm.claude_cli import ClaudeCliClient
     from buddy_host.narration.preparer import AreaPreparer
     from buddy_host.places.cache import JsonCache
     from buddy_host.places.fetch import RetryingHttp
@@ -70,7 +71,14 @@ def main() -> None:
         preparer = build_real_preparer(args.max_llm_calls)
 
     config = load_config()
-    uvicorn.run(create_app(config, preparer), host=config.listen_host, port=config.listen_port)
+    home = default_home()
+    app = create_app(
+        config,
+        preparer,
+        usage_log_path=ClaudeSettings.for_home(home).usage_log_path,
+        reports_dir=home / "out" / "reports",
+    )
+    uvicorn.run(app, host=config.listen_host, port=config.listen_port)
 
 
 if __name__ == "__main__":

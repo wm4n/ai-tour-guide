@@ -464,6 +464,49 @@ void main() {
     });
   });
 
+  group('usage summary', () {
+    const summary = TourSummary(
+      calls: 4,
+      narrations: 3,
+      durationSeconds: 2400,
+      hitLimit: false,
+      utilization: {'five_hour': WindowUse(last: 0.38, change: 0.12)},
+    );
+
+    test('the summary from the host is kept after the tour ends', () async {
+      final h = await makeHarness();
+      h.api.summary = summary;
+      await h.tour.start();
+
+      await h.tour.end();
+
+      expect(h.state.active, isFalse);
+      expect(h.state.summary, same(summary));
+    });
+
+    test('an unreachable host at the end just means no summary', () async {
+      final h = await makeHarness();
+      h.api.endError = TourApiException('down');
+      await h.tour.start();
+
+      await h.tour.end();
+
+      expect(h.state.active, isFalse);
+      expect(h.state.summary, isNull);
+    });
+
+    test('a new tour clears the previous summary', () async {
+      final h = await makeHarness();
+      h.api.summary = summary;
+      await h.tour.start();
+      await h.tour.end();
+
+      await h.tour.start();
+
+      expect(h.state.summary, isNull);
+    });
+  });
+
   group('host state', () {
     test(
       'quota exhaustion is shown to the user and nothing is said aloud',
@@ -478,6 +521,23 @@ void main() {
         expect(h.phrases.played, [FixedPhrase.startTour]);
       },
     );
+
+    test('the quota notice goes away by itself when the host recovers, '
+        'and narrations keep playing', () async {
+      final h = await makeHarness();
+      await h.tour.start();
+      await h.moveTo(nearFix());
+      h.api.queue([], stoppedReason: 'quota');
+      await h.tick();
+      expect(h.state.stoppedReason, 'quota');
+
+      h.api.queue([info('A')]);
+      await h.tick();
+
+      expect(h.state.stoppedReason, isNull);
+      expect(h.player.played, ['A']);
+      expect(h.phrases.played, [FixedPhrase.startTour]);
+    });
 
     test(
       'a host that lost the tour (restart) is told to start again',

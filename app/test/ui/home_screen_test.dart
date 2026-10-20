@@ -211,4 +211,44 @@ void main() {
     expect(find.byKey(const Key('stopped-reason')), findsOneWidget);
     expect(find.textContaining('額度用完'), findsOneWidget);
   });
+
+  testWidgets('the end of a tour shows the usage summary', (tester) async {
+    await pumpHome(tester, ConnectionStatus.connected);
+    api.summary = const TourSummary(
+      calls: 4,
+      narrations: 3,
+      durationSeconds: 2400,
+      hitLimit: true,
+      utilization: {
+        'five_hour': WindowUse(last: 0.38, change: 0.12),
+        'seven_day': WindowUse(last: 0.47, change: 0.02),
+      },
+    );
+    await tester.tap(find.byKey(const Key('tour-toggle')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('tour-summary')), findsNothing);
+
+    await tester.tap(find.byKey(const Key('tour-toggle')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('tour-summary')), findsOneWidget);
+    expect(find.textContaining('3 段介紹'), findsOneWidget);
+    expect(find.textContaining('40 分鐘'), findsOneWidget);
+    expect(find.textContaining('呼叫 Claude 4 次'), findsOneWidget);
+    expect(find.textContaining('5 小時額度 38%（本趟 +12%）'), findsOneWidget);
+    expect(find.textContaining('7 天額度 47%（本趟 +2%）'), findsOneWidget);
+    expect(find.textContaining('撞到額度上限'), findsOneWidget);
+  });
+
+  testWidgets('without a summary the end of a tour shows nothing extra', (
+    tester,
+  ) async {
+    await pumpHome(tester, ConnectionStatus.connected);
+    await tester.tap(find.byKey(const Key('tour-toggle')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('tour-toggle')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('tour-summary')), findsNothing);
+  });
 }

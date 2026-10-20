@@ -155,3 +155,22 @@ tail -f /private/tmp/claude-503/*/scratchpad/opening.log   # 開場句驗證進�
 - `_report`、`_restartOnHost` 失敗不計入連線狀態，以輪詢為心跳
 - 畫面 chip（`connectionProvider` 自己每 5 秒檢查）與控制器的連線判斷是兩套，短暫不一致可接受
 - issue #14 內文仍寫「我恢復了，我們繼續」，以設計文件為準（恢復不念）
+
+### #13 額度用完與用量報告（`/implement #13`，2026-10-20）
+
+issue 內文過時（同 #14）：以設計文件為準，額度用完與恢復都**不念**，只有畫面提示。
+
+做了：
+- 主機：`QuotaExceededError.resets_at`（取被拒絕事件的 `resetsAt`，epoch 秒）；`TourSession` 額度停止後，App 下一次回報位置時若已過 `resetsAt` 就以**最新位置**重新準備（不走 250 公尺規則），這次準備就是探測，仍被拒絕就依新的 `resetsAt` 再停；沒有 `resetsAt` 或已過期的值，隔 15 分鐘再試；`llm_budget`／`forbidden_model` 不自動恢復
+- 用量報告：`tour/usage_report.py` 從 `usage.jsonl` 篩出本趟呼叫，寫 `~/.buddy-host/out/reports/tour-<開始時間>.json`（每次呼叫的用途、模型、時間、token、5 小時／7 天視窗 utilization、是否撞上限；totals 含各模型次數與用量、utilization 首末差）；`POST /v1/tour/end` 回傳 `summary`；報告失敗只記 log、不讓結束失敗
+- App：`TourApi.end` 回傳 `TourSummary?`，結束畫面 `TourSummaryCard`（介紹段數、時間、Claude 呼叫次數、兩個視窗用量與本趟增加、是否撞到上限）；下一趟出發清掉；額度提示在主機恢復後隨輪詢自動消失
+
+驗證：host 397 項、app 127 項、ruff／analyze 乾淨；全程用 fake，**沒有呼叫真實 Claude**。真實事件形狀已用 `~/.buddy-host/usage.jsonl` 的實際紀錄對過（`utilization` 在 `unifiedWindows` 底下、0～1 比例、`resetsAt` 是 epoch 秒）。**沒有驗證**：真的撞到額度時 `status=rejected` 事件的 `resetsAt` 是否在頂層（只有 `allowed` 的真實樣本）；模擬器端到端。
+
+審查指出但刻意不改：
+- 恢復時 `stopped_reason` 立刻清掉，若仍被拒絕，App 的提示會閃一下又出現（resetsAt 已知時很少發生）
+- 只有 App 回報位置時才檢查恢復（App 不回報就沒有要準備的位置）
+- `usage.jsonl` 的 `timestamp` 是呼叫完成時間，跨越出發／結束邊界的呼叫以完成時間為準；結束時還在跑的呼叫會被取消、不入報告
+- 「用量變化」不含第一次呼叫本身的消耗
+- `--max-llm-calls` 是既有的每行程開發保護，不是每趟上限；是否拿掉由使用者決定
+- 問答（暫停問答）尚未實作，這張只涵蓋主動介紹的停止

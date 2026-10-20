@@ -27,6 +27,8 @@ class FakeTourApi implements TourApi {
   Object? startError;
   Object? pollError;
   Object? reportError;
+  Object? endError;
+  TourSummary? summary;
   Object? downloadError;
   Completer<void>? downloadGate;
   Completer<void>? pollGate;
@@ -72,7 +74,11 @@ class FakeTourApi implements TourApi {
   }
 
   @override
-  Future<void> end(s) async => calls.add('end');
+  Future<TourSummary?> end(s) async {
+    calls.add('end');
+    if (endError != null) throw endError!;
+    return summary;
+  }
 
   @override
   Future<NarrationPoll> poll(s, {required int after}) async {

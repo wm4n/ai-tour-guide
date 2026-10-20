@@ -150,7 +150,7 @@ async def test_every_call_writes_a_usage_record(home, record):
     assert entry["modelUsage"]["claude-sonnet-5-5"]["outputTokens"] == 34
     assert entry["rate_limit_events"][0]["status"] == "allowed"
     assert entry["rate_limit_events"][0]["resetsAt"] == 1760900000
-    assert entry["rate_limit_events"][0]["utilization"] == 0.42
+    assert entry["rate_limit_events"][0]["unifiedWindows"]["five_hour"]["utilization"] == 0.42
     assert entry["is_error"] is False
     assert entry["duration_ms"] == 1234
     assert entry["timestamp"]
@@ -166,6 +166,24 @@ async def test_quota_rejection_raises_and_is_still_logged(home, record, monkeypa
     [entry] = UsageLog(home / "usage.jsonl").read_all()
     assert entry["is_error"] is True
     assert entry["rate_limit_events"][0]["status"] == "rejected"
+
+
+async def test_quota_rejection_carries_when_the_limit_resets(home, record, monkeypatch):
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", "quota")
+
+    with pytest.raises(QuotaExceededError) as exc:
+        await make_client(home).run(request())
+
+    assert exc.value.resets_at == 1760900000
+
+
+async def test_quota_error_text_alone_is_recognised_without_a_reset_time(home, record, monkeypatch):
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", "quota_text")
+
+    with pytest.raises(QuotaExceededError) as exc:
+        await make_client(home).run(request())
+
+    assert exc.value.resets_at is None
 
 
 async def test_nonzero_exit_is_an_error_and_never_leaks_the_token(home, record, monkeypatch):

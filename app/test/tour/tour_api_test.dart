@@ -65,6 +65,50 @@ void main() {
     expect(jsonDecode(seen.body), isNot(contains('heading_deg')));
   });
 
+  test('end returns the usage summary the host sends back', () async {
+    final api = apiWith(
+      (request) async => http.Response(
+        jsonEncode({
+          'status': 'ended',
+          'summary': {
+            'calls': 4,
+            'narrations': 3,
+            'duration_seconds': 2400,
+            'hit_limit': true,
+            'utilization': {
+              'five_hour': {'last': 0.38, 'change': 0.12},
+              'seven_day': {'last': 0.47, 'change': 0.02},
+            },
+          },
+        }),
+        200,
+      ),
+    );
+
+    final summary = await api.end(settings);
+
+    expect(summary!.calls, 4);
+    expect(summary.narrations, 3);
+    expect(summary.durationSeconds, 2400);
+    expect(summary.hitLimit, isTrue);
+    expect(summary.utilization['five_hour']!.last, 0.38);
+    expect(summary.utilization['five_hour']!.change, 0.12);
+    expect(summary.utilization.keys, ['five_hour', 'seven_day']);
+  });
+
+  test('end gives no summary when the host has none to give', () async {
+    final noSummary = apiWith(
+      (request) async =>
+          http.Response('{"status":"ended","summary":null}', 200),
+    );
+    final oldHost = apiWith(
+      (request) async => http.Response('{"status":"ended"}', 200),
+    );
+
+    expect(await noSummary.end(settings), isNull);
+    expect(await oldHost.end(settings), isNull);
+  });
+
   test('end posts to /v1/tour/end', () async {
     late http.Request seen;
     final api = apiWith((request) async {

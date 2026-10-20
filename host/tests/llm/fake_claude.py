@@ -59,12 +59,15 @@ emit(
             "status": "rejected" if mode == "quota" else "allowed",
             "resetsAt": 1760900000,
             "rateLimitType": "five_hour",
-            "utilization": 0.42,
+            "unifiedWindows": {
+                "five_hour": {"utilization": 0.42, "resetsAt": 1760900000},
+                "seven_day": {"utilization": 0.5, "resetsAt": 1761500000},
+            },
         },
     }
 )
 
-if mode == "quota":
+if mode in ("quota", "quota_text"):
     emit(
         {
             "type": "result",

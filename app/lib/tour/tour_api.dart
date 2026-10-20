@@ -33,6 +33,49 @@ class NarrationPoll {
   final List<NarrationInfo> narrations;
 }
 
+/// 本趟某個額度視窗（5 小時、7 天）的用量：結束時用了幾成、本趟增加幾成。
+class WindowUse {
+  const WindowUse({required this.last, required this.change});
+
+  final double last;
+  final double change;
+
+  factory WindowUse.fromJson(Map<String, dynamic> json) => WindowUse(
+    last: (json['last'] as num).toDouble(),
+    change: (json['change'] as num).toDouble(),
+  );
+}
+
+/// 主機在一趟結束時回報的用量摘要（完整報告留在主機上）。
+class TourSummary {
+  const TourSummary({
+    required this.calls,
+    required this.narrations,
+    required this.durationSeconds,
+    required this.hitLimit,
+    required this.utilization,
+  });
+
+  final int calls;
+  final int narrations;
+  final int durationSeconds;
+  final bool hitLimit;
+
+  /// 視窗名稱（`five_hour`、`seven_day`）對應用量，順序照主機給的。
+  final Map<String, WindowUse> utilization;
+
+  factory TourSummary.fromJson(Map<String, dynamic> json) => TourSummary(
+    calls: json['calls'] as int,
+    narrations: json['narrations'] as int,
+    durationSeconds: json['duration_seconds'] as int,
+    hitLimit: json['hit_limit'] as bool,
+    utilization: {
+      for (final entry in (json['utilization'] as Map<String, dynamic>).entries)
+        entry.key: WindowUse.fromJson(entry.value as Map<String, dynamic>),
+    },
+  );
+}
+
 abstract class TourApi {
   Future<void> start(
     HostSettings settings,
@@ -44,7 +87,7 @@ abstract class TourApi {
     PositionFix fix,
     TravelerState traveler,
   );
-  Future<void> end(HostSettings settings);
+  Future<TourSummary?> end(HostSettings settings);
   Future<NarrationPoll> poll(HostSettings settings, {required int after});
   Future<Uint8List> downloadAudio(HostSettings settings, String id);
 }
@@ -76,8 +119,26 @@ class HttpTourApi implements TourApi {
     TravelerState traveler,
   ) => _post(settings, '/v1/tour/location', body: _body(fix, traveler));
 
+  /// 摘要只是附帶的：主機沒給或格式不對時回傳 null，不讓它擋住結束。
   @override
-  Future<void> end(HostSettings settings) => _post(settings, '/v1/tour/end');
+  Future<TourSummary?> end(HostSettings settings) async {
+    final response = await _send(
+      settings,
+      (uri, headers) => _http.post(uri, headers: headers),
+      '/v1/tour/end',
+    );
+    try {
+      final json = jsonDecode(utf8.decode(response.bodyBytes));
+      final summary = json is Map<String, dynamic> ? json['summary'] : null;
+      return summary is Map<String, dynamic>
+          ? TourSummary.fromJson(summary)
+          : null;
+    } on FormatException {
+      return null;
+    } on TypeError {
+      return null;
+    }
+  }
 
   @override
   Future<NarrationPoll> poll(

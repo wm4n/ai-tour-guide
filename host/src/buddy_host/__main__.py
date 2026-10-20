@@ -22,6 +22,15 @@ DAY = 24 * 3600
 QA_LATENCY_LOG = "qa-latency.jsonl"
 
 
+def open_photo_store():
+    """拍照提問的照片存放處（在 repo 外、有保留期限）；啟動時順便清掉過期的。"""
+    from buddy_host.qa.photos import PhotoStore
+
+    store = PhotoStore(default_home() / "photos")
+    store.purge()
+    return store
+
+
 def build_real_services(max_llm_calls: int):
     """回傳（介紹準備器, 問答服務的工廠）；兩邊共用同一個有上限的 Claude 客戶端。"""
     import httpx2
@@ -72,6 +81,7 @@ def build_real_services(max_llm_calls: int):
             quota=quota,
             journey=journey,
             latency_log=UsageLog(home / QA_LATENCY_LOG),
+            photos=open_photo_store(),
         )
 
     return preparer, answerer
@@ -105,6 +115,7 @@ def main() -> None:
                 out_dir=default_home() / "out" / "answers-replay",
                 quota=quota,
                 journey=journey,
+                photos=open_photo_store(),
             )
 
     elif args.max_llm_calls is not None:

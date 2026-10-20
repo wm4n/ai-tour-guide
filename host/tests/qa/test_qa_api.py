@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import time
 
 import pytest
@@ -10,6 +11,7 @@ from buddy_host.config import HostConfig
 from buddy_host.llm.claude_cli import QuotaExceededError
 from buddy_host.llm.models import LlmResult
 from buddy_host.narration.preparer import PreparedNarration
+from buddy_host.qa.photos import PhotoStore
 from buddy_host.qa.service import QaService
 
 BODY = {
@@ -87,7 +89,7 @@ def persona(tmp_path):
     return path
 
 
-def build_client(tmp_path, wav, persona, llm, preparer=None, token="s3cret"):
+def build_client(tmp_path, wav, persona, llm, preparer=None, token="s3cret", photos=True):
     config = HostConfig(home=tmp_path, token=token)
 
     def factory(quota, journey):
@@ -99,6 +101,7 @@ def build_client(tmp_path, wav, persona, llm, preparer=None, token="s3cret"):
             out_dir=tmp_path / "qa",
             quota=quota,
             journey=journey,
+            photos=PhotoStore(tmp_path / "photos", max_bytes=2000) if photos else None,
         )
 
     app = create_app(config, preparer=preparer or FakePreparer(wav), answerer_factory=factory)
@@ -307,3 +310,57 @@ def test_the_tour_report_includes_the_qa_delay(tmp_path, wav, persona):
 
     [path] = reports.glob("tour-*.json")
     assert json.loads(path.read_text(encoding="utf-8"))["qa"]["avg_first_segment_seconds"] == 6.5
+
+
+JPEG_B64 = base64.b64encode(b"\xff\xd8\xff\xe0" + b"\x00" * 64).decode()
+
+
+def test_ask_photo_requires_the_token(tmp_path, wav, persona, llm):
+    with build_client(tmp_path, wav, persona, llm) as bare:
+        del bare.headers["X-Buddy-Token"]
+        body = {**BODY, "image_base64": JPEG_B64}
+        assert bare.post("/v1/qa/ask-photo", json=body).status_code == 401
+
+
+def test_a_photo_question_is_answered_like_any_other(client, llm, tmp_path):
+    body = {**BODY, "question": "這是什麼？", "image_base64": JPEG_B64}
+
+    response = client.post("/v1/qa/ask-photo", json=body)
+
+    assert response.status_code == 200
+    answer = wait_for_answer(client, response.json()["id"])
+    assert answer["status"] == "done"
+    [saved] = list((tmp_path / "photos").iterdir())
+    assert str(saved) in llm.requests[0].prompt
+    assert "指南針" in llm.requests[0].prompt
+
+
+def test_the_question_defaults_to_what_is_this(client, llm):
+    body = {key: value for key, value in BODY.items() if key != "question"}
+
+    answer_id = client.post("/v1/qa/ask-photo", json={**body, "image_base64": JPEG_B64}).json()[
+        "id"
+    ]
+    wait_for_answer(client, answer_id)
+
+    assert "這是什麼" in llm.requests[0].prompt
+
+
+def test_a_bad_photo_is_refused(client):
+    not_base64 = {**BODY, "image_base64": "%%%這不是base64%%%"}
+    not_an_image = {**BODY, "image_base64": base64.b64encode(b"hello").decode()}
+
+    assert client.post("/v1/qa/ask-photo", json=not_base64).status_code == 400
+    assert client.post("/v1/qa/ask-photo", json=not_an_image).status_code == 400
+
+
+def test_a_photo_over_the_limit_is_413(client):
+    big = base64.b64encode(b"\xff\xd8\xff\xe0" + b"\x00" * 5000).decode()
+
+    assert client.post("/v1/qa/ask-photo", json={**BODY, "image_base64": big}).status_code == 413
+
+
+def test_photo_questions_are_unavailable_when_photos_are_not_enabled(tmp_path, wav, persona, llm):
+    with build_client(tmp_path, wav, persona, llm, photos=False) as client:
+        body = {**BODY, "image_base64": JPEG_B64}
+        assert client.post("/v1/qa/ask-photo", json=body).status_code == 503

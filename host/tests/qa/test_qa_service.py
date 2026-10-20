@@ -12,7 +12,8 @@ from buddy_host.llm.quota import QuotaGate
 from buddy_host.narration.prompt import ScriptContext
 from buddy_host.narration.traveler import Companions, TravelerContext, TravelMode
 from buddy_host.places.models import Candidate, Location
-from buddy_host.qa.service import QaService
+from buddy_host.qa.photos import PhotoRejected, PhotoStore
+from buddy_host.qa.service import PhotosUnavailable, QaService
 from buddy_host.tour.journey import JourneyMemory
 from buddy_host.tour.session import TourFix
 
@@ -655,3 +656,71 @@ async def test_a_question_blocked_by_the_quota_never_takes_a_turn(persona):
     await ask_and_wait(service)
 
     assert speech.turns == []
+
+
+JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 64
+
+
+def make_with_photos(persona, **kw):
+    store = PhotoStore(persona.parent / "photos")
+    service, parts = make(persona, photos=store, **kw)
+    return service, parts, store
+
+
+async def test_a_photo_question_saves_the_photo_and_hands_it_to_claude(persona):
+    llm = FakeLlm()
+    service, _, store = make_with_photos(persona, llm=llm)
+    compass_fix = TourFix(Location(25.056, 121.51, heading_deg=270.0), TRAVELER)
+
+    answer_id = service.ask_photo("這是什麼？", compass_fix, JPEG)
+    await service.wait_idle()
+
+    [saved] = list(store.directory.iterdir())
+    [request] = llm.requests
+    assert saved.read_bytes() == JPEG
+    assert str(saved) in request.prompt
+    assert "Read" in request.allowed_tools
+    assert request.add_dirs == (store.directory,)
+    assert "西" in request.prompt and "指南針" in request.prompt  # 拍照時的方向
+    assert service.answer(answer_id).status == "done"
+
+
+async def test_the_photo_is_kept_after_the_answer_until_the_retention_period_ends(persona):
+    service, _, store = make_with_photos(persona)
+
+    service.ask_photo("這是什麼？", FIX, JPEG)
+    await service.wait_idle()
+
+    assert len(list(store.directory.iterdir())) == 1
+
+
+async def test_something_that_is_not_a_photo_is_refused_before_anything_starts(persona):
+    llm = FakeLlm()
+    service, _, store = make_with_photos(persona, llm=llm)
+
+    with pytest.raises(PhotoRejected):
+        service.ask_photo("這是什麼？", FIX, b"not an image")
+    await service.wait_idle()
+
+    assert llm.requests == []
+    assert not store.directory.exists() or not list(store.directory.iterdir())
+
+
+async def test_photo_questions_are_unavailable_without_a_photo_store(persona):
+    service, _ = make(persona)
+
+    assert service.photos_enabled is False
+    with pytest.raises(PhotosUnavailable):
+        service.ask_photo("這是什麼？", FIX, JPEG)
+
+
+async def test_a_photo_question_goes_through_the_same_quota_gate(persona):
+    llm = FakeLlm()
+    service, parts, _ = make_with_photos(persona, llm=llm)
+    parts["quota"].trip(resets_at=parts["clock"].now + 3600)
+
+    answer_id = service.ask_photo("這是什麼？", FIX, JPEG)
+    await service.wait_idle()
+
+    assert service.answer(answer_id).reason == "quota"
+    assert llm.requests == []

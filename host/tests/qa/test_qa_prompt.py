@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from buddy_host.llm.models import Purpose, resolve_model
 from buddy_host.narration.prompt import WEB_TOOLS, ScriptContext
 from buddy_host.narration.traveler import Companions, TravelerContext, TravelMode
@@ -5,6 +7,7 @@ from buddy_host.places.models import Candidate, Location
 from buddy_host.qa.prompt import (
     QA_INSTRUCTIONS,
     AskContext,
+    PhotoInput,
     build_answer_request,
     describe_compass,
 )
@@ -127,3 +130,43 @@ def test_asking_for_more_before_anything_was_told_still_works():
 def test_the_instructions_do_not_demonstrate_forbidden_phrasing():
     # 把規則寫進 LLM 的提示時，範本裡不能示範被禁止的寫法（tasks/lessons.md）
     assert "好問題" not in QA_INSTRUCTIONS
+
+
+PHOTO = PhotoInput(path=Path("/home/x/.buddy-host/photos/abc.jpg"), compass_deg=270.0)
+
+
+def test_a_photo_question_hands_over_the_file_and_lets_claude_read_it():
+    request = build(photo=PHOTO, question="這是什麼？")
+
+    assert "/home/x/.buddy-host/photos/abc.jpg" in request.prompt
+    assert "Read" in request.prompt  # 明說要用 Read 工具看照片
+    assert "Read" in request.allowed_tools
+    assert set(WEB_TOOLS) <= set(request.allowed_tools)  # 上網的工具照舊
+    assert request.add_dirs == (PHOTO.path.parent,)
+
+
+def test_a_photo_question_uses_the_compass_not_the_travel_direction():
+    request = build(photo=PHOTO, question="這是什麼？")
+
+    assert "指南針" in request.prompt
+    assert "西" in request.prompt  # 270 度
+    assert "正朝" not in request.prompt  # 不是「走路的方向」
+
+
+def test_a_photo_without_a_compass_reading_does_not_pretend_to_know_the_direction():
+    request = build(photo=PhotoInput(PHOTO.path, None), question="這是什麼？")
+
+    assert "指南針" not in request.prompt
+    assert "拍照的方向不明" in request.prompt
+
+
+def test_a_plain_question_cannot_read_files():
+    request = build()
+
+    assert "Read" not in request.allowed_tools
+    assert request.add_dirs == ()
+
+
+def test_the_instructions_tell_claude_not_to_describe_the_photo_like_a_report():
+    # 問答是口說：要回答「這是什麼」，不是把照片逐項描述一遍
+    assert "照片" in QA_INSTRUCTIONS

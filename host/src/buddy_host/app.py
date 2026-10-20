@@ -1,4 +1,6 @@
 import asyncio
+import base64
+import binascii
 import hmac
 from collections.abc import Callable
 from dataclasses import asdict
@@ -15,7 +17,8 @@ from buddy_host.config import HostConfig
 from buddy_host.llm.quota import QuotaGate
 from buddy_host.narration.traveler import Companions, TravelerContext, TravelMode
 from buddy_host.places.models import Location
-from buddy_host.qa.service import QaService
+from buddy_host.qa.photos import PhotoRejected, PhotoTooLarge
+from buddy_host.qa.service import PhotosUnavailable, QaService
 from buddy_host.tour.journey import JourneyMemory
 from buddy_host.tour.session import PreparerLike, TourFix, TourNotActiveError, TourSession
 from buddy_host.tour.usage_report import finish_tour
@@ -59,6 +62,18 @@ class AskBody(FixBody):
 
     question: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
     more: bool = False
+
+
+class AskPhotoBody(FixBody):
+    """拍照提問。`heading_deg` 是拍照時手機的指南針方向（不是走路的方向）。
+
+    沒給問題就是「這是什麼？」。
+    """
+
+    question: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)
+    ] = "這是什麼？"
+    image_base64: Annotated[str, StringConstraints(min_length=1, max_length=16_000_000)]
 
 
 AnswererFactory = Callable[[QuotaGate, JourneyMemory], QaService]
@@ -153,6 +168,24 @@ def create_app(
     @app.post("/v1/qa/ask", dependencies=[authed])
     async def qa_ask(body: AskBody) -> dict[str, str]:
         return {"id": qa().ask(body.question, body.to_fix(), more=body.more)}
+
+    @app.post("/v1/qa/ask-photo", dependencies=[authed])
+    async def qa_ask_photo(body: AskPhotoBody) -> dict[str, str]:
+        service = qa()
+        if not service.photos_enabled:
+            raise HTTPException(status_code=503, detail="拍照提問尚未啟用")
+        try:
+            image = base64.b64decode(body.image_base64, validate=True)
+        except (binascii.Error, ValueError):
+            raise HTTPException(status_code=400, detail="照片不是有效的 base64") from None
+        try:
+            return {"id": service.ask_photo(body.question, body.to_fix(), image)}
+        except PhotoTooLarge as error:
+            raise HTTPException(status_code=413, detail=str(error)) from None
+        except PhotoRejected as error:
+            raise HTTPException(status_code=400, detail=str(error)) from None
+        except PhotosUnavailable:
+            raise HTTPException(status_code=503, detail="拍照提問尚未啟用") from None
 
     @app.get("/v1/qa/answer", dependencies=[authed])
     async def qa_answer(id: str) -> dict:

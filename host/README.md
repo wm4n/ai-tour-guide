@@ -79,6 +79,7 @@ uv run python -m buddy_host.speech --text-file 稿子.txt --name demo
 | 端點 | 用途 |
 |---|---|
 | `POST /v1/qa/ask` | 發問。帶 `question`（1～500 字）、位置與旅人狀態（欄位同 `/v1/tour/start`），`more: true` 表示「再多說一點」；回 `{"id": …}` |
+| `POST /v1/qa/ask-photo` | 拍照提問。欄位同 `/v1/qa/ask`，另加 `image_base64`（JPEG／PNG）；`question` 沒給就是「這是什麼？」；`heading_deg` 是拍照時手機的**指南針**方向（不是走路的方向）。回 `{"id": …}`，之後和一般問答一樣輪詢。不是 JPEG／PNG 或不是有效 base64 回 400、超過 8 MB 回 413、主機沒開放拍照回 503 |
 | `GET /v1/qa/answer?id=…` | 輪詢：`status`（`answering`＝還在寫或還在合成、`done`＝文字寫完且每段都做完、`failed`）、`segments`（已經可以下載的段落 `[{index, audio_seconds}]`，依序、編號連續）、`first_segment_seconds`（收到問題 → 第一段可下載）、`text`（Claude 的完整答案，寫完才有）、`searching_web`（Claude 動用了上網工具，App 可以說「我上網查一下」）、`reason`（`failed` 時：`quota`／`llm_budget`／`forbidden_model`／`no_audio`／`error`）；不認得的 id 回 404 |
 | `GET /v1/qa/audio?id=…&index=N` | 下載答案的第 N 段 wav；還沒做好或不存在回 404 |
 
@@ -102,3 +103,10 @@ uv run python -m buddy_host.speech --text-file 稿子.txt --name demo
 - 每次寫稿都帶：這趟最近 5 個講過的地方名（`recent_topics`），以及這個地方以前最近 2 次講過的稿子、各截 300 字（`told_before`）。經過以前講過的地方，個性檔要求換個角度講。
 - **快取**：稿子的指紋包含 `recent_topics`（稿子可能寫「剛剛的 A」），所以同一條路線重跑不再保證命中舊稿；起點那一段（還沒講過任何地方）仍可命中。
 - `--replay-dir` 模式不寫 `journey.json`（桌上測試不該污染真實的永久記錄）。
+
+**拍照提問**（`qa/photos.py`，設計文件第 8 節第 7 點）：
+- 照片只存在主機本機 `~/.buddy-host/photos/`（在 repo 外），檔名是隨機字串、權限 0600；**保留 24 小時**，每次存新照片與主機啟動時清掉過期的。只收 JPEG／PNG，上限 8 MB。
+- Claude 用 `Read` 工具看照片（`--add-dir` 開放照片資料夾；做法見 `docs/spikes/2026-10-19-claude-headless`）。prompt 說明手機對著哪個方位（指南針），附近景點的「前後左右」以那個方向為準；沒有指南針讀數就明說方向不明。
+- 注意：給了 `Read` 工具，Claude 技術上能讀主機上任何檔案；照片來自使用者自己的手機，但照片內容若夾帶指示，理論上有被牽著走的風險（只在使用者自己拍的東西上，屬於已知取捨）。
+- **真實 Claude 讀圖尚未驗證**：目前全部是 fake LLM；要驗證須使用者先同意呼叫次數（每次約 50k～80k 輸入 token）。
+

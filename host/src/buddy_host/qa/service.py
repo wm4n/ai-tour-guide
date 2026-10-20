@@ -26,7 +26,8 @@ from buddy_host.llm.quota import QuotaGate
 from buddy_host.llm.usage_log import UsageLog
 from buddy_host.narration.prompt import WEB_TOOLS, ScriptContext, load_persona
 from buddy_host.places.models import Location
-from buddy_host.qa.prompt import AskContext, build_answer_request
+from buddy_host.qa.photos import PhotoStore
+from buddy_host.qa.prompt import AskContext, PhotoInput, build_answer_request
 from buddy_host.qa.segmenter import AnswerSegmenter
 from buddy_host.speech.pipeline import SpeechResult
 from buddy_host.speech.pipeline import write_outputs as write_speech
@@ -59,6 +60,10 @@ class AnswerSpeechLike(Protocol):
         ...
 
 
+class PhotosUnavailable(RuntimeError):
+    """主機沒有開放拍照提問（沒有照片存放處）。"""
+
+
 @dataclass
 class AnswerSegment:
     index: int  # 連續編號：驗收不過被跳過的段落不佔編號
@@ -89,6 +94,7 @@ class QaService:
         quota: QuotaGate,
         journey: JourneyMemory,
         latency_log: UsageLog | None = None,
+        photos: PhotoStore | None = None,
         monotonic=time.monotonic,
         nearby_limit: int = NEARBY_LIMIT,
         nearby_timeout_s: float = NEARBY_TIMEOUT_S,
@@ -102,6 +108,7 @@ class QaService:
         self._quota = quota
         self._journey = journey
         self._latency_log = latency_log
+        self._photos = photos
         self._monotonic = monotonic
         self._nearby_limit = nearby_limit
         self._nearby_timeout_s = nearby_timeout_s
@@ -109,15 +116,37 @@ class QaService:
         self._answers: OrderedDict[str, Answer] = OrderedDict()
         self._tasks: set[asyncio.Task] = set()
 
+    @property
+    def photos_enabled(self) -> bool:
+        return self._photos is not None
+
     def ask(self, question: str, fix: TourFix, *, more: bool = False) -> str:
         """收下問題、開始回答，回傳答案的 id（App 用它輪詢）。需要在事件迴圈裡呼叫。"""
+        return self._start(question, fix, more=more, photo=None)
+
+    def ask_photo(self, question: str, fix: TourFix, image: bytes) -> str:
+        """拍照提問：照片存在主機本機（有保留期限），Claude 用 Read 工具看。
+
+        `fix.location.heading_deg` 是拍照時手機的指南針方向。不是照片（或太大）時丟 PhotoRejected，
+        什麼都不會開始。
+        """
+        if self._photos is None:
+            raise PhotosUnavailable("沒有照片存放處")
+        path = self._photos.save(image)
+        return self._start(
+            question, fix, more=False, photo=PhotoInput(path, fix.location.heading_deg)
+        )
+
+    def _start(self, question: str, fix: TourFix, *, more: bool, photo: PhotoInput | None) -> str:
         started = self._monotonic()
         answer = Answer(uuid.uuid4().hex[:12])
         self._answers[answer.id] = answer
         while len(self._answers) > self._keep:
             evicted, _ = self._answers.popitem(last=False)
             shutil.rmtree(self._out_dir / evicted, ignore_errors=True)
-        task = asyncio.create_task(self._answer(answer, question.strip(), fix, more, started))
+        task = asyncio.create_task(
+            self._answer(answer, question.strip(), fix, more, started, photo)
+        )
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
         return answer.id
@@ -139,7 +168,13 @@ class QaService:
         return self._out_dir / answer_id / f"seg-{index}.wav"
 
     async def _answer(
-        self, answer: Answer, question: str, fix: TourFix, more: bool, started: float
+        self,
+        answer: Answer,
+        question: str,
+        fix: TourFix,
+        more: bool,
+        started: float,
+        photo: PhotoInput | None,
     ) -> None:
         if not self._quota.admit():  # 額度還沒恢復：連 Claude 都不呼叫
             return self._fail(answer, "quota")
@@ -147,7 +182,7 @@ class QaService:
         turn = self._speech.begin()  # 從開始回答起就算問答優先，介紹不會趁 Claude 寫字的空檔插進來
         speaker = asyncio.create_task(self._speak(answer, segments, started, turn))
         try:
-            reason = await self._converse(answer, question, fix, more, segments, speaker)
+            reason = await self._converse(answer, question, fix, more, photo, segments, speaker)
         finally:
             # 不論成功、失敗或被取消都收掉合成的任務：已經做好的段落留著，還沒做的不做了
             speaker.cancel()
@@ -164,12 +199,13 @@ class QaService:
         question: str,
         fix: TourFix,
         more: bool,
+        photo: PhotoInput | None,
         segments: asyncio.Queue[str | None],
         speaker: asyncio.Task,
     ) -> str | None:
         """問 Claude、等每一段做完；回傳失敗原因，成功是 None。"""
         try:
-            answer.text = await self._write(answer, question, fix, more, segments)
+            answer.text = await self._write(answer, question, fix, more, photo, segments)
         except LlmBudgetExhaustedError:  # 先於 QuotaExceededError：它是子類別，但永遠不會自己恢復
             return "llm_budget"
         except QuotaExceededError as error:
@@ -195,6 +231,7 @@ class QaService:
         question: str,
         fix: TourFix,
         more: bool,
+        photo: PhotoInput | None,
         segments: asyncio.Queue[str | None],
     ) -> str:
         """請 Claude 回答；寫到哪切到哪，一段一段交給合成。回傳完整答案。"""
@@ -212,7 +249,7 @@ class QaService:
                 answer.searching_web = True
                 segmenter.discard()  # 查資料之前說的開場白不念
 
-        context = await self._context(question, fix, more)
+        context = await self._context(question, fix, more, photo)
         request = build_answer_request(load_persona(self._persona_path), context)
         result = await self._llm.run(
             request, on_text=lambda delta: enqueue(segmenter.feed(delta)), on_tool=on_tool
@@ -277,7 +314,9 @@ class QaService:
         except Exception:  # 記錄只是附帶的，不能讓答案因此卡住
             logger.exception("問答延遲記錄寫入失敗")
 
-    async def _context(self, question: str, fix: TourFix, more: bool) -> AskContext:
+    async def _context(
+        self, question: str, fix: TourFix, more: bool, photo: PhotoInput | None
+    ) -> AskContext:
         try:
             nearby = await asyncio.wait_for(
                 self._nearby.nearby(fix.location, limit=self._nearby_limit),
@@ -295,6 +334,7 @@ class QaService:
             told_before=self._journey.told_before(),
             last_told=self._journey.last_told(),
             more=more,
+            photo=photo,
         )
 
     @staticmethod

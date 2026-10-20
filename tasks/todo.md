@@ -274,3 +274,26 @@ code-review 後修正：
 - 獨立的 CLI（`narration`／`speech`／`phrases` 的 `__main__`）自己建 pipeline、不經排程器：手動工具，不在服務行程內
 
 **還沒做**：真實 M3 上「介紹合成到一半時進來的問題要多等多久」的量測——要實機合成。
+
+## #23 問答（App）：按住說話提問、播放答案（2026-10-20，分支 `feat/v2-qa`）
+
+做了：
+- `qa/qa_api.dart`（`HttpQaApi`：ask／answer 輪詢／逐段下載）；抽出 `host/host_http.dart`（送出、token、逾時、錯誤統一為 `TourApiException`）與旅程 API 共用
+- `qa/speech_recognizer.dart`：引擎可注入；`QuestionListener` 先試本機 zh-TW、被拒絕（`OnDeviceUnavailable`）就改線上並記住；`SpeechToTextRecognizer`（speech_to_text）；Info.plist 加麥克風與語音辨識說明（有測試）
+- `qa/qa_controller.dart`：按下開始聽、放開送出；念填空短句 1／2 交替；輪詢答案、出現一段就下載並播一段（各段之間不釋放 audio focus，整個答案播完才恢復）；8 秒沒有任何一段補短句 3、`searching_web` 補短句 4（各一次，已有語音就不補）；額度用完只在畫面提示不念；連不上主機沿用旅程的斷線處理；旅程結束取消
+- `TourController`：`beginQuestion／endQuestion`（問答期間不開始新介紹、不念「連不上」）、`noteHostFailed／noteHostReached`、`position`
+- `NarrationPlayer`：`releaseFocus`／`release()`；答案用另一個播放器與暫存檔
+- UI：旅程中的「按住說話」（`Listener`，按下立刻開麥）、辨識方式、上網中、額度、錯誤提示；`FAKE_QUESTION` 假辨識
+- 主機：重播模式（`--replay-dir`）開放問答，回固定假答案與提示音（`qa/replay.py`），供模擬器端到端
+
+驗證：App 207 項、analyze 乾淨；host 566 項、ruff 乾淨。**模擬器端到端通過**（iPhone 16 模擬器：重播主機＋`FAKE_QUESTION`，出發 → 按住 → 放開 → ask → 輪詢 → 下載兩段 → 回到可再問；主機日誌確認）。全程沒有呼叫真實 Claude。
+
+我的解讀（請使用者確認）：
+- 「按下去立刻播短句」解讀成**放開（問完）之後**才播：按住時麥克風是開的，這時出聲會被辨識進去。若要按下就播，移動 `_submit` 的 `_say`，並要處理辨識與喇叭聲
+- 「再多說一點」由 App 比對辨識出的文字（「再多說」「多說一點」…）決定是否帶 `more: true`
+
+**還沒做**：
+- #24：發問時正在播的介紹不會暫停、也不會從中斷的那句接著講（目前只是不再開始新的）
+- 實機才驗得到：本機 zh-TW 辨識是否可用（#10）、放開後多久拿到最終文字、麥克風權限對話框、錄音與播放切換的 audio session（plugin 會暫時改成 playAndRecord 並在結束後還原，未實測）
+
+遇到的坑：模擬器第一次建置時 `xcodebuild` 卡在 `ibtoold` 42 分鐘（只用了數秒 CPU）；終止後重跑 75 秒完成。

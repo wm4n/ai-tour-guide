@@ -1,3 +1,4 @@
+import asyncio
 import hmac
 from collections.abc import Callable
 from dataclasses import asdict
@@ -81,7 +82,8 @@ def create_app(
     async def tour_start(body: FixBody) -> dict:
         outcome = tour().start(body.to_fix())
         if outcome.abandoned is not None:  # 上一趟沒按結束就被丟下：替它收尾
-            finish_tour(outcome.abandoned, usage_log_path, reports_dir)
+            # 報告要讀整份 usage.jsonl（只會越來越大），不在事件迴圈上做
+            await asyncio.to_thread(finish_tour, outcome.abandoned, usage_log_path, reports_dir)
         return {"status": "started", "resumed": outcome.resumed}
 
     @app.post("/v1/tour/location", dependencies=[authed])
@@ -102,7 +104,8 @@ def create_app(
         recap = tour().end()
         if recap is None:
             return {"status": "ended", "summary": None}
-        return {"status": "ended", "summary": finish_tour(recap, usage_log_path, reports_dir)}
+        summary = await asyncio.to_thread(finish_tour, recap, usage_log_path, reports_dir)
+        return {"status": "ended", "summary": summary}
 
     @app.get("/v1/tour/narrations", dependencies=[authed])
     async def tour_narrations(after: int = 0) -> dict:

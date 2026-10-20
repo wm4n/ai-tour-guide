@@ -715,6 +715,47 @@ void main() {
       expect(h.phrases.played, hasLength(spoken)); // 重新連上不念
     });
 
+    test(
+      'a narration the host no longer has is dropped, not retried',
+      () async {
+        final h = await makeHarness();
+        await h.tour.start();
+        await h.moveTo(nearFix());
+        h.api.downloadError = TourApiException('gone', statusCode: 404);
+        h.api.queue([info('A')]);
+
+        await h.tick();
+        final downloads = h.api.downloads.length;
+        for (var i = 0; i < 5; i++) {
+          await h.tick(after: const Duration(seconds: 15));
+        }
+
+        expect(h.api.downloads.length, downloads); // 不再重抓
+        expect(h.player.played, isEmpty);
+        expect(
+          h.phrases.played.where((p) => p == FixedPhrase.hostUnreachable),
+          isEmpty, // 主機還在，只是這段不在了：不是斷線
+        );
+      },
+    );
+
+    test(
+      'a server error on the download is still treated as an outage',
+      () async {
+        final h = await makeHarness();
+        await h.tour.start();
+        await h.moveTo(nearFix());
+        h.api.downloadError = TourApiException('boom', statusCode: 503);
+        h.api.queue([info('A')]);
+        await h.tick();
+        h.api.downloadError = null;
+
+        await h.tick(after: retry);
+
+        expect(h.player.played, ['A']);
+      },
+    );
+
     test('a second outage is announced again', () async {
       final h = await makeHarness();
       await h.tour.start();

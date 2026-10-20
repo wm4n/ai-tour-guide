@@ -9,9 +9,12 @@ import 'playback_policy.dart';
 import 'traveler_state.dart';
 
 class TourApiException implements Exception {
-  TourApiException(this.message);
+  TourApiException(this.message, {this.statusCode});
 
   final String message;
+
+  /// 主機有回應但拒絕時的 HTTP 狀態碼；連不上、逾時等沒有回應的情況是 null。
+  final int? statusCode;
 
   @override
   String toString() => 'TourApiException: $message';
@@ -224,7 +227,10 @@ class HttpTourApi implements TourApi {
         {if (settings.token.isNotEmpty) 'X-Buddy-Token': settings.token},
       ).timeout(timeout);
       if (response.statusCode != 200) {
-        throw TourApiException('$path answered ${response.statusCode}');
+        throw TourApiException(
+          '$path answered ${response.statusCode}',
+          statusCode: response.statusCode,
+        );
       }
       return response;
     } on TourApiException {

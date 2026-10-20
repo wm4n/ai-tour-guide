@@ -122,6 +122,32 @@ void main() {
     expect(seen.url.path, '/v1/tour/end');
   });
 
+  test('a refused request carries the status code', () async {
+    final api = apiWith((request) async => http.Response('gone', 404));
+
+    await expectLater(
+      api.downloadAudio(settings, 'wiki:A'),
+      throwsA(
+        isA<TourApiException>().having((e) => e.statusCode, 'statusCode', 404),
+      ),
+    );
+  });
+
+  test('a network failure has no status code', () async {
+    final api = apiWith((request) async => throw http.ClientException('down'));
+
+    await expectLater(
+      api.downloadAudio(settings, 'wiki:A'),
+      throwsA(
+        isA<TourApiException>().having(
+          (e) => e.statusCode,
+          'statusCode',
+          isNull,
+        ),
+      ),
+    );
+  });
+
   test('markPlayed tells the host which narration was heard', () async {
     late http.Request seen;
     final api = apiWith((request) async {

@@ -39,11 +39,15 @@ The `LocationService` abstract class SHALL expose `checkPermission()` that retur
 ---
 
 ### Requirement: Android manifest declares background location permissions
-The `AndroidManifest.xml` SHALL declare `ACCESS_BACKGROUND_LOCATION`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_LOCATION`, and `POST_NOTIFICATIONS` permissions. It SHALL also declare the `GeolocatorService` with `foregroundServiceType="location"`.
+The `AndroidManifest.xml` SHALL declare `ACCESS_BACKGROUND_LOCATION`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_LOCATION`, `WAKE_LOCK`, and `POST_NOTIFICATIONS` permissions. It SHALL also declare the `GeolocatorService` with `foregroundServiceType="location"`.
 
 #### Scenario: Background location permission declared
 - **WHEN** Android system reads the manifest
 - **THEN** `uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION"` is present
+
+#### Scenario: Wake lock permission declared for geolocator background updates
+- **WHEN** Android system reads the manifest
+- **THEN** `uses-permission android:name="android.permission.WAKE_LOCK"` is present
 
 #### Scenario: GeolocatorService declared with foreground type
 - **WHEN** Android system reads the manifest

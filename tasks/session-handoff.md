@@ -3,7 +3,7 @@
 > 這份文件給下一個 Claude session 用，目的是讓對方在 zero context 下能直接接手繼續推進。
 
 **前次 session 結束時間**：2026-05-14
-**前次 session 主要產出**：Plan E 食家 persona + Google Places 完成，Flutter 77/77 測試通過，後端 195/195 通過（+2 skipped），flutter analyze 12 info（無 error/warning）
+**前次 session 主要產出**：Plan F 背景定位 + Cloud Run 部署上線完成，Flutter 84/84 測試通過，後端 199/199 通過，flutter analyze 無 error
 
 ---
 
@@ -31,7 +31,7 @@
 | **C** | Persona 系統擴充 + 雙語（5 persona、zh-TW + en） | ✅ **完成** | `docs/superpowers/plans/2026-05-12-plan-c-persona-i18n.md` |
 | **D** | Push-to-talk Q&A | ✅ **完成** | `docs/superpowers/plans/2026-05-13-plan-d-push-to-talk.md` |
 | **E** | 食家 persona + Google Places | ✅ **完成** | `docs/superpowers/plans/2026-05-14-plan-e-foodie-google-places.md` |
-| **F** | 背景定位 + 部署上線 | 未開始 | 待寫 |
+| **F** | 背景定位 + Cloud Run 部署上線 | ✅ **完成** | `docs/superpowers/plans/2026-05-14-plan-f-background-location-deploy.md` |
 
 ---
 
@@ -81,6 +81,29 @@ d4c3d7c feat(backend): add PersonaLoader.load_all() to load all persona YAMLs
 
 **最後狀態**：Flutter 71/71 tests pass，後端 159/159 pass，flutter analyze 10 info（無 error/warning）
 
+### Plan F — 背景定位 + Cloud Run 部署上線（已完成）
+
+**最後狀態**：Flutter 84/84 tests pass，後端 199/199 pass，flutter analyze 無 error
+
+Plan F 新增的關鍵 commits（由新到舊）：
+```
+88b5282 chore: mark all Plan F tasks complete in tasks.md
+21809c1 docs: add prod.json.example and SETUP.md for production deployment guide
+917e815 feat(scripts): add GCP setup and Cloud Run deploy scripts
+3a6471a chore: update .gitignore and dart_defines for Plan F secrets
+5cff8fd feat(ios): background location, MAPS_API_KEY_IOS via xcconfig
+6356db0 feat(android): background location permissions, GeolocatorService, MAPS_API_KEY injection
+9e71c2e feat(flutter): App widget lifecycle observer for background notification routing
+d3209c2 feat(flutter): HomeScreen whileInUse background location SnackBar with TDD
+673b1c8 feat(flutter): TriggerNotifier background routing with TDD
+68d2468 feat(flutter): LocationService checkPermission() + Platform-aware background start()
+1e28819 feat(flutter): add notificationServiceProvider, appLifecycleStateProvider, BackendClient X-Api-Key header
+368de8d feat(flutter): add NotificationService with TDD
+1fb3b3a feat(flutter): add flutter_local_notifications ^17.2.4 dependency
+0b934ea feat(backend): add Dockerfile and .dockerignore for Cloud Run deployment
+d43b125 feat(backend): add X-Api-Key middleware with TDD
+```
+
 ### Plan E — 食家 persona + Google Places（已完成）
 
 **最後狀態**：Flutter 77/77 tests pass，後端 195/195 pass（+2 skipped），flutter analyze 12 info（無 error/warning）
@@ -122,12 +145,12 @@ b4c3716 feat(backend): add SttProvider protocol with FakeSttProvider and GeminiS
 
 ---
 
-## 4. Flutter App 架構（Plan D 產出）
+## 4. Flutter App 架構（Plan F 產出）
 
 ```
 flutter_app/lib/
 ├── main.dart                                  ← ProviderScope + runApp(App())
-├── app.dart                                   ← MaterialApp.router + GoRouter (/ → Home, /map → Map)
+├── app.dart                                   ← ConsumerStatefulWidget + WidgetsBindingObserver + NotificationService.init() [Plan F]
 ├── features/
 │   ├── session/
 │   │   ├── persona_data.dart                  ← PersonaInfo model + kPersonas (5 個 persona 常數) [Plan C]
@@ -149,7 +172,9 @@ flutter_app/lib/
 │       ├── providers/qa_provider.dart         ← QaNotifier (idle/recording/processing/answering/error)
 │       └── widgets/push_to_talk_button.dart   ← 長按麥克風按鈕 + 視覺狀態動畫
 └── shared/
-    ├── providers.dart                         ← + narrationAudioPlayerProvider / qaAudioPlayerProvider / micRecorderProvider [Plan D]
+    ├── providers.dart                         ← + notificationServiceProvider / appLifecycleStateProvider [Plan F]
+    ├── notification/
+    │   └── notification_service.dart          ← abstract NotificationService + Fake + Real (flutter_local_notifications) [Plan F]
     ├── backend/
     │   ├── backend_client.dart                ← + qa() multipart SSE 方法 [Plan D]
     │   ├── sse_parser.dart                    ← 純靜態 SseParser (text/event-stream → SseEvent)
@@ -159,7 +184,7 @@ flutter_app/lib/
     │       └── qa_event.dart                  ← sealed QaEvent (Transcript/Text/Audio/End/Error) [Plan D]
     ├── location/
     │   ├── haversine.dart                     ← 純函式 haversine(lat1, lon1, lat2, lon2) → metres
-    │   └── location_service.dart              ← abstract LocationService + Real + Fake
+    │   └── location_service.dart              ← abstract LocationService + Real（AndroidSettings/AppleSettings 背景模式）+ Fake [Plan F]
     ├── audio/
     │   └── audio_player_service.dart          ← + duck()/unduck() 方法 [Plan D]
     ├── mic/
@@ -198,47 +223,71 @@ flutter_app/lib/
 
 ## 5. 下一步具體 action（依優先序）
 
-### Step 1：端對端 smoke test（需要人工操作）
+### Step 1：取得真實 API Keys 並填入本地設定（需要人工操作）
 
 ```bash
-# 啟動後端
+# Android Maps API Key
+echo "MAPS_API_KEY_ANDROID=AIza..." >> flutter_app/android/local.properties
+
+# iOS Maps API Key
+cp flutter_app/ios/Flutter/LocalConfig.xcconfig.example flutter_app/ios/Flutter/LocalConfig.xcconfig
+# 編輯 LocalConfig.xcconfig 填入 MAPS_API_KEY_IOS=AIza...
+```
+
+| Key | 取得位置 |
+|---|---|
+| Gemini API Key | https://aistudio.google.com/apikey |
+| Google Maps（Android） | GCP Console → APIs → Maps SDK for Android |
+| Google Maps（iOS） | GCP Console → APIs → Maps SDK for iOS |
+| Google Places | GCP Console → APIs → Places API |
+
+### Step 2：真機端對端 smoke test
+
+```bash
+# 啟動後端（本地）
 cd backend && GEMINI_API_KEY=<真實key> .venv/bin/uvicorn tour_guide.main:app --reload
 
-# 跑 Flutter（Android Emulator）
+# Flutter Android Emulator
 cd flutter_app && flutter run --dart-define-from-file=dart_defines/dev.json
+
+# Flutter iOS Simulator
+cd flutter_app && flutter run \
+  --dart-define=BACKEND_URL=http://localhost:8000 \
+  --dart-define=API_KEY=dev
 ```
 
-驗證 Plan D golden path（包含 Plan C 已驗證的部分）：
+驗證 golden path：
 1. HomeScreen 顯示 5 張 persona 卡片，選角 + 切換語言
-2. 點「開始旅程」→ 地圖開啟，POI markers 顯示
-3. 走近 100m POI → 自動以選定 persona + 語言觸發旁白
-4. 旁白播放中，長按 PushToTalkButton → 麥克風變紅色脈衝動畫，旁白音量降 50%
-5. 說話後放開 → 顯示「處理中」→ Q&A 回答串流播放 → 旁白音量恢復
+2. 點「開始旅程」→ 地圖開啟，POI markers 顯示（若 `whileInUse` 權限則顯示 SnackBar）
+3. 走近 100m POI → 前景觸發旁白
+4. 鎖屏後走近 POI → 顯示本地通知
+5. 旁白播放中，長按 PushToTalkButton → Q&A 正常運作
 
-手動驗收 /qa endpoint curl：
+### Step 3：Cloud Run 部署（選做）
+
 ```bash
-curl -X POST http://localhost:8000/qa \
-  -F "audio=@/dev/null;type=audio/wav" \
-  -F 'context={"current_poi_id":"osm:1","persona":"history_uncle","lang":"zh-TW","narration_so_far":""}' \
-  -H "Accept: text/event-stream"
+# 建立 GCP 專案（僅需一次）
+scripts/setup-gcp.sh
+
+# 部署後端
+export GEMINI_API_KEY=...
+export GOOGLE_PLACES_API_KEY=...
+scripts/deploy-backend.sh
+
+# 設定 Flutter prod dart-define
+cp flutter_app/dart_defines/prod.json.example flutter_app/dart_defines/prod.json
+# 填入 BACKEND_URL 和 API_KEY
 ```
-
-### Step 2：Plan F — 背景定位 + 部署上線
-
-- Plan E 已完成，下一步是 Plan F
-- 背景定位（Background geolocation）
-- Cloud Run 部署
-- Google Maps + Google Places API Key 設定
 
 ---
 
 ## 6. 必須知道的 context
 
-### 6.1 Google Maps API Key（尚未設定）
+### 6.1 Google Maps API Key（Plan F — 使用 local.properties / xcconfig）
 
-需要替換兩個佔位符：
-- Android：`flutter_app/android/app/src/main/AndroidManifest.xml` → `YOUR_ANDROID_MAPS_API_KEY`
-- iOS：`flutter_app/ios/Runner/AppDelegate.swift` → `YOUR_IOS_MAPS_API_KEY`
+Plan F 改用安全注入方式（不進 git）：
+- **Android**：`flutter_app/android/local.properties` → `MAPS_API_KEY_ANDROID=AIza...`
+- **iOS**：`flutter_app/ios/Flutter/LocalConfig.xcconfig`（從 `.example` 複製）→ `MAPS_API_KEY_IOS=AIza...`
 
 取得 key：Google Cloud Console → Maps SDK for Android + Maps SDK for iOS 啟用
 
@@ -249,7 +298,17 @@ curl -X POST http://localhost:8000/qa \
 
 所有 unit/widget/integration test 均用 fake，不需要真實 key。
 
-### 6.3 Plan D 實作細節（重要）
+### 6.3 Plan F 實作細節（重要）
+
+- `App` widget 已改為 `ConsumerStatefulWidget` + `WidgetsBindingObserver`，`initState` 呼叫 `notificationServiceProvider.init()`，`didChangeAppLifecycleState` 更新 `appLifecycleStateProvider`
+- `TriggerNotifier._evaluate()` 讀取 `appLifecycleStateProvider`：`resumed` → `NarrationNotifier.narrate()`，其他 → `NotificationService.showPoiTrigger(poi)`
+- `RealLocationService.start()` 依 `Platform.isIOS` 選 `AppleSettings`（`allowBackgroundLocationUpdates: true`）或 `AndroidSettings`（含 `ForegroundNotificationConfig`）
+- X-Api-Key：空字串時 middleware 不攔截（開發環境設 `API_KEY=dev`，prod 由 Secret Manager 注入）
+- `BackendClient` 的 `apiKey` 從 `const String.fromEnvironment('API_KEY')` 讀取
+- dart-define 檔案：`dev.json` 含 `API_KEY=dev`；`prod.json`（gitignored）從 `prod.json.example` 複製後填入
+- TriggerNotifier 測試用 `container.listen()` 建立訂閱（`container.read()` 不保持 provider 活躍），再 `await Future.microtask()` 確保事件傳遞
+
+### 6.4 Plan D 實作細節（重要）
 
 - `QaNotifier.stopAndSend()` 有 **500ms guard**：長按不足 500ms 自動靜默取消（不送 /qa）
 - `EndQaEvent` sealed class 不能用 `const` constructor（Dart 限制），改為一般 constructor
@@ -257,7 +316,7 @@ curl -X POST http://localhost:8000/qa \
 - `http_parser` 在 `pubspec.yaml` 顯式宣告（avoid_dynamic_calls lint 要求）
 - Q&A 專用獨立 AudioPlayer（`qaAudioPlayerProvider`），旁白（`narrationAudioPlayerProvider`）的別名已在 providers.dart 建立
 
-### 6.4 Plan C 設計限制（MVP 有意為之，後續 Plan 擴充）
+### 6.5 Plan C 設計限制（MVP 有意為之，後續 Plan 擴充）
 
 - `foodie` persona 的 Google Places POI 路由 → Plan E 範圍（Plan C 先走 osm_wikipedia）
 - Flutter UI 文字 i18n（按鈕、對話框）維持中文 → Plan F 範圍
@@ -265,14 +324,14 @@ curl -X POST http://localhost:8000/qa \
 - `recordNarration(sessionId: 1, ...)` hardcoded — MVP 不強制 session FK
 - `flutter analyze` 僅 info 等級，無 error/warning
 
-### 6.4 Drift build_runner
+### 6.6 Drift build_runner
 
 如果修改 `local_db.dart` schema，需重跑：
 ```bash
 cd flutter_app && dart run build_runner build --delete-conflicting-outputs
 ```
 
-### 6.5 SubAgent 執行方式
+### 6.7 SubAgent 執行方式
 
 本專案使用 `superpowers:subagent-driven-development` + `opsx:new` 做 Spec Driven Development。每個 task 走 fresh subagent → spec review → code quality review → mark complete 流程。
 
@@ -292,6 +351,14 @@ cd flutter_app && dart run build_runner build --delete-conflicting-outputs
 | OpenSpec Plan D change（已 archive） | `openspec/changes/archive/2026-05-13-plan-d-push-to-talk/` |
 | Plan D 設計規格 | `docs/superpowers/specs/2026-05-13-plan-d-push-to-talk-design.md` |
 | Plan D 實作計畫 | `docs/superpowers/plans/2026-05-13-plan-d-push-to-talk.md` |
+| OpenSpec Plan F change（已 archive） | `openspec/changes/archive/2026-05-14-plan-f-background-location-deploy/` |
+| Plan F 設計規格 | `docs/superpowers/specs/2026-05-14-plan-f-background-location-deploy-design.md` |
+| Plan F 實作計畫 | `docs/superpowers/plans/2026-05-14-plan-f-background-location-deploy.md` |
+| NotificationService | `flutter_app/lib/shared/notification/notification_service.dart` |
+| GCP 設定腳本 | `scripts/setup-gcp.sh` |
+| Cloud Run 部署腳本 | `scripts/deploy-backend.sh` |
+| 完整設定指引 | `SETUP.md` |
+| Prod dart-define 範本 | `flutter_app/dart_defines/prod.json.example` |
 | Persona YAML 檔案 | `backend/prompts/personas/` |
 | Backend 程式碼 | `backend/src/tour_guide/` |
 | Flutter App 程式碼 | `flutter_app/lib/` |
@@ -316,8 +383,8 @@ cd flutter_app && dart run build_runner build --delete-conflicting-outputs
 ```text
 我想接續上次的 AI tour guide 專案進度。請先讀 tasks/session-handoff.md，
 然後按其中「下一步具體 action」往下做。
-Plan A（後端）、Plan B（Flutter App）、Plan C（Persona 系統 + 雙語）、Plan D（Push-to-talk Q&A）、Plan E（食家 persona + Google Places）都已完成，
-下一步是端對端 smoke test，然後開始 Plan F（背景定位 + 部署上線）。
+Plan A（後端）、Plan B（Flutter App）、Plan C（Persona 系統 + 雙語）、Plan D（Push-to-talk Q&A）、Plan E（食家 persona + Google Places）、Plan F（背景定位 + Cloud Run 部署上線）都已完成。
+下一步是取得真實 API Keys、填入本地設定，並進行真機端對端 smoke test。
 ```
 
 —— END HANDOFF

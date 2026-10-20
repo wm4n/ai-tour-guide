@@ -1,0 +1,108 @@
+{"word": "哇", "sentence_index": 0, "text": "哇，這條老街的磚牆保存得真完整。", "seed": 1234, "cer": 0.214, "hypothesis": "哇 這條老街的專強保存的真完整", "audio_seconds": 3.64, "synth_seconds": 13.9, "check_seconds": 2.4}
+{"word": "哇", "sentence_index": 0, "text": "哇，這條老街的磚牆保存得真完整。", "seed": 7, "cer": 0.357, "hypothesis": "哦啊,這條老街的專情保存的真完整。", "audio_seconds": 5.88, "synth_seconds": 35.7, "check_seconds": 9.4}
+{"word": "哇", "sentence_index": 0, "text": "哇，這條老街的磚牆保存得真完整。", "seed": 42, "cer": 1.071, "hypothesis": "上頭是中國式, 指字。正得來, 指字。 指字。", "audio_seconds": 7.8, "synth_seconds": 17.1, "check_seconds": 2.9}
+{"word": "哇", "sentence_index": 1, "text": "哇，抬頭就看到好大一棵老榕樹。", "seed": 1234, "cer": 0.231, "hypothesis": "抬頭就看到好大棋棵老榮樹。", "audio_seconds": 3.96, "synth_seconds": 11.6, "check_seconds": 1.6}
+{"word": "哇", "sentence_index": 1, "text": "哇，抬頭就看到好大一棵老榕樹。", "seed": 7, "cer": 0.308, "hypothesis": "抬頭就看到好大七顆老龍樹。", "audio_seconds": 3.96, "synth_seconds": 10.7, "check_seconds": 1.6}
+{"word": "哇", "sentence_index": 1, "text": "哇，抬頭就看到好大一棵老榕樹。", "seed": 42, "cer": 1.0, "hypothesis": "在 指 破 指 度 緊 聽 度 指 字 字 字", "audio_seconds": 7.96, "synth_seconds": 18.6, "check_seconds": 1.7}
+{"word": "哇", "sentence_index": 2, "text": "哇，這間店的招牌已經掛了快一百年。", "seed": 1234, "cer": 0.0, "hypothesis": "哇 這間店的招牌已經掛了快100年。", "audio_seconds": 3.64, "synth_seconds": 8.8, "check_seconds": 1.4}
+{"word": "哇", "sentence_index": 2, "text": "哇，這間店的招牌已經掛了快一百年。", "seed": 7, "cer": 0.067, "hypothesis": "哇!這家店的招牌已經掛了快100年!", "audio_seconds": 3.32, "synth_seconds": 8.0, "check_seconds": 1.6}
+{"word": "哇", "sentence_index": 2, "text": "哇，這間店的招牌已經掛了快一百年。", "seed": 42, "cer": 0.0, "hypothesis": "哇,這間店的招牌已經掛了快一百年。", "audio_seconds": 3.32, "synth_seconds": 7.5, "check_seconds": 1.5}
+{"word": "對了", "sentence_index": 0, "text": "對了，旁邊那間茶行也很有名。", "seed": 1234, "cer": 0.25, "hypothesis": "對啦,旁邊那間茶餐廳也很有名。", "audio_seconds": 2.52, "synth_seconds": 6.6, "check_seconds": 1.3}
+{"word": "對了", "sentence_index": 0, "text": "對了，旁邊那間茶行也很有名。", "seed": 7, "cer": 0.083, "hypothesis": "對了,旁邊那間茶餳也很有名。", "audio_seconds": 2.68, "synth_seconds": 7.0, "check_seconds": 1.4}
+{"word": "對了", "sentence_index": 0, "text": "對了，旁邊那間茶行也很有名。", "seed": 42, "cer": 0.083, "hypothesis": "對了,旁邊那間茶餳也很有名。", "audio_seconds": 2.84, "synth_seconds": 5.2, "check_seconds": 2.0}
+{"word": "對了", "sentence_index": 1, "text": "對了，這裡以前是進出口貨物的碼頭。", "seed": 1234, "cer": 0.133, "hypothesis": "這裡以前是進出口貨物的碼頭。", "audio_seconds": 3.96, "synth_seconds": 8.2, "check_seconds": 2.2}
+{"word": "對了", "sentence_index": 1, "text": "對了，這裡以前是進出口貨物的碼頭。", "seed": 7, "cer": 0.0, "hypothesis": "對了,這裡以前是進出口貨物的碼頭。", "audio_seconds": 4.28, "synth_seconds": 8.7, "check_seconds": 2.5}
+{"word": "對了", "sentence_index": 1, "text": "對了，這裡以前是進出口貨物的碼頭。", "seed": 42, "cer": 0.0, "hypothesis": "對了,這裡以前是進出口貨物的碼頭。", "audio_seconds": 4.44, "synth_seconds": 8.8, "check_seconds": 2.0}
+{"word": "對了", "sentence_index": 2, "text": "對了，前面轉角還有一間老藥房。", "seed": 1234, "cer": 0.0, "hypothesis": "對了,前面轉角還有一間老藥房。", "audio_seconds": 3.16, "synth_seconds": 8.8, "check_seconds": 1.7}
+{"word": "對了", "sentence_index": 2, "text": "對了，前面轉角還有一間老藥房。", "seed": 7, "cer": 0.0, "hypothesis": "對了,前面轉角還有一間老藥房。", "audio_seconds": 3.32, "synth_seconds": 7.0, "check_seconds": 1.9}
+{"word": "對了", "sentence_index": 2, "text": "對了，前面轉角還有一間老藥房。", "seed": 42, "cer": 0.0, "hypothesis": "對了 前面轉角還有一間老藥房。", "audio_seconds": 3.0, "synth_seconds": 7.0, "check_seconds": 1.5}
+{"word": "而且", "sentence_index": 0, "text": "這棟樓不只好看，而且還是市定古蹟。", "seed": 1234, "cer": 0.067, "hypothesis": "這棟樓不只好看而且還是適定古蹟。", "audio_seconds": 4.76, "synth_seconds": 10.8, "check_seconds": 2.0}
+{"word": "而且", "sentence_index": 0, "text": "這棟樓不只好看，而且還是市定古蹟。", "seed": 7, "cer": 0.067, "hypothesis": "這棟樓不只好看,而且還是適定古蹟。", "audio_seconds": 3.96, "synth_seconds": 10.1, "check_seconds": 1.6}
+{"word": "而且", "sentence_index": 0, "text": "這棟樓不只好看，而且還是市定古蹟。", "seed": 42, "cer": 0.067, "hypothesis": "這棟樓不只好看,而且還是適定古蹟。", "audio_seconds": 3.16, "synth_seconds": 7.5, "check_seconds": 1.8}
+{"word": "而且", "sentence_index": 1, "text": "這裡的巷子很窄，而且兩邊都是紅磚牆。", "seed": 1234, "cer": 0.0, "hypothesis": "這裡的巷子很窄,而且兩邊都是紅磚牆。", "audio_seconds": 3.8, "synth_seconds": 9.5, "check_seconds": 1.7}
+{"word": "而且", "sentence_index": 1, "text": "這裡的巷子很窄，而且兩邊都是紅磚牆。", "seed": 7, "cer": 0.125, "hypothesis": "而這裡的巷子很窄,而且兩邊都是紅磚祥。", "audio_seconds": 3.8, "synth_seconds": 8.4, "check_seconds": 2.1}
+{"word": "而且", "sentence_index": 1, "text": "這裡的巷子很窄，而且兩邊都是紅磚牆。", "seed": 42, "cer": 0.312, "hypothesis": "喪戶子 這裡的巷子很窄而且兩邊都是紅尊禽", "audio_seconds": 5.4, "synth_seconds": 12.1, "check_seconds": 1.9}
+{"word": "而且", "sentence_index": 2, "text": "茶葉很香，而且價格也很親切。", "seed": 1234, "cer": 0.083, "hypothesis": "茶藥很香,而且價格也很親切。", "audio_seconds": 3.96, "synth_seconds": 9.5, "check_seconds": 1.8}
+{"word": "而且", "sentence_index": 2, "text": "茶葉很香，而且價格也很親切。", "seed": 7, "cer": 0.25, "hypothesis": "茶雅很香,價格也很親切。", "audio_seconds": 3.0, "synth_seconds": 7.6, "check_seconds": 1.6}
+{"word": "而且", "sentence_index": 2, "text": "茶葉很香，而且價格也很親切。", "seed": 42, "cer": 0.083, "hypothesis": "茶雅很香,而且價格也很親切。", "audio_seconds": 3.0, "synth_seconds": 6.9, "check_seconds": 1.7}
+{"word": "其實", "sentence_index": 0, "text": "其實這條街以前是河邊的貨運碼頭。", "seed": 1234, "cer": 0.0, "hypothesis": "其實這條街以前是河邊的貨運碼頭。", "audio_seconds": 5.08, "synth_seconds": 11.3, "check_seconds": 1.8}
+{"word": "其實", "sentence_index": 0, "text": "其實這條街以前是河邊的貨運碼頭。", "seed": 7, "cer": 0.0, "hypothesis": "其實這條街以前是河邊的貨運碼頭。", "audio_seconds": 3.64, "synth_seconds": 8.1, "check_seconds": 2.0}
+{"word": "其實", "sentence_index": 0, "text": "其實這條街以前是河邊的貨運碼頭。", "seed": 42, "cer": 0.133, "hypothesis": "只是這條街以前是河邊的貨運碼頭。", "audio_seconds": 3.48, "synth_seconds": 7.9, "check_seconds": 1.9}
+{"word": "其實", "sentence_index": 1, "text": "其實這間店的招牌，是老闆的爺爺親手寫的。", "seed": 1234, "cer": 0.111, "hypothesis": "這間店的招牌是老闆的爺爺親手寫的。", "audio_seconds": 4.76, "synth_seconds": 11.6, "check_seconds": 1.8}
+{"word": "其實", "sentence_index": 1, "text": "其實這間店的招牌，是老闆的爺爺親手寫的。", "seed": 7, "cer": 0.111, "hypothesis": "即使這間店的招牌是老闆的爺爺親手寫的。", "audio_seconds": 4.44, "synth_seconds": 10.8, "check_seconds": 1.7}
+{"word": "其實", "sentence_index": 1, "text": "其實這間店的招牌，是老闆的爺爺親手寫的。", "seed": 42, "cer": 0.0, "hypothesis": "其實這間店的招牌是老闆的爺爺親手寫的。", "audio_seconds": 4.76, "synth_seconds": 11.4, "check_seconds": 2.5}
+{"word": "其實", "sentence_index": 2, "text": "其實從這裡往前走，不用五分鐘就到廟口。", "seed": 1234, "cer": 0.471, "hypothesis": "超魔魔鬼節煙影,其實從這裡往前走,不用五分鐘就到苗口。", "audio_seconds": 5.56, "synth_seconds": 12.7, "check_seconds": 2.0}
+{"word": "其實", "sentence_index": 2, "text": "其實從這裡往前走，不用五分鐘就到廟口。", "seed": 7, "cer": 0.118, "hypothesis": "計時從這裡往前走,不用五分鐘就到廟口。", "audio_seconds": 3.64, "synth_seconds": 8.5, "check_seconds": 2.2}
+{"word": "其實", "sentence_index": 2, "text": "其實從這裡往前走，不用五分鐘就到廟口。", "seed": 42, "cer": 0.176, "hypothesis": "所以從這裡往前走,不用五分鐘就到苗口。", "audio_seconds": 3.16, "synth_seconds": 7.5, "check_seconds": 1.7}
+{"word": "你看", "sentence_index": 0, "text": "你看，二樓的窗花是手工雕刻的。", "seed": 1234, "cer": 0.0, "hypothesis": "你看,二樓的窗花是手工雕刻的。", "audio_seconds": 3.8, "synth_seconds": 9.8, "check_seconds": 1.9}
+{"word": "你看", "sentence_index": 0, "text": "你看，二樓的窗花是手工雕刻的。", "seed": 7, "cer": 0.0, "hypothesis": "你看,二樓的窗花是手工雕刻的。", "audio_seconds": 5.08, "synth_seconds": 11.8, "check_seconds": 2.2}
+{"word": "你看", "sentence_index": 0, "text": "你看，二樓的窗花是手工雕刻的。", "seed": 42, "cer": 0.538, "hypothesis": "是手工雕刻的。", "audio_seconds": 1.72, "synth_seconds": 4.2, "check_seconds": 2.1}
+{"word": "你看", "sentence_index": 1, "text": "你看，那面牆上還留著舊時代的廣告。", "seed": 1234, "cer": 0.0, "hypothesis": "你看,那面牆上還留著舊時代的廣告。", "audio_seconds": 4.12, "synth_seconds": 9.3, "check_seconds": 1.7}
+{"word": "你看", "sentence_index": 1, "text": "你看，那面牆上還留著舊時代的廣告。", "seed": 7, "cer": 0.0, "hypothesis": "你看,那面牆上還留著舊時代的廣告。", "audio_seconds": 5.4, "synth_seconds": 14.6, "check_seconds": 1.8}
+{"word": "你看", "sentence_index": 1, "text": "你看，那面牆上還留著舊時代的廣告。", "seed": 42, "cer": 0.0, "hypothesis": "你看,那面牆上還留著舊時代的廣告。", "audio_seconds": 5.24, "synth_seconds": 13.4, "check_seconds": 1.9}
+{"word": "你看", "sentence_index": 2, "text": "你看，屋簷下有一排燕子窩。", "seed": 1234, "cer": 0.091, "hypothesis": "你看,屋兩下有一排燕子窩。", "audio_seconds": 3.0, "synth_seconds": 7.8, "check_seconds": 2.2}
+{"word": "你看", "sentence_index": 2, "text": "你看，屋簷下有一排燕子窩。", "seed": 7, "cer": 0.091, "hypothesis": "你看,屋簾下有一排燕子窩。", "audio_seconds": 3.32, "synth_seconds": 7.6, "check_seconds": 1.8}
+{"word": "你看", "sentence_index": 2, "text": "你看，屋簷下有一排燕子窩。", "seed": 42, "cer": 0.182, "hypothesis": "你看,窩亮下有一排燕子窩。", "audio_seconds": 2.84, "synth_seconds": 6.6, "check_seconds": 1.7}
+{"word": "欸", "sentence_index": 0, "text": "欸，你有沒有聞到一股茶香？", "seed": 1234, "cer": 0.818, "hypothesis": "我叫孟子英國,英國,茶香。", "audio_seconds": 4.6, "synth_seconds": 10.5, "check_seconds": 1.5}
+{"word": "欸", "sentence_index": 0, "text": "欸，你有沒有聞到一股茶香？", "seed": 7, "cer": 0.636, "hypothesis": "英文在一股茶香。", "audio_seconds": 3.0, "synth_seconds": 6.9, "check_seconds": 1.7}
+{"word": "欸", "sentence_index": 0, "text": "欸，你有沒有聞到一股茶香？", "seed": 42, "cer": 0.091, "hypothesis": "欸,你有沒有啃到一股茶香?", "audio_seconds": 3.16, "synth_seconds": 8.3, "check_seconds": 1.8}
+{"word": "欸", "sentence_index": 1, "text": "欸，那邊好像在辦什麼活動。", "seed": 1234, "cer": 0.182, "hypothesis": "臥室那邊好像在辦什麼活動。", "audio_seconds": 2.68, "synth_seconds": 7.2, "check_seconds": 1.6}
+{"word": "欸", "sentence_index": 1, "text": "欸，那邊好像在辦什麼活動。", "seed": 7, "cer": 0.818, "hypothesis": "某班時冒活動。", "audio_seconds": 2.52, "synth_seconds": 6.4, "check_seconds": 1.5}
+{"word": "欸", "sentence_index": 1, "text": "欸，那邊好像在辦什麼活動。", "seed": 42, "cer": 1.455, "hypothesis": "是 營養 哦 沒呢 刀屎 營養 蛋的是 代以告", "audio_seconds": 8.92, "synth_seconds": 19.8, "check_seconds": 1.8}
+{"word": "欸", "sentence_index": 2, "text": "欸，前面那棟房子特別好看。", "seed": 1234, "cer": 0.273, "hypothesis": "前面的董房子特別好看。", "audio_seconds": 4.12, "synth_seconds": 10.9, "check_seconds": 2.0}
+{"word": "欸", "sentence_index": 2, "text": "欸，前面那棟房子特別好看。", "seed": 7, "cer": 0.273, "hypothesis": "前面的董房子特別好看。", "audio_seconds": 3.0, "synth_seconds": 8.5, "check_seconds": 2.7}
+{"word": "欸", "sentence_index": 2, "text": "欸，前面那棟房子特別好看。", "seed": 42, "cer": 1.273, "hypothesis": "是 又 浮影 至 醒 景 行 去常 障 至 常 至", "audio_seconds": 8.92, "synth_seconds": 22.0, "check_seconds": 1.9}
+{"word": "啊", "sentence_index": 0, "text": "這裡的夕陽真的很美啊。", "seed": 1234, "cer": 0.0, "hypothesis": "這裡的夕陽真的很美啊!", "audio_seconds": 2.68, "synth_seconds": 7.3, "check_seconds": 1.6}
+{"word": "啊", "sentence_index": 0, "text": "這裡的夕陽真的很美啊。", "seed": 7, "cer": 0.0, "hypothesis": "這裡的夕陽真的很美啊!", "audio_seconds": 2.52, "synth_seconds": 6.6, "check_seconds": 1.9}
+{"word": "啊", "sentence_index": 0, "text": "這裡的夕陽真的很美啊。", "seed": 42, "cer": 0.0, "hypothesis": "這裡的夕陽真的很美啊!", "audio_seconds": 2.2, "synth_seconds": 6.1, "check_seconds": 1.5}
+{"word": "啊", "sentence_index": 1, "text": "啊，原來這就是傳說中的老店。", "seed": 1234, "cer": 0.083, "hypothesis": "原來這就是傳說中的老店。", "audio_seconds": 3.0, "synth_seconds": 12.1, "check_seconds": 3.4}
+{"word": "啊", "sentence_index": 1, "text": "啊，原來這就是傳說中的老店。", "seed": 7, "cer": 0.083, "hypothesis": "原來這就是傳說中的老店。", "audio_seconds": 3.32, "synth_seconds": 8.8, "check_seconds": 2.0}
+{"word": "啊", "sentence_index": 1, "text": "啊，原來這就是傳說中的老店。", "seed": 42, "cer": 0.083, "hypothesis": "原來這就是傳說中的老店。", "audio_seconds": 3.16, "synth_seconds": 8.0, "check_seconds": 2.2}
+{"word": "啊", "sentence_index": 2, "text": "那時候的生意可是好得不得了啊。", "seed": 1234, "cer": 0.071, "hypothesis": "那時候的生意可是好的不得了啊。", "audio_seconds": 2.84, "synth_seconds": 8.5, "check_seconds": 2.3}
+{"word": "啊", "sentence_index": 2, "text": "那時候的生意可是好得不得了啊。", "seed": 7, "cer": 0.071, "hypothesis": "那時候的生意可是好的不得了啊。", "audio_seconds": 3.64, "synth_seconds": 10.2, "check_seconds": 1.6}
+{"word": "啊", "sentence_index": 2, "text": "那時候的生意可是好得不得了啊。", "seed": 42, "cer": 0.071, "hypothesis": "那時候的生意可是好的不得了啊。", "audio_seconds": 3.0, "synth_seconds": 8.2, "check_seconds": 2.0}
+{"word": "喔", "sentence_index": 0, "text": "前面有個小廣場，可以休息一下喔。", "seed": 1234, "cer": 0.071, "hypothesis": "前面有個小廣場可以休息一下我。", "audio_seconds": 2.68, "synth_seconds": 7.2, "check_seconds": 1.7}
+{"word": "喔", "sentence_index": 0, "text": "前面有個小廣場，可以休息一下喔。", "seed": 7, "cer": 0.0, "hypothesis": "前面有個小廣場可以休息一下喔。", "audio_seconds": 2.84, "synth_seconds": 7.3, "check_seconds": 1.9}
+{"word": "喔", "sentence_index": 0, "text": "前面有個小廣場，可以休息一下喔。", "seed": 42, "cer": 0.143, "hypothesis": "前面有個小逛場可以休息一下哦。", "audio_seconds": 2.68, "synth_seconds": 6.9, "check_seconds": 2.4}
+{"word": "喔", "sentence_index": 1, "text": "這間店的紅豆餅很有名喔。", "seed": 1234, "cer": 0.182, "hypothesis": "這間店的紅豆煲很有名哦!", "audio_seconds": 2.68, "synth_seconds": 7.5, "check_seconds": 1.7}
+{"word": "喔", "sentence_index": 1, "text": "這間店的紅豆餅很有名喔。", "seed": 7, "cer": 0.455, "hypothesis": "最硬定的紅豆狗很有名哦!", "audio_seconds": 2.36, "synth_seconds": 7.3, "check_seconds": 1.3}
+{"word": "喔", "sentence_index": 1, "text": "這間店的紅豆餅很有名喔。", "seed": 42, "cer": 0.182, "hypothesis": "這間店的紅豆腫很有名哦!", "audio_seconds": 2.36, "synth_seconds": 5.8, "check_seconds": 2.1}
+{"word": "喔", "sentence_index": 2, "text": "喔，原來這裡以前是學校。", "seed": 1234, "cer": 0.1, "hypothesis": "原來這裡以前是學校。", "audio_seconds": 2.36, "synth_seconds": 6.2, "check_seconds": 2.1}
+{"word": "喔", "sentence_index": 2, "text": "喔，原來這裡以前是學校。", "seed": 7, "cer": 0.1, "hypothesis": "原來這裡以前是學校。", "audio_seconds": 3.0, "synth_seconds": 7.3, "check_seconds": 1.6}
+{"word": "喔", "sentence_index": 2, "text": "喔，原來這裡以前是學校。", "seed": 42, "cer": 0.1, "hypothesis": "原來這裡以前是學校。", "audio_seconds": 2.68, "synth_seconds": 6.3, "check_seconds": 1.6}
+{"word": "吧", "sentence_index": 0, "text": "我們先往前走走看吧。", "seed": 1234, "cer": 0.0, "hypothesis": "我們先往前走走看吧。", "audio_seconds": 2.04, "synth_seconds": 7.8, "check_seconds": 2.0}
+{"word": "吧", "sentence_index": 0, "text": "我們先往前走走看吧。", "seed": 7, "cer": 0.0, "hypothesis": "我們先往前走走看吧。", "audio_seconds": 2.36, "synth_seconds": 7.2, "check_seconds": 2.3}
+{"word": "吧", "sentence_index": 0, "text": "我們先往前走走看吧。", "seed": 42, "cer": 0.556, "hypothesis": "有無萬盈興,我們先往前走走看吧。", "audio_seconds": 4.76, "synth_seconds": 12.6, "check_seconds": 2.9}
+{"word": "吧", "sentence_index": 1, "text": "這間老店應該有一百多年了吧。", "seed": 1234, "cer": 0.077, "hypothesis": "這一間老店應該有100多年了吧。", "audio_seconds": 2.84, "synth_seconds": 9.7, "check_seconds": 1.4}
+{"word": "吧", "sentence_index": 1, "text": "這間老店應該有一百多年了吧。", "seed": 7, "cer": 0.077, "hypothesis": "這些老店應該有100多年了吧。", "audio_seconds": 2.36, "synth_seconds": 6.0, "check_seconds": 1.9}
+{"word": "吧", "sentence_index": 1, "text": "這間老店應該有一百多年了吧。", "seed": 42, "cer": 0.154, "hypothesis": "世界老店應該有100多年了吧。", "audio_seconds": 2.84, "synth_seconds": 7.1, "check_seconds": 2.7}
+{"word": "吧", "sentence_index": 2, "text": "要不要進去喝杯茶吧。", "seed": 1234, "cer": 0.667, "hypothesis": "這是普世進去設備茶吧。", "audio_seconds": 3.64, "synth_seconds": 10.3, "check_seconds": 1.6}
+{"word": "吧", "sentence_index": 2, "text": "要不要進去喝杯茶吧。", "seed": 7, "cer": 0.0, "hypothesis": "要不要進去喝杯茶吧?", "audio_seconds": 2.04, "synth_seconds": 5.7, "check_seconds": 1.7}
+{"word": "吧", "sentence_index": 2, "text": "要不要進去喝杯茶吧。", "seed": 42, "cer": 0.0, "hypothesis": "要不要進去喝杯茶吧?", "audio_seconds": 2.2, "synth_seconds": 5.9, "check_seconds": 1.6}
+{"word": "啦", "sentence_index": 0, "text": "好啦，我們繼續往前走。", "seed": 1234, "cer": 0.0, "hypothesis": "好啦,我們繼續往前走。", "audio_seconds": 4.28, "synth_seconds": 11.6, "check_seconds": 2.1}
+{"word": "啦", "sentence_index": 0, "text": "好啦，我們繼續往前走。", "seed": 7, "cer": 0.0, "hypothesis": "好啦,我們繼續往前走。", "audio_seconds": 2.68, "synth_seconds": 6.9, "check_seconds": 1.5}
+{"word": "啦", "sentence_index": 0, "text": "好啦，我們繼續往前走。", "seed": 42, "cer": 0.0, "hypothesis": "好啦,我們繼續往前走。", "audio_seconds": 3.48, "synth_seconds": 8.0, "check_seconds": 1.8}
+{"word": "啦", "sentence_index": 1, "text": "這裡就是剛剛說的老碼頭啦。", "seed": 1234, "cer": 0.167, "hypothesis": "這裡就是剛剛說的老毛頭辣。", "audio_seconds": 3.0, "synth_seconds": 7.2, "check_seconds": 2.3}
+{"word": "啦", "sentence_index": 1, "text": "這裡就是剛剛說的老碼頭啦。", "seed": 7, "cer": 0.417, "hypothesis": "呃,這影就是剛剛說的奧馬頭辣。", "audio_seconds": 2.84, "synth_seconds": 7.2, "check_seconds": 1.8}
+{"word": "啦", "sentence_index": 1, "text": "這裡就是剛剛說的老碼頭啦。", "seed": 42, "cer": 0.0, "hypothesis": "這裡就是剛剛說的老碼頭啦!", "audio_seconds": 2.36, "synth_seconds": 6.2, "check_seconds": 1.5}
+{"word": "啦", "sentence_index": 2, "text": "別擔心啦，這條路很好走。", "seed": 1234, "cer": 0.1, "hypothesis": "別擔心啊 這條路很好走", "audio_seconds": 3.0, "synth_seconds": 7.3, "check_seconds": 1.7}
+{"word": "啦", "sentence_index": 2, "text": "別擔心啦，這條路很好走。", "seed": 7, "cer": 0.4, "hypothesis": "進步數,別擔心啊,這條路很好走。", "audio_seconds": 4.92, "synth_seconds": 12.2, "check_seconds": 1.5}
+{"word": "啦", "sentence_index": 2, "text": "別擔心啦，這條路很好走。", "seed": 42, "cer": 0.0, "hypothesis": "別擔心啦 這條路很好走", "audio_seconds": 3.0, "synth_seconds": 6.9, "check_seconds": 1.6}
+{"word": "一下下", "sentence_index": 0, "text": "我們在這裡停一下下，聽我說個故事。", "seed": 1234, "cer": 0.067, "hypothesis": "我們在這裡停一下聽我說個故事。", "audio_seconds": 3.16, "synth_seconds": 7.4, "check_seconds": 1.7}
+{"word": "一下下", "sentence_index": 0, "text": "我們在這裡停一下下，聽我說個故事。", "seed": 7, "cer": 0.733, "hypothesis": "唱母說個故事。", "audio_seconds": 2.2, "synth_seconds": 6.6, "check_seconds": 1.4}
+{"word": "一下下", "sentence_index": 0, "text": "我們在這裡停一下下，聽我說個故事。", "seed": 42, "cer": 0.0, "hypothesis": "我們在這裡停一下下聽我說個故事。", "audio_seconds": 4.44, "synth_seconds": 9.7, "check_seconds": 1.8}
+{"word": "一下下", "sentence_index": 1, "text": "你可以先拍張照，等一下下再走。", "seed": 1234, "cer": 0.077, "hypothesis": "你可以先拍張照等一下下載走。", "audio_seconds": 3.16, "synth_seconds": 7.5, "check_seconds": 1.6}
+{"word": "一下下", "sentence_index": 1, "text": "你可以先拍張照，等一下下再走。", "seed": 7, "cer": 0.154, "hypothesis": "呃,你可以先拍張照等一下下載走。", "audio_seconds": 2.84, "synth_seconds": 7.7, "check_seconds": 2.1}
+{"word": "一下下", "sentence_index": 1, "text": "你可以先拍張照，等一下下再走。", "seed": 42, "cer": 0.077, "hypothesis": "你可以先拍張照,等一下下載走。", "audio_seconds": 2.52, "synth_seconds": 7.3, "check_seconds": 1.6}
+{"word": "一下下", "sentence_index": 2, "text": "這個故事很短，只要一下下就講完。", "seed": 1234, "cer": 0.071, "hypothesis": "這個故事很短,只要一下就講完。", "audio_seconds": 3.48, "synth_seconds": 8.5, "check_seconds": 1.8}
+{"word": "一下下", "sentence_index": 2, "text": "這個故事很短，只要一下下就講完。", "seed": 7, "cer": 0.0, "hypothesis": "這個故事很短,只要一下下就講完。", "audio_seconds": 3.16, "synth_seconds": 7.9, "check_seconds": 1.8}
+{"word": "一下下", "sentence_index": 2, "text": "這個故事很短，只要一下下就講完。", "seed": 42, "cer": 0.071, "hypothesis": "這個故事很短,只要一下就講完。", "audio_seconds": 3.16, "synth_seconds": 7.3, "check_seconds": 1.9}
+{"word": "呢", "sentence_index": 0, "text": "你猜這棟老房子是做什麼用的呢？", "seed": 1234, "cer": 0.071, "hypothesis": "你猜這種老房子是做什麼用的呢?", "audio_seconds": 3.0, "synth_seconds": 6.7, "check_seconds": 1.9}
+{"word": "呢", "sentence_index": 0, "text": "你猜這棟老房子是做什麼用的呢？", "seed": 7, "cer": 0.214, "hypothesis": "而機拆這棟老房子是做什麼用的呢?", "audio_seconds": 4.28, "synth_seconds": 10.9, "check_seconds": 1.4}
+{"word": "呢", "sentence_index": 0, "text": "你猜這棟老房子是做什麼用的呢？", "seed": 42, "cer": 0.286, "hypothesis": "這是重擴你猜這棟老房子是做什麼用的呢?", "audio_seconds": 9.88, "synth_seconds": 22.3, "check_seconds": 1.6}
+{"word": "呢", "sentence_index": 1, "text": "為什麼這條街叫做迪化街呢？", "seed": 1234, "cer": 0.083, "hypothesis": "為什麼這條街叫做狄化街呢?", "audio_seconds": 2.68, "synth_seconds": 7.2, "check_seconds": 1.9}
+{"word": "呢", "sentence_index": 1, "text": "為什麼這條街叫做迪化街呢？", "seed": 7, "cer": 0.0, "hypothesis": "為什麼這條街叫做迪化街呢?", "audio_seconds": 13.72, "synth_seconds": 29.6, "check_seconds": 1.4}
+{"word": "呢", "sentence_index": 1, "text": "為什麼這條街叫做迪化街呢？", "seed": 42, "cer": 0.0, "hypothesis": "為什麼這條街叫做迪化街呢?", "audio_seconds": 2.68, "synth_seconds": 6.6, "check_seconds": 1.7}
+{"word": "呢", "sentence_index": 2, "text": "接下來我們要去哪裡呢？", "seed": 1234, "cer": 0.6, "hypothesis": "深伴、陰情、腳舞。接下來我們要去哪裡呢?", "audio_seconds": 4.92, "synth_seconds": 11.8, "check_seconds": 1.7}
+{"word": "呢", "sentence_index": 2, "text": "接下來我們要去哪裡呢？", "seed": 7, "cer": 0.0, "hypothesis": "接下來我們要去哪裡呢?", "audio_seconds": 2.04, "synth_seconds": 5.8, "check_seconds": 1.5}
+{"word": "呢", "sentence_index": 2, "text": "接下來我們要去哪裡呢？", "seed": 42, "cer": 0.0, "hypothesis": "接下來我們要去哪裡呢?", "audio_seconds": 2.04, "synth_seconds": 6.0, "check_seconds": 1.4}

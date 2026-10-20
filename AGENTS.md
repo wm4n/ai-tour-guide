@@ -1,4 +1,8 @@
-# Workflow Orchestration
+## MUST rules
+
+- Always use Traditional Chinese to respond to user prompts, unless explicitly asked to use another language.
+
+## Workflow Orchestration
 
 ### 1. Brainstorming Default
 
@@ -19,6 +23,7 @@
 - Write rules for yourself that prevent the same mistake
 - Ruthlessly iterate on these lessons until mistake rate drops
 - Review lessons at session start for relevant project
+- Remember user's preferences in `tasks/preferences.md` and suggest improved solutions to them for similar tasks
 
 ### 4. Verification Before Done
 
@@ -45,12 +50,20 @@
 
 ## Task Management
 
-1. **Brainstorming Skill First**: Use it for starting any non-trivial task, creating a spec and design document for the next step.
-2. **Openspec New Change**: Use `opsx:new` to create a new change with the spec and design document from brainstorming.
-3. **Openspec Fast Forward and Implement**: Use `opsx:ff` to create design documents, tasks checklist, then use `opsx:apply` to implement the change.
-4. **Explain Changes**: High-level summary at each step
-5. **Document Results**: Add review section to `tasks/todo.md`
-6. **Capture Lessons**: Update `tasks/lessons.md` after corrections
+1. **Brainstorming Skill First**: Use it for starting any non-trivial task; the result is a design document under `docs/superpowers/specs/`, committed.
+2. **Track on GitHub**: Open a GitHub issue for the brainstormed item, linking the design document. This is the parent issue.
+3. **Grill**: Run `/grill-me` on the design until no open questions remain, then update the parent issue (and the design document) with the outcomes.
+4. **Tickets**: Run `/to-tickets` to break the parent issue into development sub-issues, with native GitHub `blocked_by` dependencies.
+5. **Implement**: Run `/implement` on each ticket in dependency order (any ticket whose blockers are all closed).
+6. **Explain Changes**: High-level summary at each step
+7. **Document Results**: Add review section to `tasks/todo.md`
+8. **Capture Lessons**: Update `tasks/lessons.md` after corrections
+
+`openspec/` holds v1 history only; new work does not use OpenSpec (`opsx:*`).
+
+### Public repository
+
+This repository is **public**. Never commit secrets (API keys, OAuth tokens, `CLAUDE_CODE_OAUTH_TOKEN`, openab auth keys), home-host addresses or Tailscale names, or reference voice recordings and their transcripts. Keep them in host-local config outside the repo (e.g. `~/.buddy-host/`).
 
 ---
 
@@ -63,3 +76,19 @@
 - **No Laziness**: Find root causes. No temporary fixes. Senior developer standards.
 - **Minimal Impact**: Changes should only touch what's necessary. Avoid introducing bugs.
 - **TDD Mindset**: Red-green-refactor. Write tests first, then implement. Refactor for elegance.
+
+---
+
+## Agent skills
+
+### Issue tracker
+
+Issues are tracked in GitHub Issues (`wm4n/ai-tour-guide`) via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default five-role vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context (`CONTEXT.md` + `docs/adr/` at the repo root, created lazily). See `docs/agents/domain.md`.

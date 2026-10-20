@@ -1,0 +1,240 @@
+"""NarrationService — orchestrates LLM streaming, sentence splitting, and TTS synthesis."""
+
+import base64
+import io
+import logging
+import time
+import wave
+from collections.abc import AsyncIterator
+from dataclasses import dataclass
+from typing import Literal
+
+from tour_guide.cache.narration_cache import NarrationCache
+from tour_guide.log_events import LogEvents
+from tour_guide.logging_config import log_event
+
+logger = logging.getLogger(__name__)
+from tour_guide.models.persona import PersonaConfig
+from tour_guide.models.poi import POIContext
+from tour_guide.pipeline.sentence_splitter import StreamingSentenceBuffer
+from tour_guide.prompts.builder import PromptBuilder
+from tour_guide.providers.llm import LlmOpts, LlmProvider, Message
+from tour_guide.providers.tts import TtsOpts, TtsProvider
+from tour_guide.services.confidence import ConfidenceClassifier
+
+# ---------------------------------------------------------------------------
+# Event types
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class MetaEvent:
+    type: Literal["meta"] = "meta"
+    poi_id: str = ""
+    poi_name: str = ""
+    cache_hit: bool = False
+    confidence: str = "low"
+    estimated_duration_s: int = 0
+    is_no_data: bool = False
+
+
+@dataclass
+class TextEvent:
+    type: Literal["text"] = "text"
+    chunk: str = ""
+    sentence_idx: int = 0
+
+
+@dataclass
+class AudioEvent:
+    type: Literal["audio"] = "audio"
+    chunk_b64: str = ""  # base64-encoded audio bytes
+    sentence_idx: int = 0
+
+
+@dataclass
+class EndEvent:
+    type: Literal["end"] = "end"
+
+
+@dataclass
+class ErrorEvent:
+    type: Literal["error"] = "error"
+    code: str = ""
+    message: str = ""
+    retry_after_s: int = 0
+
+
+NarrationEvent = MetaEvent | TextEvent | AudioEvent | EndEvent | ErrorEvent
+
+
+# ---------------------------------------------------------------------------
+# NarrationService
+# ---------------------------------------------------------------------------
+
+
+class NarrationService:
+    """Orchestrates narration: PromptBuilder → LLM stream → sentence split → TTS → events."""
+
+    def __init__(
+        self,
+        llm: LlmProvider,
+        tts: TtsProvider,
+        cache: NarrationCache | None = None,
+    ) -> None:
+        self._llm = llm
+        self._tts = tts
+        self._cache = cache
+
+    async def narrate(
+        self,
+        poi: POIContext,
+        persona: PersonaConfig,
+        lang: str,
+        length: str,
+        force_regenerate: bool = False,
+    ) -> AsyncIterator[NarrationEvent]:
+        """Stream narration events for the given POI and persona.
+
+        Yields:
+            MetaEvent — first, with confidence and cache status
+            TextEvent + AudioEvent — interleaved pairs per sentence (cache miss path)
+            AudioEvent — single event with full cached audio (cache hit path)
+            EndEvent — final event
+        """
+        confidence = ConfidenceClassifier.classify(poi)
+        cache_key = f"{poi.osm.id}|{persona.id}|{lang}|{length}"
+        start = time.monotonic()
+        poi_name = poi.osm.tags.get("name", poi.osm.id)
+
+        # 1. Check cache (if cache is configured and not force-regenerating)
+        if self._cache is not None and not force_regenerate:
+            cached = self._cache.get(cache_key)
+            if cached is not None:
+                cached_audio, _transcript = cached
+                log_event(logger, LogEvents.NARRATION_START, poi_id=poi.osm.id, cache_hit=True)
+                yield MetaEvent(
+                    poi_id=poi.osm.id,
+                    poi_name=poi_name,
+                    cache_hit=True,
+                    confidence=confidence,
+                )
+                yield AudioEvent(
+                    chunk_b64=base64.b64encode(cached_audio).decode(),
+                    sentence_idx=0,
+                )
+                elapsed_ms = int((time.monotonic() - start) * 1000)
+                log_event(logger, LogEvents.NARRATION_COMPLETE, poi_id=poi.osm.id, duration_ms=elapsed_ms)
+                yield EndEvent()
+                return
+
+        # 2. Cache miss (or no cache / force_regenerate): run full pipeline
+        log_event(logger, LogEvents.NARRATION_START, poi_id=poi.osm.id, cache_hit=False)
+        is_no_data = poi.wiki is None
+        yield MetaEvent(
+            poi_id=poi.osm.id,
+            poi_name=poi_name,
+            cache_hit=False,
+            confidence=confidence,
+            is_no_data=is_no_data,
+        )
+
+        voice_id = persona.voice.get(lang, "Charon")
+
+        # 2b. No-data short-circuit: poi has no Wikipedia data — skip LLM entirely
+        if poi.wiki is None:
+            no_data = persona.no_data_context.get(lang, "")
+            if no_data:
+                yield TextEvent(chunk=no_data, sentence_idx=0)
+                audio_bytes = await self._synthesize_all(no_data, voice_id)
+                yield AudioEvent(
+                    chunk_b64=base64.b64encode(audio_bytes).decode(),
+                    sentence_idx=0,
+                )
+                yield EndEvent()
+                return
+
+        # 3. Build prompt messages
+        raw_messages = PromptBuilder.build(persona, poi, lang, length)
+        for msg in raw_messages:
+            logger.info("LLM input [%s] | poi_id=%s\n%s", msg["role"], poi.osm.id, msg["content"])
+        llm_messages = [Message(role=m["role"], content=m["content"]) for m in raw_messages]
+        # Gemini 2.5 Flash thinking tokens count against max_tokens; narration
+        # needs ~200+ output tokens on top of thinking overhead (~2000 tokens).
+        opts = LlmOpts(max_tokens=8192)
+
+        # 4. Stream LLM → split sentences → TTS → yield events
+        buffer = StreamingSentenceBuffer()
+        sentence_idx = 0
+        all_audio_chunks: list[bytes] = []
+        all_sentences: list[str] = []
+
+        async for chunk in self._llm.chat_stream(llm_messages, opts):
+            sentences = buffer.feed(chunk)
+            for sentence in sentences:
+                log_event(logger, LogEvents.NARRATION_CHUNK, poi_id=poi.osm.id, sentence_idx=sentence_idx, text=sentence, level="debug")
+                all_sentences.append(sentence)
+                yield TextEvent(chunk=sentence, sentence_idx=sentence_idx)
+                audio_bytes = await self._synthesize_all(sentence, voice_id)
+                all_audio_chunks.append(audio_bytes)
+                yield AudioEvent(
+                    chunk_b64=base64.b64encode(audio_bytes).decode(),
+                    sentence_idx=sentence_idx,
+                )
+                sentence_idx += 1
+
+        # 5. Flush remaining buffer content
+        remainder = buffer.flush()
+        if remainder:
+            log_event(logger, LogEvents.NARRATION_CHUNK, poi_id=poi.osm.id, sentence_idx=sentence_idx, text=remainder, level="debug")
+            all_sentences.append(remainder)
+            yield TextEvent(chunk=remainder, sentence_idx=sentence_idx)
+            audio_bytes = await self._synthesize_all(remainder, voice_id)
+            all_audio_chunks.append(audio_bytes)
+            yield AudioEvent(
+                chunk_b64=base64.b64encode(audio_bytes).decode(),
+                sentence_idx=sentence_idx,
+            )
+
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+        log_event(logger, LogEvents.NARRATION_COMPLETE, poi_id=poi.osm.id, duration_ms=elapsed_ms, total_sentences=len(all_sentences), full_text="".join(all_sentences))
+        yield EndEvent()
+
+        # 6. Populate cache after EndEvent (if cache is configured)
+        if self._cache is not None:
+            combined_audio = self._combine_wav_chunks(all_audio_chunks)
+            self._cache.put(cache_key, combined_audio, "")
+
+    async def _synthesize_all(self, text: str, voice_id: str) -> bytes:
+        """Collect all audio chunks from TTS into a single bytes object."""
+        audio_chunks = b""
+        async for audio_bytes in self._tts.synthesize(text, voice_id, TtsOpts()):
+            audio_chunks += audio_bytes
+        return audio_chunks
+
+    @staticmethod
+    def _combine_wav_chunks(audio_chunks: list[bytes]) -> bytes:
+        """Merge multiple audio files into one.
+
+        WAV (RIFF) chunks are merged by extracting and concatenating PCM frames.
+        Non-WAV chunks (e.g. MP3 from EdgeTTS) are concatenated directly —
+        consecutive MP3 files form a valid multi-segment MP3 that decoders handle correctly.
+        """
+        if not audio_chunks:
+            return b""
+        if audio_chunks[0][:4] == b"RIFF":
+            combined_pcm = b""
+            params = None
+            for chunk in audio_chunks:
+                with wave.open(io.BytesIO(chunk), "rb") as wf:
+                    if params is None:
+                        params = wf.getparams()
+                    combined_pcm += wf.readframes(wf.getnframes())
+            if not combined_pcm or params is None:
+                return b""
+            buf = io.BytesIO()
+            with wave.open(buf, "wb") as wf:
+                wf.setparams(params)
+                wf.writeframes(combined_pcm)
+            return buf.getvalue()
+        return b"".join(audio_chunks)

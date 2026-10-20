@@ -1028,4 +1028,232 @@ void main() {
       expect(h.tour.position!.lat, closeTo(nearFix().lat, 1e-9));
     });
   });
+
+  group('a question interrupting a narration', () {
+    NarrationInfo withStarts(String id) => NarrationInfo(
+      seq: 1,
+      id: id,
+      name: '景點$id',
+      lat: placeLat,
+      lon: placeLon,
+      audioSeconds: 30,
+      unitStarts: const [0.0, 1.5, 3.5],
+    );
+
+    Future<Harness> playing() async {
+      final h = await makeHarness();
+      await h.tour.start();
+      h.api.queue([withStarts('A')]);
+      await h.moveTo(nearFix());
+      await h.tick();
+      expect(h.player.played, ['A']);
+      return h;
+    }
+
+    Duration at(double seconds) =>
+        Duration(microseconds: (seconds * 1000000).round());
+
+    test(
+      'stops the narration and, after the answer, resumes from the start of the interrupted sentence',
+      () async {
+        final h = await playing();
+        h.player.positionNow = at(2.0); // 第二句講到一半
+
+        h.tour.beginQuestion();
+        await h.settle();
+        expect(h.player.events, contains('stop'));
+
+        h.tour.endQuestion();
+        await h.settle();
+
+        expect(h.player.played, ['A', 'A']);
+        expect(h.player.starts, [Duration.zero, at(1.5)]);
+      },
+    );
+
+    test(
+      'interrupted exactly at a sentence boundary resumes at that boundary',
+      () async {
+        final h = await playing();
+        h.player.positionNow = at(3.5);
+
+        h.tour.beginQuestion();
+        await h.settle();
+        h.tour.endQuestion();
+        await h.settle();
+
+        expect(h.player.starts.last, at(3.5));
+      },
+    );
+
+    test(
+      'is not counted as told until the resumed playback reaches the end',
+      () async {
+        final h = await playing();
+        h.player.positionNow = at(2.0);
+        h.tour.beginQuestion();
+        await h.settle();
+        expect(h.api.played, isEmpty); // 被打斷不算講過
+
+        h.tour.endQuestion();
+        await h.settle();
+        expect(h.api.played, isEmpty); // 接著播的時候也還沒播完
+
+        h.player.finish();
+        await h.settle();
+        expect(h.api.played, ['A']);
+      },
+    );
+
+    test(
+      'nothing else starts while it waits for the answer, and the status still shows it',
+      () async {
+        final h = await playing();
+        h.api.queue([
+          NarrationInfo(
+            seq: 2,
+            id: 'B',
+            name: '景點B',
+            lat: placeLat,
+            lon: placeLon,
+            audioSeconds: 30,
+          ),
+        ]);
+        h.player.positionNow = at(2.0);
+
+        h.tour.beginQuestion();
+        await h.tick();
+
+        expect(h.player.played, ['A']);
+        expect(h.state.nowPlaying, '景點A');
+      },
+    );
+
+    test(
+      'a second question while resumed interrupts again from the new position',
+      () async {
+        final h = await playing();
+        h.player.positionNow = at(2.0);
+        h.tour.beginQuestion();
+        await h.settle();
+        h.tour.endQuestion();
+        await h.settle();
+
+        h.player.positionNow = at(4.0); // 接著播之後又被打斷
+        h.tour.beginQuestion();
+        await h.settle();
+        h.tour.endQuestion();
+        await h.settle();
+
+        expect(h.player.starts, [Duration.zero, at(1.5), at(3.5)]);
+        expect(h.api.played, isEmpty);
+      },
+    );
+
+    test('with no narration playing a question changes nothing', () async {
+      final h = await makeHarness();
+      await h.tour.start();
+
+      h.tour.beginQuestion();
+      await h.settle();
+      h.tour.endQuestion();
+      await h.settle();
+
+      expect(h.player.events, isEmpty);
+      expect(h.player.played, isEmpty);
+    });
+
+    test(
+      'when the tour is paused it stays paused until the user resumes',
+      () async {
+        final h = await playing();
+        h.tour.pause();
+        h.player.positionNow = at(2.0);
+
+        h.tour.beginQuestion();
+        await h.settle();
+        h.tour.endQuestion();
+        await h.settle();
+        expect(h.player.played, ['A']); // 使用者要安靜：答完也不自己接著講
+
+        h.tour.resume();
+        await h.settle();
+        expect(h.player.played, ['A', 'A']);
+        expect(h.player.starts.last, at(1.5));
+      },
+    );
+
+    test(
+      'ending the tour while waiting for the answer drops the interrupted narration',
+      () async {
+        final h = await playing();
+        h.player.positionNow = at(2.0);
+        h.tour.beginQuestion();
+        await h.settle();
+
+        await h.tour.end();
+        h.tour.endQuestion();
+        await h.settle();
+
+        expect(h.player.played, ['A']);
+        expect(h.api.played, isEmpty);
+      },
+    );
+
+    test(
+      'a narration that is still being fetched waits for the answer instead of talking over it',
+      () async {
+        final h = await makeHarness();
+        await h.tour.start();
+        h.api.downloadGate = Completer<void>();
+        h.api.queue([withStarts('A')]);
+        await h.moveTo(nearFix());
+        await h.tick();
+
+        h.tour.beginQuestion();
+        h.api.downloadGate!.complete();
+        await h.settle();
+        expect(h.player.played, isEmpty);
+
+        h.tour.endQuestion();
+        await h.tick();
+        expect(h.player.played, ['A']);
+        expect(h.player.starts, [Duration.zero]);
+      },
+    );
+
+    test('without sentence starts it resumes where it was cut off', () async {
+      final h = await makeHarness();
+      await h.tour.start();
+      h.api.queue([info('A')]); // 舊主機：沒有各句起點
+      await h.moveTo(nearFix());
+      await h.tick();
+      h.player.positionNow = at(7.25);
+
+      h.tour.beginQuestion();
+      await h.settle();
+      h.tour.endQuestion();
+      await h.settle();
+
+      expect(h.player.starts.last, at(7.25));
+    });
+
+    test(
+      'a finished narration is reported once and the gap rule starts from then',
+      () async {
+        final h = await playing();
+        h.player.positionNow = at(2.0);
+        h.tour.beginQuestion();
+        await h.settle();
+        h.tour.endQuestion();
+        await h.settle();
+
+        h.player.finish();
+        await h.settle();
+
+        expect(h.api.played, ['A']);
+        expect(h.state.nowPlaying, isNull);
+      },
+    );
+  });
 }

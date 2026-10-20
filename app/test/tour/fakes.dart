@@ -132,18 +132,29 @@ class FakeLocation implements LocationSource {
 class FakePlayer implements NarrationPlayer {
   final played = <String>[];
   final events = <String>[];
-  Completer<void>? _current;
+
+  /// 每次 play 從哪裡開始。
+  final starts = <Duration>[];
+
+  /// `position` 回傳這個值，測試用來安排「播到哪裡被打斷」。
+  Duration positionNow = Duration.zero;
+  Completer<bool>? _current;
 
   @override
-  Future<void> play(
+  Duration get position => positionNow;
+
+  @override
+  Future<bool> play(
     Uint8List wav, {
     required String title,
+    Duration start = Duration.zero,
     bool releaseFocus = true,
   }) {
     played.add(String.fromCharCodes(wav));
     events.add('play:$title');
+    starts.add(start);
     focusReleasedAfter.add(releaseFocus);
-    _current = Completer<void>();
+    _current = Completer<bool>();
     return _current!.future;
   }
 
@@ -153,8 +164,9 @@ class FakePlayer implements NarrationPlayer {
   @override
   Future<void> release() async => events.add('release');
 
+  /// 自然播完。
   void finish() {
-    if (_current?.isCompleted == false) _current!.complete();
+    if (_current?.isCompleted == false) _current!.complete(true);
   }
 
   @override
@@ -166,7 +178,7 @@ class FakePlayer implements NarrationPlayer {
   @override
   Future<void> stop() async {
     events.add('stop');
-    if (_current?.isCompleted == false) _current!.complete();
+    if (_current?.isCompleted == false) _current!.complete(false);
   }
 
   @override

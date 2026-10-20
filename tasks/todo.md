@@ -313,3 +313,17 @@ code-review 後修正（#23）：
 - `QaController` 直接呼叫 `TourController` 的多個方法、`reason` 是字串、`(generation, id)` 成對傳遞：判斷題，未重構
 - `FAKE_QUESTION` 的 override 留在正式 `main.dart`（用 dart-define 控制，預設不啟用）
 - 模擬器端到端在修正後重跑通過（全新的 iPhone 16／iOS 18.6 模擬器）。原本那台模擬器跳出「Apple Account Verification」系統對話框（要輸入某個 Apple 帳號的密碼）擋住 App；這是帳號憑證，不由 agent 操作，改建一台沒登入帳號的模擬器繞開
+
+## #24 問答：發問時暫停介紹，答完從中斷的那句接著講（2026-10-20，分支 `feat/v2-qa`）
+
+做了：
+- 主機：`speech/units.py`（`unit_starts(wav)`）從 wav 偵測各個合成單位的起點——管線在單位之間插入精確的靜音（全 0 樣本），所以快取命中的舊介紹、重播的介紹都有，不必改快取格式；`TourSession._publish` 把它放進通知事件的 `unit_starts`
+- App：`NarrationInfo.unitStarts`（舊主機沒給＝空）；`resume_point.dart` 的 `resumePoint(position, unitStarts)`（落在某句前面 0.3 秒靜音裡視為句界）；`NarrationPlayer.play` 改回傳是否自然播完、可指定起點，並有 `position`
+- `TourController`：`beginQuestion`（第一個）停下正在播的介紹、記住接續點；`endQuestion` 後（若使用者沒按暫停）從那一句開頭接著播，接續播完才回報「講過」；再被打斷會重新計算；結束旅程就丟掉；音檔還在下載時開始發問就先放回佇列
+
+驗證：host 574 項、ruff 乾淨；App 231 項、analyze 乾淨（句中被打斷、剛好在句界、沒有介紹在播、暫停中、連續兩次打斷、結束旅程、下載中發問、舊主機沒有起點，都有測試）。全程 fake。
+
+**沒有做 / 不確定**：
+- 模擬器端到端沒有涵蓋「打斷介紹」：重播模式需要真實合成過的介紹 wav 才有句子，這邊沒有；實機（#8、#10）才驗得到實際聽感與 `position` 的準確度
+- 被打斷時落在句子後面的靜音（上一句剛講完、下一句還沒開始，且超過 0.3 秒前）會重講上一句：主機只附起點、沒附終點；機率低且無害
+- `unit_starts` 靠靜音偵測：單位內部若有超過 0.3 秒的「精確 0」靜音會多出一個起點（只會讓接續點更細，不會錯）

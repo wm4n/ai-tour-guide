@@ -15,16 +15,19 @@ class JustAudioNarrationPlayer implements NarrationPlayer {
   final AudioPlayer _player = AudioPlayer();
   Completer<void>? _done;
   bool _paused = false;
+  bool _stopped = false; // 這一次是被 stop() 打斷的
 
   @override
-  Future<void> play(
+  Future<bool> play(
     Uint8List wav, {
     required String title,
+    Duration start = Duration.zero,
     bool releaseFocus = true,
   }) async {
     final file = File('${Directory.systemTemp.path}/$fileName');
     await file.writeAsBytes(wav, flush: true);
     _paused = false;
+    _stopped = false;
     final done = _done = Completer<void>();
     final finished = _player.processingStateStream.listen((state) {
       if (state == ProcessingState.completed && !done.isCompleted) {
@@ -33,10 +36,12 @@ class JustAudioNarrationPlayer implements NarrationPlayer {
     });
     try {
       await _player.setFilePath(file.path);
+      if (start > Duration.zero) await _player.seek(start);
       // 寫檔與載入的空檔使用者可能已按暫停：此時不開始播，等 resume()
       // play() 在暫停時就會回傳，所以不等它，改等「播完」或被 stop()
       if (!_paused) unawaited(_player.play());
       await done.future;
+      return !_stopped;
     } finally {
       await finished.cancel();
       await _player.stop();
@@ -68,7 +73,11 @@ class JustAudioNarrationPlayer implements NarrationPlayer {
   }
 
   @override
+  Duration get position => _player.position;
+
+  @override
   Future<void> stop() async {
+    _stopped = true;
     final done = _done;
     if (done != null && !done.isCompleted) done.complete();
     await _player.stop();

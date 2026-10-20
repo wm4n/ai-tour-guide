@@ -12,6 +12,8 @@ Always 權限請求、鎖定畫面資訊、各項流程與單元／模擬器端�
 
 ## 0. 準備
 
+> 主機要先照 `docs/home-mac-setup.md` 在家裡的 Mac 上準備好（Tailscale、設定檔、token）。
+
 - [ ] 用 Xcode 把 App 裝到實機（`app/` 的 `flutter run --release -d <iPhone>`，或從 Xcode 開 `ios/Runner.xcworkspace`）。
 - [ ] 主機在家裡開著，**已用 `--max-llm-calls N` 啟動（真實模式）**；手機連上 Tailscale。
       ⚠️ 真實模式每次呼叫都消耗 Claude Pro 額度；下面的問答、拍照項目請先決定要用幾次（建議各 1～2 次）。

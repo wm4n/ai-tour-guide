@@ -35,4 +35,10 @@ void main() {
     // 拍照提問：沒有這項說明，iOS 一開相機就直接讓 App 當掉
     expect(plist, contains('<key>NSCameraUsageDescription</key>'));
   });
+
+  test('compiles the location permission code that upgrades to always', () {
+    // permission_handler 預設不編入任何權限；少了這個巨集，請求「永遠」會靜靜地什麼都不做
+    final podfile = File('ios/Podfile').readAsStringSync();
+    expect(podfile, contains('PERMISSION_LOCATION=1'));
+  });
 }

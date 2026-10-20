@@ -4,6 +4,7 @@ import 'package:buddy_tour/audio/fixed_phrase.dart';
 import 'package:buddy_tour/audio/phrase_player.dart';
 import 'package:buddy_tour/audio/remote_controls.dart';
 import 'package:buddy_tour/host/host_connection.dart';
+import 'package:buddy_tour/tour/location_permission.dart';
 import 'package:buddy_tour/tour/location_source.dart';
 import 'package:buddy_tour/tour/playback_policy.dart';
 import 'package:buddy_tour/tour/tour_api.dart';
@@ -86,6 +87,25 @@ Future<Harness> makeHarness({
 }
 
 void main() {
+  group('location access', () {
+    test('the tour remembers how much access it got', () async {
+      final h = await makeHarness();
+      h.location.access = LocationAccess.whileInUse;
+
+      await h.tour.start();
+
+      expect(h.state.locationAccess, LocationAccess.whileInUse);
+    });
+
+    test('always is the default and needs no warning', () async {
+      final h = await makeHarness();
+
+      await h.tour.start();
+
+      expect(h.state.locationAccess.keepsWorkingWhenLocked, isTrue);
+    });
+  });
+
   group('starting', () {
     test(
       'reports the start position and traveler state, then says hello',

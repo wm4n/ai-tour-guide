@@ -57,6 +57,18 @@ class HomeScreen extends ConsumerWidget {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 _StatusChip(status: status),
+                if (tour.active &&
+                    !tour.locationAccess.keepsWorkingWhenLocked) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    '定位目前只允許「使用 App 期間」：手機鎖定螢幕時可能收不到位置。'
+                    '請到「設定 → Buddy Tour → 位置」改成「永遠」。',
+                    key: const Key('location-hint'),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ],
                 if (tour.stoppedReason != null) ...[
                   const SizedBox(height: 12),
                   Text(

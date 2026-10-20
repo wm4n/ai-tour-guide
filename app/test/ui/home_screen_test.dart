@@ -3,6 +3,7 @@ import 'package:buddy_tour/audio/phrase_player.dart';
 import 'package:buddy_tour/qa/photo_source.dart';
 import 'package:buddy_tour/qa/qa_api.dart';
 import 'package:buddy_tour/qa/qa_controller.dart';
+import 'package:buddy_tour/tour/location_permission.dart';
 import 'package:buddy_tour/tour/tour_controller.dart';
 import 'package:buddy_tour/tour/tour_api.dart';
 import 'package:buddy_tour/tour/traveler_state.dart';
@@ -33,6 +34,7 @@ late FakeRecognizer recognizer;
 late FakePlayer answerPlayer;
 late FakePhotoSource photoSource;
 late FakeCompass compass;
+late FakeLocation location;
 
 Future<void> pumpHome(
   WidgetTester tester,
@@ -51,13 +53,14 @@ Future<void> pumpHome(
   answerPlayer = FakePlayer();
   photoSource = FakePhotoSource();
   compass = FakeCompass();
+  location = FakeLocation();
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
         sharedPreferencesProvider.overrideWithValue(prefs),
         phrasePlayerProvider.overrideWithValue(phrases),
         tourApiProvider.overrideWithValue(api),
-        locationSourceProvider.overrideWithValue(FakeLocation()),
+        locationSourceProvider.overrideWithValue(location),
         narrationPlayerProvider.overrideWithValue(FakePlayer()),
         remoteControlsProvider.overrideWithValue(remote),
         tourTickIntervalProvider.overrideWithValue(const Duration(hours: 1)),
@@ -486,6 +489,28 @@ void main() {
       expect(button.onPressed, isNull);
       await gesture.up();
       await wrapUp(tester);
+    });
+  });
+
+  group('location access hint', () {
+    testWidgets('no hint when always is granted', (tester) async {
+      await pumpHome(tester, ConnectionStatus.connected);
+      await tester.tap(find.byKey(const Key('tour-toggle')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('location-hint')), findsNothing);
+    });
+
+    testWidgets('while-in-use warns that locking the screen may cut it off', (
+      tester,
+    ) async {
+      await pumpHome(tester, ConnectionStatus.connected);
+      location.access = LocationAccess.whileInUse;
+      await tester.tap(find.byKey(const Key('tour-toggle')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('location-hint')), findsOneWidget);
+      expect(find.textContaining('永遠'), findsOneWidget);
     });
   });
 }

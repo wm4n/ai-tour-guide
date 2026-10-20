@@ -5,6 +5,7 @@ import 'package:buddy_tour/audio/fixed_phrase.dart';
 import 'package:buddy_tour/audio/narration_player.dart';
 import 'package:buddy_tour/audio/phrase_player.dart';
 import 'package:buddy_tour/audio/remote_controls.dart';
+import 'package:buddy_tour/tour/location_permission.dart';
 import 'package:buddy_tour/tour/location_source.dart';
 import 'package:buddy_tour/tour/playback_policy.dart';
 import 'package:buddy_tour/tour/tour_api.dart';
@@ -118,6 +119,9 @@ class FakeLocation implements LocationSource {
   final controller = StreamController<RawFix>.broadcast();
   RawFix first = farFix();
   bool granted = true;
+
+  @override
+  LocationAccess access = LocationAccess.always;
 
   @override
   Future<bool> ensurePermission() async => granted;

@@ -44,6 +44,7 @@ dependencies:
   speech_to_text: ^7.4.0
   image_picker: ^1.2.4
   flutter_compass: ^0.8.1
+  permission_handler: ^13.0.2
 
 dev_dependencies:
   flutter_test:

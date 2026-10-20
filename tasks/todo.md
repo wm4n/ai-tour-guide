@@ -370,3 +370,18 @@ code-review 後修正（#11）：
 - `_say` 與 `JustAudioPhrasePlayer` 各有一層排隊、「這是什麼？」在 App 與主機各寫一份預設：判斷題
 - 照片存檔後若 `_start` 之前出錯不會回收：由保留期限兜底
 - `--add-dir` 開整個照片資料夾（24 小時內的其他照片都讀得到）
+
+## #8 iPhone 實機背景行為（2026-10-20，分支 `feat/v2-qa`）——**程式面完成，實機驗收未做**
+
+已經有的（#7 就做了）：`UIBackgroundModes` 含 `location` 與 `audio`、Info.plist 的定位說明（有測試）、背景定位設定（`allowBackgroundLocationUpdates`、關掉自動暫停、背景定位指示）、耳機／鎖定畫面的暫停鍵與目前播放資訊（`audio_service`）。
+
+這次做的：
+- **請求「永遠」定位權限**：geolocator 在 Info.plist 有 WhenInUse 說明時只會要到「使用 App 期間」，不會升級。`tour/location_permission.dart`：先要「使用 App 期間」、拿到後請求升級成「永遠」（`permission_handler`，Podfile 開 `PERMISSION_LOCATION=1`，iOS 建置通過）；使用者可以只給前者，照樣能出發，升級詢問出錯也不影響已拿到的權限
+- 只有「使用 App 期間」時，畫面有紅字提醒鎖定螢幕可能收不到位置（`TourState.locationAccess`）
+- `docs/device-verification.md`：**實機驗收清單**（背景 15 分鐘、鎖定畫面、暫停鍵、duck、耗電、本機 zh-TW 辨識、問答延遲、拍照），附結果表格給使用者填
+
+驗證：App 267 項、analyze 乾淨；`flutter build ios --simulator` 通過。
+
+**未做（agent 做不到，必須實機）**：issue #8 的「實機鎖屏 15 分鐘以上位置回報與自動播放持續」「鎖定畫面顯示與暫停鍵有效」「記錄耗電觀察」。請使用者照 `docs/device-verification.md` 驗，把結果貼到 issue。不關 #8。
+
+注意：請求「永遠」的 iOS 行為（升級詢問何時跳出、使用者選擇後的狀態）只有實機看得到。

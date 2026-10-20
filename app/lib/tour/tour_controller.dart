@@ -11,6 +11,7 @@ import '../audio/remote_controls.dart';
 import '../host/host_connection.dart';
 import 'geo.dart';
 import 'host_reachability.dart';
+import 'location_permission.dart';
 import 'location_source.dart';
 import 'playback_policy.dart';
 import 'resume_point.dart';
@@ -83,6 +84,7 @@ class TourState {
     this.stoppedReason,
     this.error,
     this.summary,
+    this.locationAccess = LocationAccess.always,
   });
 
   final bool active;
@@ -98,6 +100,9 @@ class TourState {
   /// 上一趟結束時主機回報的用量摘要；下一次出發就清掉。
   final TourSummary? summary;
 
+  /// 這一趟拿到的定位權限程度；不是「永遠」時畫面會提醒鎖定螢幕可能收不到位置。
+  final LocationAccess locationAccess;
+
   TourState copyWith({
     bool? active,
     bool? paused,
@@ -105,6 +110,7 @@ class TourState {
     Object? stoppedReason = _keep,
     Object? error = _keep,
     Object? summary = _keep,
+    LocationAccess? locationAccess,
   }) => TourState(
     active: active ?? this.active,
     paused: paused ?? this.paused,
@@ -116,6 +122,7 @@ class TourState {
         : stoppedReason as String?,
     error: identical(error, _keep) ? this.error : error as String?,
     summary: identical(summary, _keep) ? this.summary : summary as TourSummary?,
+    locationAccess: locationAccess ?? this.locationAccess,
   );
 }
 
@@ -226,7 +233,7 @@ class TourController extends Notifier<TourState> {
     }
     if (session != _session) return; // 等待期間已經結束或重新出發
 
-    state = const TourState(active: true);
+    state = TourState(active: true, locationAccess: location.access);
     _lastReportAt = fix.time;
     _syncRemote();
     unawaited(ref.read(phrasePlayerProvider).play(FixedPhrase.startTour));

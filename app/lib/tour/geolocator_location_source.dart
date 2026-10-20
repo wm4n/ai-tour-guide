@@ -1,9 +1,18 @@
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 
+import 'location_permission.dart';
 import 'location_source.dart';
 
 class GeolocatorLocationSource implements LocationSource {
+  GeolocatorLocationSource({LocationPermissionApi? permissions})
+    : _permissions = permissions ?? PluginLocationPermissions();
+
+  final LocationPermissionApi _permissions;
+
+  @override
+  LocationAccess access = LocationAccess.denied;
+
   /// iOS 背景定位：要有 `UIBackgroundModes: location`；關掉自動暫停，
   /// 否則靜止一陣子後系統會停止回報，走起來也不會再更新。
   static LocationSettings get _settings =>
@@ -23,12 +32,8 @@ class GeolocatorLocationSource implements LocationSource {
 
   @override
   Future<bool> ensurePermission() async {
-    var permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-    }
-    return permission == LocationPermission.whileInUse ||
-        permission == LocationPermission.always;
+    access = await ensureLocationAccess(_permissions);
+    return access.canTrack;
   }
 
   @override

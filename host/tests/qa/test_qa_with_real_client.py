@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from qa_fakes import FakeSpeech
 
 from buddy_host.llm.claude_cli import ClaudeCliClient, ClaudeSettings
 from buddy_host.llm.quota import QuotaGate
@@ -30,7 +31,13 @@ def service(tmp_path):
     persona.write_text("你是小花。", encoding="utf-8")
     client = ClaudeCliClient(ClaudeSettings.for_home(tmp_path, command=(sys.executable, str(FAKE))))
     return QaService(
-        client, NoPlaces(), persona_path=persona, quota=QuotaGate(), journey=JourneyMemory(None)
+        client,
+        NoPlaces(),
+        FakeSpeech(),
+        persona_path=persona,
+        out_dir=tmp_path / "qa",
+        quota=QuotaGate(),
+        journey=JourneyMemory(None),
     )
 
 

@@ -4,10 +4,12 @@
 `utilization` 取每次呼叫最後一個 `rate_limit_event` 的 `unifiedWindows`（5 小時與 7 天視窗），
 「變化」是本趟第一次與最後一次呼叫之後的差，所以不含第一次呼叫本身的消耗。
 `timestamp` 是呼叫完成的時間；結束時還在跑的呼叫會被取消，不會出現在報告裡。
+問答的「收到問題 → 第一段可下載」延遲另存在 qa-latency.jsonl，報告裡取本趟的平均與最大值。
 """
 
 import json
 import logging
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -25,14 +27,18 @@ _TOKEN_FIELDS = {
 }
 
 
-def build_report(entries: list[dict], recap: TourRecap) -> dict:
-    calls = [
-        _summarize_call(entry)
+def _during(entries: Sequence[dict], recap: TourRecap) -> list[dict]:
+    return [
+        entry
         for entry in entries
         if recap.started_at
         <= datetime.fromisoformat(entry["timestamp"]).timestamp()
         <= recap.ended_at
     ]
+
+
+def build_report(entries: list[dict], recap: TourRecap, qa_latencies: Sequence[dict] = ()) -> dict:
+    calls = [_summarize_call(entry) for entry in _during(entries, recap)]
     return {
         "started_at": _iso(recap.started_at),
         "ended_at": _iso(recap.ended_at),
@@ -41,11 +47,15 @@ def build_report(entries: list[dict], recap: TourRecap) -> dict:
         "stopped_reason": recap.stopped_reason,
         "calls": calls,
         "totals": _totals(calls),
+        "qa": _qa_latency(_during(qa_latencies, recap)),
     }
 
 
 def finish_tour(
-    recap: TourRecap, usage_log_path: Path | None, reports_dir: Path | None
+    recap: TourRecap,
+    usage_log_path: Path | None,
+    reports_dir: Path | None,
+    qa_latency_log_path: Path | None = None,
 ) -> dict | None:
     """寫出本趟的用量報告並回傳 App 要顯示的摘要。
 
@@ -53,7 +63,8 @@ def finish_tour(
     """
     try:
         entries = UsageLog(usage_log_path).read_all() if usage_log_path else []
-        report = build_report(entries, recap)
+        qa_latencies = UsageLog(qa_latency_log_path).read_all() if qa_latency_log_path else []
+        report = build_report(entries, recap, qa_latencies)
         if reports_dir is not None:
             write_report(report, reports_dir)
         return summarize(report)
@@ -106,6 +117,15 @@ def _summarize_call(entry: dict) -> dict:
         "utilization": _utilization(events),
         "hit_limit": quota_hit(events, entry.get("error")),
         "error": entry.get("error"),
+    }
+
+
+def _qa_latency(entries: list[dict]) -> dict:
+    seconds = [entry["first_segment_seconds"] for entry in entries]
+    return {
+        "answers": len(seconds),
+        "avg_first_segment_seconds": round(sum(seconds) / len(seconds), 2) if seconds else None,
+        "max_first_segment_seconds": max(seconds) if seconds else None,
     }
 
 

@@ -74,17 +74,23 @@ uv run python -m buddy_host.speech --text-file 稿子.txt --name demo
 
 ## 問答 API（`buddy_host.qa`）
 
-都需要 `X-Buddy-Token`。問答只在 `--max-llm-calls` 模式開放（重播模式回 503）。語音辨識由 App 做，主機收文字。
+都需要 `X-Buddy-Token`。問答只在 `--max-llm-calls` 模式開放（重播模式回 503）。語音辨識由 App 做，主機收文字，回的是**語音**（逐段下載）。
 
 | 端點 | 用途 |
 |---|---|
 | `POST /v1/qa/ask` | 發問。帶 `question`（1～500 字）、位置與旅人狀態（欄位同 `/v1/tour/start`），`more: true` 表示「再多說一點」；回 `{"id": …}` |
-| `GET /v1/qa/answer?id=…` | 輪詢：`status`（`answering`／`done`／`failed`）、`text`（`done` 時才有）、`searching_web`（Claude 動用了上網工具，App 可以說「我上網查一下」）、`reason`（`failed` 時：`quota`／`llm_budget`／`forbidden_model`／`error`）；不認得的 id 回 404 |
+| `GET /v1/qa/answer?id=…` | 輪詢：`status`（`answering`＝還在寫或還在合成、`done`＝文字寫完且每段都做完、`failed`）、`segments`（已經可以下載的段落 `[{index, audio_seconds}]`，依序、編號連續）、`first_segment_seconds`（收到問題 → 第一段可下載）、`text`（Claude 的完整答案，寫完才有）、`searching_web`（Claude 動用了上網工具，App 可以說「我上網查一下」）、`reason`（`failed` 時：`quota`／`llm_budget`／`forbidden_model`／`no_audio`／`error`）；不認得的 id 回 404 |
+| `GET /v1/qa/audio?id=…&index=N` | 下載答案的第 N 段 wav；還沒做好或不存在回 404 |
 
 - 每個問題都是一次**全新**的 Claude 呼叫（Sonnet，不接受覆寫；Fable 會被擋下），用量照常寫進 `usage.jsonl`（`purpose=qa`）。
 - 送給 Claude 的 prompt：問題、位置與行進方向、旅人狀態、附近最多 5 個景點（維基摘要各截 200 字）、這趟剛講過的地方、這些景點以前講過的稿子（沿用旅程記憶的長度上限）。附近景點查不到（或超過 10 秒）就空手回答。
 - `more: true` 時再帶「剛剛講的那段」：**只算 App 回報播完的**（`/v1/tour/played`），準備好但還沒播的不算。
-- 回答過程中 Claude 使用 `WebSearch`／`WebFetch` 時，`searching_web` 變成 `true`。
+- 回答過程中 Claude 使用 `WebSearch`／`WebFetch` 時，`searching_web` 變成 `true`；查資料之前說的開場白不念（指示 Claude 不要先說，程式也會丟掉還沒吐出的文字）。
+- **答案不等寫完**：串流的文字每寫完一句（。！？或換行）就切段，第一段是第一句（太短的先併入下一句），之後併到約 60 字一段；一段交給 `SpeechPipeline`（Whisper 驗收、換 seed、拆句、仍不行就跳過，規則同主動介紹），做好就出現在 `segments`。被跳過的段落不佔編號；全部都被跳過回 `failed／no_audio`。
+- Claude 中途失敗時，已經做好的段落還在（`failed` 但 `segments` 有東西），由 App 決定要不要播；還沒做的不做。
+- 音檔放在 `~/.buddy-host/out/answers/<id>/`，只留最近 50 個答案，被淘汰的連音檔一起刪。
+- 介紹與問答目前共用同一個語音管線、用鎖輪流使用（一次只合成一段）；**問答還不會插隊**，主動介紹合成中時問答要等它做完那一整段（#22 處理）。
+- 「收到問題 → 第一段可下載」每答一題記一筆到 `~/.buddy-host/qa-latency.jsonl`，用量報告的 `qa` 區塊有本趟的次數、平均與最大值。
 
 **旅程記憶**（`buddy_host.tour.journey`，設計文件第 7 節）：
 - 「講過」以 App 回報播完為準；主機準備好但 App 丟掉的不算。App 送不出去的回報會留著，下次輪詢連上時補送。

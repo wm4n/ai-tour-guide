@@ -308,7 +308,7 @@ def test_writing_the_usage_report_does_not_block_the_event_loop(tmp_path, prepar
         seen["loop"] = threading.get_ident()  # tour_end 在事件迴圈上呼叫它
         return real_end(self)
 
-    def fake_finish(recap, usage_log_path, reports_dir):
+    def fake_finish(recap, usage_log_path, reports_dir, qa_latency_log_path=None):
         seen.setdefault("reports", []).append(threading.get_ident())
         return {"calls": 0}
 
@@ -335,7 +335,7 @@ def test_the_report_of_an_abandoned_trip_is_not_written_on_the_event_loop_either
     seen: dict[str, list[int]] = {"reports": []}
     loop_threads: list[int] = []
 
-    def fake_finish(recap, usage_log_path, reports_dir):
+    def fake_finish(recap, usage_log_path, reports_dir, qa_latency_log_path=None):
         seen["reports"].append(threading.get_ident())
 
     from buddy_host.tour.session import TourSession

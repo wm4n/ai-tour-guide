@@ -70,6 +70,7 @@ def create_app(
     *,
     usage_log_path: Path | None = None,
     reports_dir: Path | None = None,
+    qa_latency_log_path: Path | None = None,
     journey_path: Path | None = None,
     answerer_factory: AnswererFactory | None = None,
 ) -> FastAPI:
@@ -104,7 +105,9 @@ def create_app(
         outcome = tour().start(body.to_fix())
         if outcome.abandoned is not None:  # 上一趟沒按結束就被丟下：替它收尾
             # 報告要讀整份 usage.jsonl（只會越來越大），不在事件迴圈上做
-            await asyncio.to_thread(finish_tour, outcome.abandoned, usage_log_path, reports_dir)
+            await asyncio.to_thread(
+                finish_tour, outcome.abandoned, usage_log_path, reports_dir, qa_latency_log_path
+            )
         return {"status": "started", "resumed": outcome.resumed}
 
     @app.post("/v1/tour/location", dependencies=[authed])
@@ -125,7 +128,9 @@ def create_app(
         recap = tour().end()
         if recap is None:
             return {"status": "ended", "summary": None}
-        summary = await asyncio.to_thread(finish_tour, recap, usage_log_path, reports_dir)
+        summary = await asyncio.to_thread(
+            finish_tour, recap, usage_log_path, reports_dir, qa_latency_log_path
+        )
         return {"status": "ended", "summary": summary}
 
     @app.get("/v1/tour/narrations", dependencies=[authed])
@@ -155,5 +160,12 @@ def create_app(
         if answer is None:
             raise HTTPException(status_code=404, detail="找不到這個問題的答案")
         return asdict(answer)
+
+    @app.get("/v1/qa/audio", dependencies=[authed])
+    async def qa_audio(id: str, index: int) -> FileResponse:
+        path = qa().audio_path(id, index)
+        if path is None or not path.exists():
+            raise HTTPException(status_code=404, detail="找不到這一段答案的語音")
+        return FileResponse(path, media_type="audio/wav")
 
     return app

@@ -3,6 +3,7 @@ import time
 
 import pytest
 from fastapi.testclient import TestClient
+from qa_fakes import FakeSpeech
 
 from buddy_host.app import create_app
 from buddy_host.config import HostConfig
@@ -90,7 +91,15 @@ def build_client(tmp_path, wav, persona, llm, preparer=None, token="s3cret"):
     config = HostConfig(home=tmp_path, token=token)
 
     def factory(quota, journey):
-        return QaService(llm, FakeNearby(), persona_path=persona, quota=quota, journey=journey)
+        return QaService(
+            llm,
+            FakeNearby(),
+            FakeSpeech(),
+            persona_path=persona,
+            out_dir=tmp_path / "qa",
+            quota=quota,
+            journey=journey,
+        )
 
     app = create_app(config, preparer=preparer or FakePreparer(wav), answerer_factory=factory)
     client = TestClient(app)
@@ -133,6 +142,7 @@ def test_qa_endpoints_require_the_token(tmp_path, wav, persona, llm):
         del bare.headers["X-Buddy-Token"]
         assert bare.post("/v1/qa/ask", json=BODY).status_code == 401
         assert bare.get("/v1/qa/answer", params={"id": "x"}).status_code == 401
+        assert bare.get("/v1/qa/audio", params={"id": "x", "index": 0}).status_code == 401
 
 
 def test_qa_is_unavailable_until_it_is_switched_on(tmp_path, wav):
@@ -140,6 +150,7 @@ def test_qa_is_unavailable_until_it_is_switched_on(tmp_path, wav):
     with TestClient(create_app(config, preparer=FakePreparer(wav))) as bare:
         assert bare.post("/v1/qa/ask", json=BODY).status_code == 503
         assert bare.get("/v1/qa/answer", params={"id": "x"}).status_code == 503
+        assert bare.get("/v1/qa/audio", params={"id": "x", "index": 0}).status_code == 503
 
 
 def test_ask_returns_an_id_and_the_answer_can_be_polled(client, llm):
@@ -153,9 +164,12 @@ def test_ask_returns_an_id_and_the_answer_can_be_polled(client, llm):
         "id": answer_id,
         "status": "done",
         "text": "拜城隍爺。",
+        "segments": [{"index": 0, "audio_seconds": 2.0}],
+        "first_segment_seconds": body["first_segment_seconds"],
         "searching_web": False,
         "reason": None,
     }
+    assert body["first_segment_seconds"] >= 0
     assert "那間廟拜的是誰？" in llm.requests[0].prompt
 
 
@@ -243,3 +257,53 @@ def test_a_quota_hit_while_preparing_stops_questions_too(tmp_path, wav, persona)
 
         assert (answer["status"], answer["reason"]) == ("failed", "quota")
         assert llm.requests == []
+
+
+def test_each_segment_of_the_answer_can_be_downloaded(client):
+    answer_id = client.post("/v1/qa/ask", json=BODY).json()["id"]
+    wait_for_answer(client, answer_id)
+
+    audio = client.get("/v1/qa/audio", params={"id": answer_id, "index": 0})
+
+    assert audio.status_code == 200
+    assert audio.headers["content-type"] == "audio/wav"
+    assert audio.content[:4] == b"RIFF"
+
+
+def test_a_segment_that_does_not_exist_is_404(client):
+    answer_id = client.post("/v1/qa/ask", json=BODY).json()["id"]
+    wait_for_answer(client, answer_id)
+
+    assert client.get("/v1/qa/audio", params={"id": answer_id, "index": 5}).status_code == 404
+    assert client.get("/v1/qa/audio", params={"id": "nope", "index": 0}).status_code == 404
+
+
+def test_the_tour_report_includes_the_qa_delay(tmp_path, wav, persona):
+    import json
+    from datetime import UTC, datetime
+
+    from buddy_host.llm.usage_log import UsageLog
+
+    latency_log = tmp_path / "qa-latency.jsonl"
+    reports = tmp_path / "reports"
+    config = HostConfig(home=tmp_path)
+    app = create_app(
+        config,
+        preparer=FakePreparer(wav),
+        reports_dir=reports,
+        qa_latency_log_path=latency_log,
+    )
+    with TestClient(app) as client:
+        client.post("/v1/tour/start", json=BODY)
+        UsageLog(latency_log).append(
+            {
+                "timestamp": datetime.now(UTC).isoformat(),
+                "answer_id": "a1",
+                "first_segment_seconds": 6.5,
+            }
+        )
+
+        client.post("/v1/tour/end")
+
+    [path] = reports.glob("tour-*.json")
+    assert json.loads(path.read_text(encoding="utf-8"))["qa"]["avg_first_segment_seconds"] == 6.5

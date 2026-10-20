@@ -8,6 +8,7 @@
 
 import argparse
 import sys
+import threading
 from pathlib import Path
 
 import uvicorn
@@ -18,6 +19,19 @@ from buddy_host.llm.claude_cli import ClaudeSettings
 
 PERSONA = Path(__file__).resolve().parents[2] / "config" / "buddy.md"
 DAY = 24 * 3600
+QA_LATENCY_LOG = "qa-latency.jsonl"
+
+
+class SerializedSpeech:
+    """讓同一個語音管線一次只被一個執行緒使用。"""
+
+    def __init__(self, inner):
+        self._inner = inner
+        self._lock = threading.Lock()
+
+    def run(self, text: str):
+        with self._lock:
+            return self._inner.run(text)
 
 
 def build_real_services(max_llm_calls: int):
@@ -27,6 +41,7 @@ def build_real_services(max_llm_calls: int):
 
     from buddy_host.llm.budget import BudgetedLlm
     from buddy_host.llm.claude_cli import ClaudeCliClient
+    from buddy_host.llm.usage_log import UsageLog
     from buddy_host.narration.preparer import AreaPreparer
     from buddy_host.places.cache import JsonCache
     from buddy_host.places.fetch import RetryingHttp
@@ -39,10 +54,13 @@ def build_real_services(max_llm_calls: int):
 
     truststore.inject_into_ssl()
     home = default_home()
-    speech = SpeechPipeline(
-        KittenSynthesizer(load_reference(home / "voice" / "F2")),
-        WhisperRecognizer(home / "cache" / "whisper"),
-        PipelineConfig(),
+    # 介紹與問答共用同一顆 GPU 與同一組模型：一次只讓一邊合成（問答優先見 #22）
+    speech = SerializedSpeech(
+        SpeechPipeline(
+            KittenSynthesizer(load_reference(home / "voice" / "F2")),
+            WhisperRecognizer(home / "cache" / "whisper"),
+            PipelineConfig(),
+        )
     )
     http = RetryingHttp(httpx2.AsyncClient(timeout=30))
     llm = BudgetedLlm(ClaudeCliClient(ClaudeSettings.for_home(home)), max_calls=max_llm_calls)
@@ -56,7 +74,16 @@ def build_real_services(max_llm_calls: int):
     )
 
     def answerer(quota, journey):
-        return QaService(llm, preparer, persona_path=PERSONA, quota=quota, journey=journey)
+        return QaService(
+            llm,
+            preparer,
+            speech,
+            persona_path=PERSONA,
+            out_dir=home / "out" / "answers",
+            quota=quota,
+            journey=journey,
+            latency_log=UsageLog(home / QA_LATENCY_LOG),
+        )
 
     return preparer, answerer
 
@@ -87,6 +114,7 @@ def main() -> None:
         preparer,
         usage_log_path=ClaudeSettings.for_home(home).usage_log_path,
         reports_dir=home / "out" / "reports",
+        qa_latency_log_path=home / QA_LATENCY_LOG,
         # 重播模式只在桌上跑通流程，不寫進真實的「講過哪些地方」
         journey_path=None if args.replay_dir else home / "journey.json",
         answerer_factory=answerer,

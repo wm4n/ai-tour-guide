@@ -200,3 +200,45 @@ def test_a_broken_usage_log_never_blocks_the_end_of_a_tour(tmp_path):
     log.write_text("{not json\n", encoding="utf-8")
 
     assert finish_tour(RECAP, log, tmp_path / "reports") is None
+
+
+def latency(minute: int, seconds: float) -> dict:
+    return {"timestamp": at(minute), "answer_id": f"a{minute}", "first_segment_seconds": seconds}
+
+
+def test_the_report_has_the_average_delay_to_the_first_segment_of_each_answer():
+    report = build_report([], RECAP, [latency(5, 8.0), latency(10, 14.0), latency(30, 11.0)])
+
+    assert report["qa"] == {
+        "answers": 3,
+        "avg_first_segment_seconds": 11.0,
+        "max_first_segment_seconds": 14.0,
+    }
+
+
+def test_only_answers_during_the_tour_count():
+    before = {**latency(5, 99.0), "timestamp": datetime(2026, 10, 20, 6, 0, tzinfo=UTC).isoformat()}
+
+    report = build_report([], RECAP, [before, latency(5, 8.0)])
+
+    assert report["qa"]["answers"] == 1
+    assert report["qa"]["avg_first_segment_seconds"] == 8.0
+
+
+def test_a_tour_without_questions_has_an_empty_qa_section():
+    assert build_report([], RECAP)["qa"] == {
+        "answers": 0,
+        "avg_first_segment_seconds": None,
+        "max_first_segment_seconds": None,
+    }
+
+
+def test_finish_tour_reads_the_qa_latency_log(tmp_path):
+    usage, qa_log = tmp_path / "usage.jsonl", tmp_path / "qa-latency.jsonl"
+    UsageLog(usage).append(entry(5))
+    UsageLog(qa_log).append(latency(7, 9.5))
+
+    finish_tour(RECAP, usage, tmp_path / "reports", qa_log)
+
+    [path] = (tmp_path / "reports").glob("tour-*.json")
+    assert json.loads(path.read_text(encoding="utf-8"))["qa"]["avg_first_segment_seconds"] == 9.5

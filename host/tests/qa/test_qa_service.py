@@ -2,6 +2,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from qa_fakes import FakeSpeech
 
 from buddy_host.llm.budget import LlmBudgetExhaustedError
 from buddy_host.llm.claude_cli import LlmError, QuotaExceededError
@@ -26,15 +27,27 @@ class FakeLlm:
     """依序回傳排好的結果（例外就拋出）；`tools` 在回答中依序回報；`hold` 讓測試卡住呼叫。"""
 
     def __init__(
-        self, results=("好的，是拜城隍爺。",), tools=(), hold: asyncio.Event | None = None
+        self,
+        results=("好的，是拜城隍爺。",),
+        tools=(),
+        hold: asyncio.Event | None = None,
+        events=(),
     ):
         self.results = list(results)
         self.tools = tools
         self.hold = hold
+        self.events = events  # 依序：字串＝串流文字、("tool", 名稱)、asyncio.Event＝等它
         self.requests = []
 
     async def run(self, request, on_text=None, on_tool=None):
         self.requests.append(request)
+        for event in self.events:
+            if isinstance(event, asyncio.Event):
+                await event.wait()
+            elif isinstance(event, tuple):
+                on_tool(event[1])
+            else:
+                on_text(event)
         for tool in self.tools:
             if on_tool:
                 on_tool(tool)
@@ -86,19 +99,22 @@ def persona(tmp_path):
     return path
 
 
-def make(persona, llm=None, nearby=None, clock=None, journey=None, **kw):
+def make(persona, llm=None, nearby=None, clock=None, journey=None, speech=None, **kw):
     clock = clock or Clock()
     parts = dict(
         llm=llm or FakeLlm(),
         nearby=nearby or FakeNearby([temple()]),
         quota=QuotaGate(wall_clock=clock),
         journey=journey or JourneyMemory(None),
+        speech=speech or FakeSpeech(),
         clock=clock,
     )
     service = QaService(
         parts["llm"],
         parts["nearby"],
+        parts["speech"],
         persona_path=persona,
+        out_dir=persona.parent / "qa",
         quota=parts["quota"],
         journey=parts["journey"],
         **kw,
@@ -325,3 +341,191 @@ async def test_only_the_most_recent_answers_are_kept(persona):
 
     assert service.answer(ids[0]) is None
     assert service.answer(ids[1]) is not None and service.answer(ids[2]) is not None
+
+
+FIRST = "城隍爺是這裡的主神，香火很旺。"
+SECOND = "你可以順便看看旁邊的老街。"
+
+
+async def wait_until(predicate, timeout=2.0):
+    for _ in range(int(timeout / 0.01)):
+        if predicate():
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError("等不到條件成立")
+
+
+async def test_the_first_segment_is_ready_before_the_answer_is_fully_written(persona):
+    hold = asyncio.Event()
+    service, _ = make(persona, llm=FakeLlm([FIRST + SECOND], events=[FIRST, hold, SECOND]))
+
+    answer_id = service.ask("那間廟拜的是誰？", FIX)
+    await wait_until(lambda: service.answer(answer_id).segments)
+
+    early = service.answer(answer_id)
+    assert early.status == "answering"  # Claude 還在寫
+    assert [s.index for s in early.segments] == [0]
+    assert service.audio_path(answer_id, 0).exists()
+
+    hold.set()
+    await service.wait_idle()
+    assert [s.index for s in service.answer(answer_id).segments] == [0, 1]
+
+
+async def test_every_segment_goes_through_the_speech_pipeline_and_can_be_downloaded(persona):
+    speech = FakeSpeech(seconds=2.5)
+    service, _ = make(persona, speech=speech, llm=FakeLlm([FIRST + SECOND], events=[FIRST, SECOND]))
+
+    answer = await ask_and_wait(service)
+
+    assert speech.texts == [FIRST, SECOND]  # 第一段單獨一段，其餘併在一起
+    assert answer.status == "done"
+    assert [(s.index, s.audio_seconds) for s in answer.segments] == [(0, 2.5), (1, 2.5)]
+    assert all(service.audio_path(answer.id, i).read_bytes()[:4] == b"RIFF" for i in (0, 1))
+    assert answer.text == FIRST + SECOND
+
+
+async def test_the_answer_is_only_done_once_every_segment_is_made(persona):
+    service, _ = make(persona, llm=FakeLlm([FIRST + SECOND], events=[FIRST, SECOND]))
+
+    answer_id = service.ask("問題", FIX)
+    await asyncio.sleep(0)
+    assert service.answer(answer_id).status == "answering"
+    await service.wait_idle()
+
+    assert service.answer(answer_id).status == "done"
+
+
+async def test_a_segment_that_fails_the_check_is_skipped_and_the_rest_still_play(persona):
+    speech = FakeSpeech(skip=[FIRST])
+    service, _ = make(persona, speech=speech, llm=FakeLlm([FIRST + SECOND], events=[FIRST, SECOND]))
+
+    answer = await ask_and_wait(service)
+
+    assert answer.status == "done"
+    assert [s.index for s in answer.segments] == [0]  # 編號連續，App 不會以為少了一段
+    assert service.audio_path(answer.id, 0) is not None
+
+
+async def test_an_engine_crash_on_one_segment_only_skips_that_segment(persona):
+    speech = FakeSpeech(explode=[FIRST])
+    service, _ = make(persona, speech=speech, llm=FakeLlm([FIRST + SECOND], events=[FIRST, SECOND]))
+
+    answer = await ask_and_wait(service)
+
+    assert answer.status == "done" and len(answer.segments) == 1
+
+
+async def test_when_every_segment_is_skipped_the_answer_fails_instead_of_staying_silent(persona):
+    speech = FakeSpeech(skip=["好的，是拜城隍爺。"])
+    service, _ = make(persona, speech=speech)
+
+    answer = await ask_and_wait(service)
+
+    assert (answer.status, answer.reason, answer.segments) == ("failed", "no_audio", [])
+
+
+async def test_the_final_text_is_used_when_nothing_was_streamed(persona):
+    speech = FakeSpeech()
+    service, _ = make(persona, speech=speech, llm=FakeLlm([FIRST]))
+
+    answer = await ask_and_wait(service)
+
+    assert speech.texts == [FIRST]
+    assert answer.status == "done"
+
+
+async def test_a_lead_in_before_a_web_search_is_not_spoken(persona):
+    speech = FakeSpeech()
+    llm = FakeLlm(
+        ["營業到晚上九點。"], events=["我來查一下。", ("tool", "WebSearch"), "營業到晚上九點。"]
+    )
+    service, _ = make(persona, speech=speech, llm=llm)
+
+    answer = await ask_and_wait(service)
+
+    assert speech.texts == ["營業到晚上九點。"]
+    assert answer.searching_web is True
+
+
+async def test_a_failure_after_some_segments_keeps_what_was_already_made(persona):
+    hold = asyncio.Event()
+    service, _ = make(persona, llm=FakeLlm([LlmError("斷線")], events=[FIRST, hold]))
+
+    answer_id = service.ask("問題", FIX)
+    await wait_until(lambda: service.answer(answer_id).segments)
+    hold.set()  # 第一段做好之後，Claude 才斷線
+    await service.wait_idle()
+
+    answer = service.answer(answer_id)
+    assert (answer.status, answer.reason) == ("failed", "error")
+    assert [s.index for s in answer.segments] == [0]  # 已經好的那一段還在，由 App 決定要不要播
+    assert service.audio_path(answer_id, 0).exists()
+
+
+async def test_unknown_segments_have_no_audio(persona):
+    service, _ = make(persona)
+    answer = await ask_and_wait(service)
+
+    assert service.audio_path("nope", 0) is None
+    assert service.audio_path(answer.id, 99) is None
+
+
+async def test_the_audio_of_evicted_answers_is_deleted(persona):
+    service, _ = make(persona, keep=1)
+    first = await ask_and_wait(service)
+    first_audio = service.audio_path(first.id, 0)
+    assert first_audio.exists()
+
+    await ask_and_wait(service)
+
+    assert not first_audio.exists()
+    assert service.audio_path(first.id, 0) is None
+
+
+class SlowSpeech(FakeSpeech):
+    """每次合成讓時鐘走 `took` 秒，用來量「收到問題 → 第一段可下載」。"""
+
+    def __init__(self, clock, took):
+        super().__init__()
+        self.clock = clock
+        self.took = took
+
+    def run(self, text):
+        self.clock.now += self.took
+        return super().run(text)
+
+
+async def test_the_delay_until_the_first_segment_is_recorded(persona, tmp_path):
+    from buddy_host.llm.usage_log import UsageLog
+
+    clock = Clock(100.0)
+    log = UsageLog(tmp_path / "qa-latency.jsonl")
+    service, _ = make(
+        persona,
+        speech=SlowSpeech(clock, took=7.5),
+        llm=FakeLlm([FIRST + SECOND], events=[FIRST, SECOND]),
+        latency_log=log,
+        monotonic=clock,
+    )
+
+    answer = await ask_and_wait(service)
+
+    assert answer.first_segment_seconds == 7.5  # 之後的段落不影響
+    [entry] = log.read_all()
+    assert entry["answer_id"] == answer.id and entry["first_segment_seconds"] == 7.5
+    assert "timestamp" in entry
+
+
+async def test_no_delay_is_recorded_when_nothing_was_ever_ready(persona, tmp_path):
+    from buddy_host.llm.usage_log import UsageLog
+
+    log = UsageLog(tmp_path / "qa-latency.jsonl")
+    service, _ = make(
+        persona, speech=FakeSpeech(skip=[FIRST]), llm=FakeLlm([FIRST]), latency_log=log
+    )
+
+    answer = await ask_and_wait(service)
+
+    assert answer.first_segment_seconds is None
+    assert log.read_all() == []

@@ -139,30 +139,46 @@ class QaService:
         segments: asyncio.Queue[str | None] = asyncio.Queue()
         speaker = asyncio.create_task(self._speak(answer, segments, started))
         try:
-            text = await self._write(answer, question, fix, more, segments)
+            reason = await self._converse(answer, question, fix, more, segments, speaker)
+        finally:
+            # 不論成功、失敗或被取消都收掉合成的任務：已經做好的段落留著，還沒做的不做了
+            speaker.cancel()
+            await asyncio.gather(speaker, return_exceptions=True)
+        if reason is None:
+            answer.status = "done"
+        else:
+            self._fail(answer, reason)
+
+    async def _converse(
+        self,
+        answer: Answer,
+        question: str,
+        fix: TourFix,
+        more: bool,
+        segments: asyncio.Queue[str | None],
+        speaker: asyncio.Task,
+    ) -> str | None:
+        """問 Claude、等每一段做完；回傳失敗原因，成功是 None。"""
+        try:
+            answer.text = await self._write(answer, question, fix, more, segments)
         except LlmBudgetExhaustedError:  # 先於 QuotaExceededError：它是子類別，但永遠不會自己恢復
-            reason = "llm_budget"
+            return "llm_budget"
         except QuotaExceededError as error:
             self._quota.trip(error.resets_at)
-            reason = "quota"
+            return "quota"
         except ForbiddenModelError:
-            reason = "forbidden_model"
+            return "forbidden_model"
         except Exception:
             logger.exception("回答問題失敗")
-            reason = "error"
-        else:
-            reason = None
-        if reason is not None:
-            speaker.cancel()  # 已經做好的段落留著，還沒做的不做了
-            await asyncio.gather(speaker, return_exceptions=True)
-            return self._fail(answer, reason)
-
-        answer.text = text
+            return "error"
         segments.put_nowait(None)
-        await speaker
-        if not answer.segments:  # 每一段都驗收不過：寧可少講，但整個答案沒聲音就是失敗
-            return self._fail(answer, "no_audio")
-        answer.status = "done"
+        try:
+            await speaker
+        except Exception:
+            logger.exception("答案語音合成出了意外")
+            return "error"
+        # 每一段都驗收不過：寧可少講，但整個答案沒聲音就是失敗
+        return None if answer.segments else "no_audio"
 
     async def _write(
         self,
@@ -170,7 +186,7 @@ class QaService:
         question: str,
         fix: TourFix,
         more: bool,
-        segments: "asyncio.Queue[str | None]",
+        segments: asyncio.Queue[str | None],
     ) -> str:
         """請 Claude 回答；寫到哪切到哪，一段一段交給合成。回傳完整答案。"""
         segmenter = AnswerSegmenter()
@@ -202,13 +218,13 @@ class QaService:
         return text
 
     async def _speak(
-        self, answer: Answer, segments: "asyncio.Queue[str | None]", started: float
+        self, answer: Answer, segments: asyncio.Queue[str | None], started: float
     ) -> None:
         """一次合成一段（只有一顆 GPU）；做好就加進 answer.segments，App 即可下載。"""
         while (text := await segments.get()) is not None:
             index = len(answer.segments)
             try:
-                seconds = await asyncio.to_thread(self._synthesize, answer.id, index, text)
+                seconds = await asyncio.to_thread(self._synthesize, answer, index, text)
             except Exception:  # 一段合成失敗只跳過這段
                 logger.exception("答案語音合成失敗，跳過這一段：%s", text)
                 continue
@@ -219,11 +235,17 @@ class QaService:
             if index == 0:
                 self._record_latency(answer, self._monotonic() - started)
 
-    def _synthesize(self, answer_id: str, index: int, text: str) -> float:
-        result = self._speech.run(text)
-        if result.audio_seconds <= 0:
+    def _active(self, answer: Answer) -> bool:
+        """答案還在進行、也還沒被淘汰：失敗或被淘汰的答案不再合成、不再寫檔。"""
+        return answer.status == "answering" and self._answers.get(answer.id) is answer
+
+    def _synthesize(self, answer: Answer, index: int, text: str) -> float:
+        if not self._active(answer):
             return 0.0
-        path = self._segment_path(answer_id, index)
+        result = self._speech.run(text)
+        if result.audio_seconds <= 0 or not self._active(answer):
+            return 0.0
+        path = self._segment_path(answer.id, index)
         write_speech(result, path.parent, path.stem)
         return round(result.audio_seconds, 2)
 
@@ -239,7 +261,7 @@ class QaService:
                     "first_segment_seconds": answer.first_segment_seconds,
                 }
             )
-        except OSError:
+        except Exception:  # 記錄只是附帶的，不能讓答案因此卡住
             logger.exception("問答延遲記錄寫入失敗")
 
     async def _context(self, question: str, fix: TourFix, more: bool) -> AskContext:

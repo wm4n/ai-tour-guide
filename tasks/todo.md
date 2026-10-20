@@ -225,3 +225,30 @@ code-review 後修正：
 - 例外階梯（Budget → Quota → Forbidden）在 session 與 QaService 各一份、`TourFix` 的匯入方向、`model="sonnet"` 與預設值重複（刻意明確釘住）：判斷題，未重構
 
 **還沒做**：真實 Claude 驗證（問答品質、`searching_web` 真實事件）——要使用者先同意次數。
+
+## #21 問答（主機）：答案語音分段合成與逐段驗收（2026-10-20，分支 `feat/v2-qa`）
+
+做了：
+- `qa/segmenter.py`（`AnswerSegmenter`）：串流文字寫完一句就切；第一段盡量短（太短併下一句；第一句超過 40 字在第一個夠長的逗號先切）；之後約 60 字一段
+- `QaService`：寫到哪切到哪，一段一段交給 `SpeechPipeline`（驗收、換 seed、拆句、跳過的規則與主動介紹完全相同）；做好的段落出現在 `answer.segments`，`GET /v1/qa/audio?id=&index=` 下載；被跳過的不佔編號；全被跳過回 `failed／no_audio`
+- 「收到問題 → 第一段可下載」每題記一筆到 `qa-latency.jsonl`，用量報告新增 `qa`（次數、平均、最大）；App 的結束摘要沒動
+- 上網前的開場白不念（指示 Claude 不要先說＋丟掉還沒吐出的文字）
+- 介紹與問答共用語音管線，以 `SerializedSpeech`（鎖）輪流使用
+
+驗證：host 540 項、ruff 乾淨；合成器、辨識器、Claude 全是 fake（含一組用真的 `SpeechPipeline` 搭假引擎的測試）。**沒有呼叫真實 Claude／合成。**
+
+code-review 後修正：
+- 無標點或超長的第一句：第一段會拖到整個答案寫完 → 在逗號先切（有測試，含逐字串流與一次餵完結果一致）
+- 取消與殘留：`_answer` 被取消時合成任務會洩漏、答案失敗或被淘汰後排隊的段落還會合成／補寫檔 → `try/finally` 收掉任務、`_synthesize` 先確認答案仍在進行；`_record_latency` 的例外不再卡住答案
+- `SerializedSpeech` 搬到 `speech/serialized.py` 並補測試
+
+審查指出但刻意不改：
+- 問答還不會插隊（`SerializedSpeech` 的鎖不保證順序）：#22
+- 失敗的答案已做好的段落仍可下載（由 App 決定要不要播）；延遲只記有第一段成功的問答（失敗的不進平均）
+- 開場白超過 10 字且在上網前已吐出的話收不回來（prompt 已要求不要先說）
+- `qa-latency.jsonl` 不輪替、每次結束旅程整檔讀入（一趟的量很小）
+- 每段都被語音管線當成「開場句」多試幾個 seed（段首同樣有專有名詞風險）
+- 取消時 `to_thread` 裡已在跑的那一段無法中止，只是不再寫檔
+- `reason` 用字串、`question/fix/more` 透傳：判斷題，未重構
+
+**還沒做**：真實合成與端到端延遲量測（M3 上第一段要多久）——要實機／真實 Claude，須使用者先同意次數。

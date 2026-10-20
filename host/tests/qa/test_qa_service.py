@@ -1,4 +1,5 @@
 import asyncio
+import threading
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -529,3 +530,79 @@ async def test_no_delay_is_recorded_when_nothing_was_ever_ready(persona, tmp_pat
 
     assert answer.first_segment_seconds is None
     assert log.read_all() == []
+
+
+async def test_cancelling_the_service_does_not_leak_the_speaker_task(persona):
+    hold = asyncio.Event()
+    service, _ = make(persona, llm=FakeLlm([FIRST], events=[FIRST, hold]))
+    baseline = len(asyncio.all_tasks())
+
+    answer_id = service.ask("問題", FIX)
+    await wait_until(lambda: service.answer(answer_id).segments)  # 合成的任務確實在跑了
+    for task in list(service._tasks):
+        task.cancel()
+    await asyncio.sleep(0.05)
+
+    assert len(asyncio.all_tasks()) == baseline  # 負責合成的任務也一起結束了
+
+
+class BlockingSpeech(FakeSpeech):
+    """第一次合成卡住直到被放行，用來模擬「合成到一半時答案失敗或被淘汰」。"""
+
+    def __init__(self):
+        super().__init__()
+        self.started = threading.Event()
+        self.release = threading.Event()
+
+    def run(self, text):
+        first = not self.texts
+        if first:
+            self.started.set()
+            self.release.wait(5)
+        return super().run(text)
+
+
+async def test_a_failed_answer_stops_making_queued_segments_and_writes_nothing_late(persona):
+    speech = BlockingSpeech()
+    gate = asyncio.Event()
+    llm = FakeLlm([LlmError("斷線")], events=[FIRST, SECOND * 4, gate])
+    service, _ = make(persona, speech=speech, llm=llm)
+
+    answer_id = service.ask("問題", FIX)
+    await asyncio.to_thread(speech.started.wait, 5)  # 第一段正在合成
+    gate.set()  # Claude 斷線 → 答案失敗
+    await service.wait_idle()
+    speech.release.set()  # 卡住的那一段這才做完
+    await asyncio.sleep(0.1)
+
+    answer = service.answer(answer_id)
+    assert (answer.status, answer.reason) == ("failed", "error")
+    assert speech.texts == [FIRST]  # 排隊中的後面幾段不再做
+    assert answer.segments == []
+    assert not (persona.parent / "qa" / answer_id / "seg-0.wav").exists()  # 失敗後不補寫檔案
+
+
+async def test_an_evicted_answer_does_not_get_its_audio_written_afterwards(persona):
+    speech = BlockingSpeech()
+    service, _ = make(persona, speech=speech, keep=1, llm=FakeLlm([FIRST], events=[FIRST]))
+
+    first_id = service.ask("問題一", FIX)
+    await asyncio.to_thread(speech.started.wait, 5)
+    service.ask("問題二", FIX)  # 淘汰第一個
+    speech.release.set()
+    await service.wait_idle()
+
+    assert not (persona.parent / "qa" / first_id).exists()
+
+
+async def test_an_unexpected_synthesis_bug_does_not_leave_the_answer_stuck(persona, monkeypatch):
+    service, _ = make(persona, llm=FakeLlm([FIRST], events=[FIRST]))
+
+    def broken(*args, **kwargs):
+        raise TypeError("沒料到的 bug")
+
+    monkeypatch.setattr(service, "_record_latency", broken)
+
+    answer = await ask_and_wait(service)
+
+    assert answer.status in ("done", "failed")  # 不會永遠停在 answering

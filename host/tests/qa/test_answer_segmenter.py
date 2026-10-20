@@ -76,3 +76,49 @@ def test_discard_drops_what_was_not_yet_emitted_such_as_a_lead_in_before_a_web_s
 def test_empty_input_produces_nothing():
     assert run("") == []
     assert run("  \n ") == []
+
+
+LONG_WITH_COMMAS = (
+    "城隍爺是這裡的主神，" + "香火很旺的原因是靈驗的傳說一個傳一個，" * 3 + "所以大家都愛來。"
+)
+
+
+def test_a_long_first_sentence_is_cut_at_the_first_clause_break_so_the_first_segment_stays_short():
+    first, *rest = run(LONG_WITH_COMMAS, min_first_chars=10, first_max_chars=30)
+
+    assert first == "城隍爺是這裡的主神，"
+    assert "".join([first, *rest]) == LONG_WITH_COMMAS  # 不遺漏、不重複
+
+
+def test_a_long_first_sentence_is_cut_while_it_is_still_being_written():
+    segmenter = AnswerSegmenter(min_first_chars=10, first_max_chars=30)
+    out = []
+    for char in LONG_WITH_COMMAS[:35]:  # 句子還沒寫完，也沒有任何句號
+        out += segmenter.feed(char)
+
+    assert out == ["城隍爺是這裡的主神，"]
+
+
+def test_streaming_and_all_at_once_agree_for_long_sentences_too():
+    assert run(LONG_WITH_COMMAS, chunk=1, first_max_chars=30) == run(
+        LONG_WITH_COMMAS, first_max_chars=30
+    )
+
+
+def test_a_long_first_sentence_without_any_comma_waits_for_its_end():
+    text = "這句話很長而且完全沒有任何逗號所以只能等它講完才能切" * 2 + "。"
+
+    assert run(text, first_max_chars=20) == [text]
+
+
+def test_a_first_sentence_within_the_limit_is_not_cut():
+    assert run("城隍爺是這裡的主神，香火很旺。後面還有。", first_max_chars=30)[0] == (
+        "城隍爺是這裡的主神，香火很旺。"
+    )
+
+
+def test_only_the_first_segment_is_cut_at_commas():
+    sentence = "這是一句有逗號的話，所以可以切開，但是不應該切。"
+    segments = run(sentence * 4, min_first_chars=5, first_max_chars=10, later_max_chars=200)
+
+    assert segments[0].endswith("，") and all(s.endswith("。") for s in segments[1:])

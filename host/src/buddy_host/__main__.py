@@ -8,7 +8,6 @@
 
 import argparse
 import sys
-import threading
 from pathlib import Path
 
 import uvicorn
@@ -20,18 +19,6 @@ from buddy_host.llm.claude_cli import ClaudeSettings
 PERSONA = Path(__file__).resolve().parents[2] / "config" / "buddy.md"
 DAY = 24 * 3600
 QA_LATENCY_LOG = "qa-latency.jsonl"
-
-
-class SerializedSpeech:
-    """讓同一個語音管線一次只被一個執行緒使用。"""
-
-    def __init__(self, inner):
-        self._inner = inner
-        self._lock = threading.Lock()
-
-    def run(self, text: str):
-        with self._lock:
-            return self._inner.run(text)
 
 
 def build_real_services(max_llm_calls: int):
@@ -50,6 +37,7 @@ def build_real_services(max_llm_calls: int):
     from buddy_host.qa.service import QaService
     from buddy_host.speech.engines import KittenSynthesizer, WhisperRecognizer
     from buddy_host.speech.pipeline import PipelineConfig, SpeechPipeline
+    from buddy_host.speech.serialized import SerializedSpeech
     from buddy_host.speech.voice import load_reference
 
     truststore.inject_into_ssl()

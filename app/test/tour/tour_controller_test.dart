@@ -97,6 +97,26 @@ void main() {
       expect(h.state.locationAccess, LocationAccess.whileInUse);
     });
 
+    test('coming back to the app picks up a change made in Settings', () async {
+      final h = await makeHarness();
+      h.location.access = LocationAccess.whileInUse;
+      await h.tour.start();
+      expect(h.state.locationAccess, LocationAccess.whileInUse);
+
+      h.location.access = LocationAccess.always; // 使用者到「設定」改成永遠
+      await h.tour.refreshLocationAccess();
+
+      expect(h.state.locationAccess, LocationAccess.always);
+    });
+
+    test('refreshing without a tour changes nothing', () async {
+      final h = await makeHarness();
+
+      await h.tour.refreshLocationAccess();
+
+      expect(h.state.active, isFalse);
+    });
+
     test('always is the default and needs no warning', () async {
       final h = await makeHarness();
 

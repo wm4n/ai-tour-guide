@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -10,7 +12,7 @@ import '../tour/tour_api.dart';
 import '../tour/tour_controller.dart';
 import '../tour/traveler_state.dart';
 
-class HomeScreen extends ConsumerWidget {
+class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
   static String statusLabel(ConnectionStatus status) => switch (status) {
@@ -28,7 +30,33 @@ class HomeScreen extends ConsumerWidget {
   };
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends ConsumerState<HomeScreen>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // 使用者可能剛到「設定」把定位改成「永遠」：回到前景時重讀，畫面的提醒才跟得上
+    if (state == AppLifecycleState.resumed) {
+      unawaited(ref.read(tourProvider.notifier).refreshLocationAccess());
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final status = ref.watch(connectionProvider);
     final tour = ref.watch(tourProvider);
     final controller = ref.read(tourProvider.notifier);
@@ -72,7 +100,7 @@ class HomeScreen extends ConsumerWidget {
                 if (tour.stoppedReason != null) ...[
                   const SizedBox(height: 12),
                   Text(
-                    stoppedLabel(tour.stoppedReason!),
+                    HomeScreen.stoppedLabel(tour.stoppedReason!),
                     key: const Key('stopped-reason'),
                     style: TextStyle(
                       color: Theme.of(context).colorScheme.error,

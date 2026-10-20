@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart' as handler;
@@ -26,12 +28,20 @@ abstract class LocationPermissionApi {
 
 /// 先要「使用 App 期間」，拿到了再請求升級成「永遠」。使用者可以只給前者：照樣能出發，
 /// 呼叫端用回傳值決定要不要在畫面上提醒。升級詢問出任何錯都不影響已經拿到的權限。
-Future<LocationAccess> ensureLocationAccess(LocationPermissionApi api) async {
+///
+/// 升級詢問在 [upgradeTimeout] 內沒有結果（iOS 沒跳詢問、或使用者還在想）就先沿用目前的權限，
+/// 不讓出發卡住；使用者之後的選擇，由 App 回到前景時重讀（[LocationPermissionApi.status]）補上。
+Future<LocationAccess> ensureLocationAccess(
+  LocationPermissionApi api, {
+  Duration upgradeTimeout = const Duration(seconds: 20),
+}) async {
   var access = await api.status();
   if (access == LocationAccess.denied) access = await api.requestWhenInUse();
   if (access == LocationAccess.whileInUse) {
     try {
-      access = await api.requestAlways();
+      access = await api.requestAlways().timeout(upgradeTimeout);
+    } on TimeoutException {
+      debugPrint('「永遠」定位權限的詢問沒有及時回應（維持目前的權限）');
     } on Object catch (error) {
       debugPrint('請求「永遠」定位權限失敗（維持目前的權限）：$error');
     }

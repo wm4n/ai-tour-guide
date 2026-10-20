@@ -241,6 +241,16 @@ class TourController extends Notifier<TourState> {
     _timer = Timer.periodic(ref.read(tourTickIntervalProvider), (_) => tick());
   }
 
+  /// App 回到前景：使用者可能剛到「設定」把定位改成「永遠」，重讀一次讓畫面的提醒跟上。
+  Future<void> refreshLocationAccess() async {
+    if (!state.active) return;
+    final session = _session;
+    final access = await ref.read(locationSourceProvider).refreshAccess();
+    if (session == _session && state.active) {
+      state = state.copyWith(locationAccess: access);
+    }
+  }
+
   Future<void> end() async {
     if (!state.active) return;
     final settings = ref.read(settingsProvider);

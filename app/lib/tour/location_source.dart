@@ -17,6 +17,9 @@ abstract class LocationSource {
   /// 最近一次 [ensurePermission] 之後拿到的權限程度；畫面用它提醒「鎖定螢幕時可能中斷」。
   LocationAccess get access;
 
+  /// 重讀目前的定位權限（不會跳出詢問）；使用者可能剛到「設定」改過。
+  Future<LocationAccess> refreshAccess();
+
   Future<RawFix?> current();
 
   /// 持續的位置串流（背景也要持續）。

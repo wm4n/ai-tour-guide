@@ -385,3 +385,14 @@ code-review 後修正（#11）：
 **未做（agent 做不到，必須實機）**：issue #8 的「實機鎖屏 15 分鐘以上位置回報與自動播放持續」「鎖定畫面顯示與暫停鍵有效」「記錄耗電觀察」。請使用者照 `docs/device-verification.md` 驗，把結果貼到 issue。不關 #8。
 
 注意：請求「永遠」的 iOS 行為（升級詢問何時跳出、使用者選擇後的狀態）只有實機看得到。
+
+刻意的決定（#8）：**不強制「永遠」**。issue 與設計文件只說「定位權限要 Always」，沒說拒絕就不能出發；iOS 也不能一次直接要 Always（必須先 whenInUse 再升級）。使用者只給「使用 App 期間」時照樣能出發（出發時 App 在前景、有背景定位指示，iOS 會讓更新持續），但畫面會提醒。**「使用期間」鎖屏是否真的會中斷、要不要改成強制，等實機驗證的結果再決定。**
+
+code-review 後修正（#8）：
+- 「永遠」升級詢問加逾時（20 秒）：iOS 沒跳詢問或使用者還在想時不卡住出發，先沿用目前權限
+- `requestAlways` 可能在使用者回答之前就先回來（permission_handler 已知的時序問題），而且權限只在出發當下快照 → App 回到前景時重讀（`TourController.refreshLocationAccess`、`HomeScreen` 的 `WidgetsBindingObserver`），使用者到「設定」改成「永遠」後紅字會消失
+- Podfile 巨集只加在 `permission_handler_apple`（原本所有 Pod 都加，69 處 → 3 處）
+- 實機清單的對話框字樣改成 iOS 實際的「保留使用 App 期間」「改為永遠允許」，並加一項「改成永遠後紅字消失」
+- 驗證：App 270 項、analyze 乾淨；`flutter build ios --simulator` 通過
+
+審查指出但刻意不改：`TourState.locationAccess`（預設 always）與 `GeolocatorLocationSource.access`（預設 denied）的預設值不一致、且有「要先呼叫 ensurePermission」的時序耦合——紅字只在旅程進行中顯示，目前不會出錯；之後可讓 `ensurePermission` 直接回傳 `LocationAccess`

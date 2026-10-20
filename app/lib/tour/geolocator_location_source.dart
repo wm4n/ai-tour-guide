@@ -37,6 +37,10 @@ class GeolocatorLocationSource implements LocationSource {
   }
 
   @override
+  Future<LocationAccess> refreshAccess() async =>
+      access = await _permissions.status();
+
+  @override
   Future<RawFix?> current() async {
     try {
       final position = await Geolocator.getCurrentPosition(

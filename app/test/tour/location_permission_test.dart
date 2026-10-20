@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:buddy_tour/tour/location_permission.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -97,6 +99,20 @@ void main() {
       expect(access, LocationAccess.whileInUse);
     },
   );
+
+  test(
+    'an upgrade prompt that never answers does not hold up the tour',
+    () async {
+      final api = _NeverAnswers();
+
+      final access = await ensureLocationAccess(
+        api,
+        upgradeTimeout: const Duration(milliseconds: 20),
+      );
+
+      expect(access, LocationAccess.whileInUse); // 沿用目前的權限，不卡住出發
+    },
+  );
 }
 
 class _ThrowingUpgrade extends FakePermissions {
@@ -104,4 +120,11 @@ class _ThrowingUpgrade extends FakePermissions {
 
   @override
   Future<LocationAccess> requestAlways() async => throw StateError('壞了');
+}
+
+class _NeverAnswers extends FakePermissions {
+  _NeverAnswers() : super(current: LocationAccess.whileInUse);
+
+  @override
+  Future<LocationAccess> requestAlways() => Completer<LocationAccess>().future;
 }

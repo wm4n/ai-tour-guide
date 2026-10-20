@@ -501,6 +501,26 @@ void main() {
       expect(find.byKey(const Key('location-hint')), findsNothing);
     });
 
+    testWidgets(
+      'the hint goes away once the user switches to always in Settings',
+      (tester) async {
+        await pumpHome(tester, ConnectionStatus.connected);
+        location.access = LocationAccess.whileInUse;
+        await tester.tap(find.byKey(const Key('tour-toggle')));
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('location-hint')), findsOneWidget);
+
+        location.access = LocationAccess.always;
+        tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('location-hint')), findsNothing);
+      },
+    );
+
     testWidgets('while-in-use warns that locking the screen may cut it off', (
       tester,
     ) async {

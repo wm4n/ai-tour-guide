@@ -127,6 +127,9 @@ class FakeLocation implements LocationSource {
   Future<bool> ensurePermission() async => granted;
 
   @override
+  Future<LocationAccess> refreshAccess() async => access;
+
+  @override
   Future<RawFix?> current() async => first;
 
   @override

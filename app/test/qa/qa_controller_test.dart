@@ -4,6 +4,7 @@ import 'package:buddy_tour/audio/fixed_phrase.dart';
 import 'package:buddy_tour/audio/phrase_player.dart';
 import 'package:buddy_tour/host/host_connection.dart';
 import 'package:buddy_tour/qa/qa_api.dart';
+import 'package:buddy_tour/qa/photo_source.dart';
 import 'package:buddy_tour/qa/qa_controller.dart';
 import 'package:buddy_tour/qa/speech_recognizer.dart';
 import 'package:buddy_tour/tour/playback_policy.dart';
@@ -23,6 +24,8 @@ class QaHarness {
   final FakeRecognizer recognizer;
   final tourApi = FakeTourApi();
   final qaApi = FakeQaApi();
+  final photoSource = FakePhotoSource();
+  final compass = FakeCompass();
   final location = FakeLocation();
   final narrationPlayer = FakePlayer();
   final answerPlayer = FakePlayer();
@@ -76,6 +79,8 @@ Future<QaHarness> makeQaHarness({
       clockProvider.overrideWithValue(() => h.now),
       tourTickIntervalProvider.overrideWithValue(const Duration(hours: 1)),
       qaApiProvider.overrideWithValue(h.qaApi),
+      photoSourceProvider.overrideWithValue(h.photoSource),
+      compassSourceProvider.overrideWithValue(h.compass),
       speechRecognizerProvider.overrideWithValue(h.recognizer),
       answerPlayerProvider.overrideWithValue(h.answerPlayer),
       qaPollIntervalProvider.overrideWithValue(Duration.zero),
@@ -709,5 +714,172 @@ void main() {
         expect(h.answerPlayer.played, ['a1:0', 'a2:0']);
       },
     );
+  });
+
+  group('asking with a photo', () {
+    Future<void> shoot(QaHarness h) async {
+      await h.qa.askWithPhoto();
+      await h.settle();
+    }
+
+    test(
+      'takes a photo, reads the compass and sends both with the position',
+      () async {
+        final h = await makeQaHarness();
+        h.compass.heading = 270;
+        h.qaApi.answers = [poll(status: AnswerStatus.done, segments: 1)];
+
+        await shoot(h);
+
+        final asked = h.qaApi.askedPhotos.single;
+        expect(asked.question, '這是什麼？');
+        expect(asked.compassHeading, 270);
+        expect(asked.image, h.photoSource.photo);
+        expect(asked.fix.lat, closeTo(farFix().lat, 1e-9));
+      },
+    );
+
+    test(
+      'says the thinking phrase once the photo is taken, then plays the answer',
+      () async {
+        final h = await makeQaHarness();
+        h.qaApi.answers = [poll(status: AnswerStatus.done, segments: 1)];
+
+        await shoot(h);
+
+        expect(h.thinking, [FixedPhrase.thinkingLookup]);
+        expect(h.answerPlayer.played, ['p1:0']);
+      },
+    );
+
+    test(
+      'holds the tour back (and interrupts the narration) while the camera is open',
+      () async {
+        final h = await makeQaHarness();
+        h.photoSource.gate = Completer<void>();
+        h.tourApi.queue([info('A')]);
+        h.location.controller.add(nearFix());
+        await h.settle();
+
+        final shooting = h.qa.askWithPhoto();
+        await h.settle();
+        await h.tour.tick();
+        expect(h.state.phase, QaPhase.photographing);
+        expect(h.narrationPlayer.played, isEmpty);
+
+        h.photoSource.gate!.complete();
+        await shooting;
+      },
+    );
+
+    test(
+      'a cancelled camera ends quietly and lets the tour carry on',
+      () async {
+        final h = await makeQaHarness();
+        h.photoSource.photo = null; // 使用者按了取消
+        h.tourApi.queue([info('A')]);
+        h.location.controller.add(nearFix());
+        await h.settle();
+
+        await shoot(h);
+        await h.tour.tick();
+        await h.settle();
+
+        expect(h.state.phase, QaPhase.idle);
+        expect(h.state.error, isNull);
+        expect(h.qaApi.askedPhotos, isEmpty);
+        expect(h.thinking, isEmpty);
+        expect(h.narrationPlayer.played, ['A']); // 暫停的介紹繼續
+      },
+    );
+
+    test('a camera that cannot be opened is explained', () async {
+      final h = await makeQaHarness();
+      h.photoSource.error = PhotoUnavailable('需要相機權限');
+
+      await shoot(h);
+
+      expect(h.state.phase, QaPhase.idle);
+      expect(h.state.error, contains('相機'));
+    });
+
+    test(
+      'an unreadable compass still asks, without pretending to know the direction',
+      () async {
+        final h = await makeQaHarness();
+        h.compass.heading = null;
+        h.qaApi.answers = [poll(status: AnswerStatus.done)];
+
+        await shoot(h);
+
+        expect(h.qaApi.askedPhotos.single.compassHeading, isNull);
+      },
+    );
+
+    test('is only possible during a tour', () async {
+      final h = await makeQaHarness(startTour: false);
+
+      await shoot(h);
+
+      expect(h.photoSource.taken, 0);
+      expect(h.state.error, isNotNull);
+    });
+
+    test('ignored while another question is in progress', () async {
+      final h = await makeQaHarness();
+      await h.qa.press();
+
+      await shoot(h);
+
+      expect(h.photoSource.taken, 0);
+    });
+
+    test(
+      'a host that is unreachable counts as an outage, like any question',
+      () async {
+        final h = await makeQaHarness();
+        h.qaApi.askError = TourApiException('down');
+
+        await shoot(h);
+        await h.tour.tick();
+
+        expect(h.state.error, contains('主機'));
+        expect(h.phrases.played, contains(FixedPhrase.hostUnreachable));
+      },
+    );
+
+    test('quota exhausted is shown, never spoken', () async {
+      final h = await makeQaHarness();
+      h.qaApi.answers = [poll(status: AnswerStatus.failed, reason: 'quota')];
+
+      await shoot(h);
+
+      expect(h.state.quotaExhausted, isTrue);
+      expect(h.answerPlayer.played, isEmpty);
+    });
+
+    test('a photo too big for the host is explained', () async {
+      final h = await makeQaHarness();
+      h.qaApi.askError = TourApiException('big', statusCode: 413);
+
+      await shoot(h);
+
+      expect(h.state.error, contains('413'));
+    });
+
+    test('ending the tour while the camera is open drops the photo', () async {
+      final h = await makeQaHarness();
+      h.photoSource.gate = Completer<void>();
+
+      final shooting = h.qa.askWithPhoto();
+      await h.settle();
+      await h.tour.end();
+      h.photoSource.gate!.complete();
+      await shooting;
+      await h.settle();
+
+      expect(h.qaApi.askedPhotos, isEmpty);
+      expect(h.state.phase, QaPhase.idle);
+    });
   });
 }

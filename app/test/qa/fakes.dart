@@ -4,6 +4,8 @@ import 'dart:typed_data';
 import 'package:buddy_tour/host/host_settings.dart';
 import 'package:buddy_tour/tour/tour_api.dart' show TourApiException;
 import 'package:buddy_tour/qa/qa_api.dart';
+import 'package:buddy_tour/qa/compass_source.dart';
+import 'package:buddy_tour/qa/photo_source.dart';
 import 'package:buddy_tour/qa/speech_recognizer.dart';
 import 'package:buddy_tour/tour/playback_policy.dart';
 import 'package:buddy_tour/tour/traveler_state.dart';
@@ -66,8 +68,42 @@ typedef AskedQuestion = ({
   TravelerState traveler,
 });
 
+class FakePhotoSource implements PhotoSource {
+  Uint8List? photo = Uint8List.fromList([0xff, 0xd8, 0xff, 0xe0, 9, 9]);
+  Object? error;
+  Completer<void>? gate; // 讓測試卡住「相機還開著」
+  var taken = 0;
+
+  @override
+  Future<Uint8List?> take() async {
+    taken++;
+    await gate?.future;
+    if (error != null) throw error!;
+    return photo;
+  }
+}
+
+class FakeCompass implements CompassSource {
+  double? heading = 270;
+  var reads = 0;
+
+  @override
+  Future<double?> cameraHeading() async {
+    reads++;
+    return heading;
+  }
+}
+
+typedef AskedPhoto = ({
+  String question,
+  Uint8List image,
+  double? compassHeading,
+  PositionFix fix,
+});
+
 class FakeQaApi implements QaApi {
   final asked = <AskedQuestion>[];
+  final askedPhotos = <AskedPhoto>[];
   Object? askError;
   Completer<void>? askGate;
   var answers = <AnswerPoll>[poll()]; // 依序回傳；剩最後一個時一直回它
@@ -91,6 +127,26 @@ class FakeQaApi implements QaApi {
     if (askError != null) throw askError!;
     asked.add((question: question, more: more, fix: fix, traveler: traveler));
     return 'a${asked.length}';
+  }
+
+  @override
+  Future<String> askPhoto(
+    HostSettings settings,
+    String question,
+    PositionFix fix,
+    TravelerState traveler,
+    Uint8List image, {
+    double? compassHeading,
+  }) async {
+    await askGate?.future;
+    if (askError != null) throw askError!;
+    askedPhotos.add((
+      question: question,
+      image: image,
+      compassHeading: compassHeading,
+      fix: fix,
+    ));
+    return 'p${askedPhotos.length}';
   }
 
   @override

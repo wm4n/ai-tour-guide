@@ -1,5 +1,6 @@
 import 'package:buddy_tour/audio/fixed_phrase.dart';
 import 'package:buddy_tour/audio/phrase_player.dart';
+import 'package:buddy_tour/qa/photo_source.dart';
 import 'package:buddy_tour/qa/qa_api.dart';
 import 'package:buddy_tour/qa/qa_controller.dart';
 import 'package:buddy_tour/tour/tour_controller.dart';
@@ -30,6 +31,8 @@ late FakeRemote remote;
 late FakeQaApi qaApi;
 late FakeRecognizer recognizer;
 late FakePlayer answerPlayer;
+late FakePhotoSource photoSource;
+late FakeCompass compass;
 
 Future<void> pumpHome(
   WidgetTester tester,
@@ -46,6 +49,8 @@ Future<void> pumpHome(
   qaApi = FakeQaApi();
   recognizer = FakeRecognizer();
   answerPlayer = FakePlayer();
+  photoSource = FakePhotoSource();
+  compass = FakeCompass();
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
@@ -59,6 +64,8 @@ Future<void> pumpHome(
         hostClientProvider.overrideWithValue(_FixedClient(status)),
         pollIntervalProvider.overrideWithValue(const Duration(hours: 1)),
         qaApiProvider.overrideWithValue(qaApi),
+        photoSourceProvider.overrideWithValue(photoSource),
+        compassSourceProvider.overrideWithValue(compass),
         speechRecognizerProvider.overrideWithValue(recognizer),
         answerPlayerProvider.overrideWithValue(answerPlayer),
         qaPollIntervalProvider.overrideWithValue(const Duration(seconds: 1)),
@@ -402,6 +409,81 @@ void main() {
       await tester.pump();
 
       expect(find.textContaining('本機辨識'), findsOneWidget);
+      await gesture.up();
+      await wrapUp(tester);
+    });
+  });
+
+  group('asking with a photo', () {
+    Future<void> startTour(WidgetTester tester) async {
+      await tester.tap(find.byKey(const Key('tour-toggle')));
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> wrapUp(WidgetTester tester) async {
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(HomeScreen)),
+      );
+      await container.read(qaProvider.notifier).cancel();
+      await tester.pump(const Duration(seconds: 5));
+    }
+
+    testWidgets('there is a photo button during a tour only', (tester) async {
+      await pumpHome(tester, ConnectionStatus.connected);
+      expect(find.byKey(const Key('photo-button')), findsNothing);
+
+      await startTour(tester);
+
+      expect(find.byKey(const Key('photo-button')), findsOneWidget);
+      expect(find.text('拍照問'), findsOneWidget);
+    });
+
+    testWidgets('tapping it takes a photo and asks about it', (tester) async {
+      await pumpHome(tester, ConnectionStatus.connected);
+      await startTour(tester);
+      qaApi.answers = [poll(status: AnswerStatus.done)];
+
+      await tester.tap(find.byKey(const Key('photo-button')));
+      for (var i = 0; i < 5; i++) {
+        await tester.pump();
+      }
+
+      expect(photoSource.taken, 1);
+      expect(qaApi.askedPhotos.single.compassHeading, 270);
+      await wrapUp(tester);
+    });
+
+    testWidgets('a camera that cannot open shows why', (tester) async {
+      await pumpHome(tester, ConnectionStatus.connected);
+      await startTour(tester);
+      photoSource.error = PhotoUnavailable('需要相機權限才能拍照');
+
+      await tester.tap(find.byKey(const Key('photo-button')));
+      for (var i = 0; i < 5; i++) {
+        await tester.pump();
+      }
+
+      expect(find.byKey(const Key('qa-error')), findsOneWidget);
+      expect(find.text('需要相機權限才能拍照'), findsOneWidget);
+      await wrapUp(tester);
+    });
+
+    testWidgets('is disabled while another question is in progress', (
+      tester,
+    ) async {
+      await pumpHome(tester, ConnectionStatus.connected);
+      await startTour(tester);
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byKey(const Key('ask-button'))),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      final button = tester.widget<OutlinedButton>(
+        find.byKey(const Key('photo-button')),
+      );
+      expect(button.onPressed, isNull);
       await gesture.up();
       await wrapUp(tester);
     });

@@ -42,6 +42,8 @@ dependencies:
   audio_service: ^0.18.19
   audio_session: ^0.2.4
   speech_to_text: ^7.4.0
+  image_picker: ^1.2.4
+  flutter_compass: ^0.8.1
 
 dev_dependencies:
   flutter_test:

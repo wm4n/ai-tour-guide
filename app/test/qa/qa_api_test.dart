@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:buddy_tour/host/host_settings.dart';
 import 'package:buddy_tour/qa/qa_api.dart';
@@ -172,5 +173,62 @@ void main() {
       api.ask(const HostSettings(url: '', token: ''), 'q', fix, traveler),
       throwsA(isA<TourApiException>()),
     );
+  });
+
+  group('asking with a photo', () {
+    final image = Uint8List.fromList([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]);
+
+    test(
+      'posts the photo with the compass heading, not the travel heading',
+      () async {
+        late http.Request seen;
+        final api = apiWith((request) async {
+          seen = request;
+          return http.Response('{"id":"a1"}', 200);
+        });
+
+        final id = await api.askPhoto(
+          settings,
+          '這是什麼？',
+          fix, // 行進方向 200
+          traveler,
+          image,
+          compassHeading: 270,
+        );
+
+        expect(id, 'a1');
+        expect(seen.url.path, '/v1/qa/ask-photo');
+        final body = jsonDecode(seen.body) as Map<String, dynamic>;
+        expect(body['question'], '這是什麼？');
+        expect(body['heading_deg'], 270);
+        expect(base64Decode(body['image_base64'] as String), image);
+        expect(body['lat'], 25.056);
+        expect(body['companions'], 'couple');
+      },
+    );
+
+    test('without a compass reading no heading is sent at all', () async {
+      late http.Request seen;
+      final api = apiWith((request) async {
+        seen = request;
+        return http.Response('{"id":"a1"}', 200);
+      });
+
+      await api.askPhoto(settings, '這是什麼？', fix, traveler, image);
+
+      // 走路的方向不能冒充拍照的方向
+      expect(jsonDecode(seen.body), isNot(contains('heading_deg')));
+    });
+
+    test('a photo the host refuses is reported with its status', () async {
+      final api = apiWith((_) async => http.Response('too big', 413));
+
+      await expectLater(
+        api.askPhoto(settings, 'q', fix, traveler, image),
+        throwsA(
+          isA<TourApiException>().having((e) => e.statusCode, 'status', 413),
+        ),
+      );
+    });
   });
 }

@@ -8,8 +8,11 @@ import '../audio/fixed_phrase.dart';
 import '../audio/narration_player.dart';
 import '../audio/phrase_player.dart';
 import '../host/host_connection.dart';
+import '../tour/playback_policy.dart';
 import '../tour/tour_api.dart';
 import '../tour/tour_controller.dart';
+import 'compass_source.dart';
+import 'photo_source.dart';
 import 'qa_api.dart';
 import 'speech_recognizer.dart';
 
@@ -18,6 +21,13 @@ final qaApiProvider = Provider<QaApi>((ref) {
   ref.onDispose(client.close);
   return HttpQaApi(client);
 });
+
+/// 拍照提問用的相機與指南針；模擬器沒有，端到端測試改用固定的假來源（見 main.dart）。
+final photoSourceProvider = Provider<PhotoSource>((ref) => CameraPhotoSource());
+
+final compassSourceProvider = Provider<CompassSource>(
+  (ref) => FlutterCompassSource(),
+);
 
 final speechRecognizerProvider = Provider<SpeechRecognizer>(
   (ref) => SpeechToTextRecognizer(),
@@ -49,6 +59,7 @@ final qaTimeoutProvider = Provider<Duration>(
 enum QaPhase {
   idle,
   listening, // 按住中
+  photographing, // 相機開著，等使用者拍照
   asking, // 放開了，辨識完成、送出去、等第一段答案
   answering, // 答案的語音已經開始（或排好要播）
 }
@@ -203,9 +214,12 @@ class QaController extends Notifier<QaState> {
     await player.release(); // 答案各段不釋放 focus；被取消時要補上，不然其他 App 會一直被壓低
   }
 
-  void _submitInBackground(int generation) {
+  void _submitInBackground(int generation) =>
+      _inBackground(generation, () => _submit(generation));
+
+  void _inBackground(int generation, Future<void> Function() flow) {
     unawaited(
-      _submit(generation).catchError((Object error, StackTrace stack) {
+      flow().catchError((Object error, StackTrace stack) {
         // 任何沒料到的錯都不能讓畫面卡在「處理中」
         debugPrint('發問流程出錯：$error\n$stack');
         _fail(generation, '這題出了點問題，再問一次看看');
@@ -219,11 +233,7 @@ class QaController extends Notifier<QaState> {
     state = state.copyWith(phase: QaPhase.asking);
     // 放開的當下就回一句：讓人知道有聽到、在處理，不用等辨識的最終結果（最久要等幾秒）。
     // 麥克風已經停了，不會把這句錄進去。
-    final opening = _openings.isEven
-        ? FixedPhrase.thinkingLookup
-        : FixedPhrase.thinkingGoodQuestion;
-    _openings++;
-    _say(opening);
+    _sayOpening();
     String heard;
     try {
       heard = (await session.finish()).trim();
@@ -236,16 +246,10 @@ class QaController extends Notifier<QaState> {
       _fail(generation, '沒聽清楚，再說一次');
       return;
     }
-    final tour = ref.read(tourProvider.notifier);
-    final position = tour.position;
-    if (position == null) {
-      _fail(generation, '還沒有定位，等一下再問');
-      return;
-    }
-
-    final String id;
-    try {
-      id = await ref
+    await _send(
+      generation,
+      '問題送不出去',
+      (position) => ref
           .read(qaApiProvider)
           .ask(
             ref.read(settingsProvider),
@@ -253,14 +257,88 @@ class QaController extends Notifier<QaState> {
             position,
             ref.read(travelerProvider),
             more: isMoreRequest(heard),
-          );
+          ),
+    );
+  }
+
+  /// 拍照提問：開相機 → 讀指南針 → 回一句短句 → 連照片送給主機 → 之後和一般問答一樣聽答案。
+  /// 使用者取消拍照就安靜結束（暫停的介紹接著播）。開相機之後的流程在背景進行，這裡立刻回來。
+  Future<void> askWithPhoto() async {
+    if (state.phase != QaPhase.idle) return;
+    if (!ref.read(tourProvider).active) {
+      state = QaState(error: '出發之後才能發問', mode: state.mode);
+      return;
+    }
+    final generation = ++_generation;
+    state = QaState(phase: QaPhase.photographing, mode: state.mode);
+    _hold(); // 相機一開，正在播的介紹就先停下（也不要讓新的介紹蓋過拍照）
+    _inBackground(generation, () => _photoFlow(generation));
+  }
+
+  Future<void> _photoFlow(int generation) async {
+    final Uint8List? photo;
+    try {
+      photo = await ref.read(photoSourceProvider).take();
+    } on PhotoUnavailable catch (error) {
+      _fail(generation, error.message);
+      return;
+    }
+    if (generation != _generation) return;
+    if (photo == null) {
+      _finish(generation); // 使用者取消：沒有發生過這件事
+      return;
+    }
+    // 照片拍完、手機還對著那個東西：這時讀指南針
+    final compass = await ref.read(compassSourceProvider).cameraHeading();
+    if (generation != _generation) return;
+    state = state.copyWith(phase: QaPhase.asking);
+    _sayOpening();
+    await _send(
+      generation,
+      '照片送不出去',
+      (position) => ref
+          .read(qaApiProvider)
+          .askPhoto(
+            ref.read(settingsProvider),
+            '這是什麼？',
+            position,
+            ref.read(travelerProvider),
+            photo!,
+            compassHeading: compass,
+          ),
+    );
+  }
+
+  /// 把問題送給主機並開始聽答案；[send] 回傳答案的 id。
+  Future<void> _send(
+    int generation,
+    String failure,
+    Future<String> Function(PositionFix position) send,
+  ) async {
+    final tour = ref.read(tourProvider.notifier);
+    final position = tour.position;
+    if (position == null) {
+      _fail(generation, '還沒有定位，等一下再問');
+      return;
+    }
+    final String id;
+    try {
+      id = await send(position);
     } on TourApiException catch (error) {
-      _hostFailed(generation, error, '問題送不出去');
+      _hostFailed(generation, error, failure);
       return;
     }
     if (generation != _generation) return;
     tour.noteHostReached();
     await _follow(generation, id);
+  }
+
+  void _sayOpening() {
+    final opening = _openings.isEven
+        ? FixedPhrase.thinkingLookup
+        : FixedPhrase.thinkingGoodQuestion;
+    _openings++;
+    _say(opening);
   }
 
   /// 輪詢答案：出現一段就下載一段、排進播放；等不到時補短句；結束時整理畫面。

@@ -42,6 +42,29 @@ flutter pub get && flutter analyze && flutter test
 
 取消（旅程結束、手指被系統奪走）時會停掉答案與短句的播放，並釋放 audio focus 讓其他 App 的音量恢復。
 
+## 拍照提問（issue #11）
+
+旅程中按「拍照問」：開系統相機拍一張 → 讀指南針 → 立刻念填空短句 → 把照片、位置、**指南針方向**送給主機
+（`POST /v1/qa/ask-photo`，問題固定是「這是什麼？」）→ 之後和按住說話一樣聽答案（短句、逐段下載、額度與斷線的處理都相同）。
+
+- 拿著手機拍照時，「眼前、左右」以**指南針**（手機背面對著的方向，`flutter_compass` 的 `headingForCameraMode`）為準，
+  不是走路的方向；讀不到指南針就不帶方向（主機會明說方向不明），不拿走路的方向冒充。
+- 照片縮到長邊 1600 像素、JPEG 品質 80 再上傳；照片只傳給你家中的主機，主機只存在本機、保留 24 小時（見 `host/README.md`）。
+- 使用者取消拍照：安靜結束，暫停的介紹接著播；拍照時正在播的介紹會先停下（和發問相同）。
+- 模擬器沒有相機與指南針：`--dart-define=FAKE_PHOTO=true` 固定「拍到」一張小圖、朝向西方。
+
+```bash
+cd host && uv run python -m buddy_host --replay-dir /tmp/some-empty-dir
+cd app && flutter test integration_test/photo_flow_test.dart -d <模擬器 UDID> \
+  --dart-define=HOST_URL=http://127.0.0.1:8765 --dart-define=FAKE_PHOTO=true
+```
+
+注意：`flutter test` 每次都會重新安裝 App，**定位權限會被重設**；要在測試期間持續授權
+（`xcrun simctl privacy <UDID> grant location com.wm4n.buddyTour`），不然「出發」會卡在權限對話框。
+模擬器若跳出 Apple 帳號驗證等系統對話框，改用一台沒登入帳號的新模擬器（`xcrun simctl create`）。
+
+實機才驗得到：真的相機與權限對話框、指南針讀數的準確度、Claude 看圖回答得對不對（須使用者先同意呼叫次數）。
+
 ### 模擬器沒有麥克風
 
 `--dart-define=FAKE_QUESTION=那間廟拜的是誰` 讓按住說話固定「聽到」這句話（`lib/qa/fixed_question_recognizer.dart`）。

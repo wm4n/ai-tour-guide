@@ -320,6 +320,7 @@ class AskButton extends ConsumerWidget {
   static String _label(QaPhase phase) => switch (phase) {
     QaPhase.idle => '按住說話',
     QaPhase.listening => '聽你說…',
+    QaPhase.photographing => '拍照中…',
     QaPhase.asking => '想一想…',
     QaPhase.answering => '回答中…',
   };
@@ -365,6 +366,13 @@ class AskButton extends ConsumerWidget {
               ),
             ),
           ),
+        ),
+        const SizedBox(height: 12),
+        OutlinedButton.icon(
+          key: const Key('photo-button'),
+          onPressed: idle ? controller.askWithPhoto : null,
+          icon: const Icon(Icons.photo_camera),
+          label: const Text('拍照問'),
         ),
         if (qa.mode != null && !idle) ...[
           const SizedBox(height: 8),

@@ -13,6 +13,10 @@ class PositionFix {
   final double lon;
   final DateTime time;
   final double? heading;
+
+  /// 同一個位置換一個方向（拍照時用指南針方向取代走路的方向）；[heading] 為 null 就是不帶方向。
+  PositionFix withHeading(double? heading) =>
+      PositionFix(lat: lat, lon: lon, time: time, heading: heading);
 }
 
 /// 主機通知「這一段準備好了」。

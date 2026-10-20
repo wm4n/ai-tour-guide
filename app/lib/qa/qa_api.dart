@@ -59,6 +59,17 @@ abstract class QaApi {
     bool more = false,
   });
 
+  /// 拍照提問：[compassHeading] 是拍照時手機（鏡頭）對著的方向；讀不到就不帶方向，
+  /// 不拿走路的方向冒充。
+  Future<String> askPhoto(
+    HostSettings settings,
+    String question,
+    PositionFix fix,
+    TravelerState traveler,
+    Uint8List image, {
+    double? compassHeading,
+  });
+
   Future<AnswerPoll> answer(HostSettings settings, String id);
 
   Future<Uint8List> downloadSegment(
@@ -99,6 +110,37 @@ class HttpQaApi implements QaApi {
     );
     final json = _json(response);
     final id = json['id'];
+    if (id is! String) throw TourApiException('unexpected ask response');
+    return id;
+  }
+
+  /// 照片上傳比一般請求慢（幾百 KB，走 Tailscale）。
+  static const _photoTimeout = Duration(seconds: 30);
+
+  @override
+  Future<String> askPhoto(
+    HostSettings settings,
+    String question,
+    PositionFix fix,
+    TravelerState traveler,
+    Uint8List image, {
+    double? compassHeading,
+  }) async {
+    final response = await _host.post(
+      settings,
+      '/v1/qa/ask-photo',
+      timeout: _photoTimeout,
+      body: {
+        'question': question,
+        ...locationBody(
+          fix.withHeading(compassHeading),
+          traveler,
+          offset: offset,
+        ),
+        'image_base64': base64Encode(image),
+      },
+    );
+    final id = _json(response)['id'];
     if (id is! String) throw TourApiException('unexpected ask response');
     return id;
   }

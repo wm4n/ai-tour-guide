@@ -31,6 +31,7 @@ class HostHttp {
     Future<http.Response> Function(Uri uri, Map<String, String> headers) call,
     String path, {
     Map<String, String>? query,
+    Duration? timeout,
   }) async {
     final base = Uri.tryParse(_normalise(settings.url));
     if (base == null || base.host.isEmpty) {
@@ -40,7 +41,7 @@ class HostHttp {
       final response = await call(
         base.replace(path: path, queryParameters: query),
         {if (settings.token.isNotEmpty) 'X-Buddy-Token': settings.token},
-      ).timeout(timeout);
+      ).timeout(timeout ?? this.timeout);
       if (response.statusCode != 200) {
         throw TourApiException(
           '$path answered ${response.statusCode}',
@@ -70,6 +71,7 @@ class HostHttp {
     HostSettings settings,
     String path, {
     Map<String, Object>? body,
+    Duration? timeout,
   }) => send(
     settings,
     (uri, headers) => _http.post(
@@ -81,6 +83,7 @@ class HostHttp {
       body: body == null ? null : jsonEncode(body),
     ),
     path,
+    timeout: timeout,
   );
 
   static String _normalise(String raw) {

@@ -341,3 +341,17 @@ code-review 後修正（#24）：
 - 單位內部若有超過 0.3 秒的「精確 0」靜音（模型輸出或 int16 截斷）會多出起點：只會讓接續點更細，不會錯；是靜音偵測的啟發式，不是管線記錄
 - 主機端 `_publish` 同步讀 wav（120 秒實測約 15ms），未改成 `to_thread`
 - `_silenceBeforeSentence` 與主機的 `MIN_GAP_SECONDS` 兩端各寫一份，靠註解同步
+
+## #11 拍照提問（2026-10-20，分支 `feat/v2-qa`）
+
+做了：
+- 主機：`qa/photos.py`（`PhotoStore`：JPEG／PNG、8 MB、隨機檔名、權限 0600、保留 24 小時、存取與啟動時清理、不入 repo）；`POST /v1/qa/ask-photo`（base64＋位置＋指南針方向；400／413／503）；prompt 帶照片路徑、`Read` 工具與 `--add-dir`、指南針方向取代走路方向；`QaService.ask_photo` 與一般問答共用額度閘門、GPU 排程、用量記錄
+- App：`qa/photo_source.dart`（`image_picker` 相機，縮圖、權限錯誤變成可顯示的訊息）、`qa/compass_source.dart`（`flutter_compass` 的 `headingForCameraMode`）、`HttpQaApi.askPhoto`（上傳逾時 30 秒、讀不到指南針就不帶方向）、`QaController.askWithPhoto`（與按住說話共用「送出 → 跟隨答案」）、「拍照問」按鈕、Info.plist 相機說明；`FAKE_PHOTO` 供模擬器
+- 附帶修正：`JustAudioPhrasePlayer` 把短句排成一列、`stop()` 取消排隊中的，修掉剛念完「出發」就發問時的 Loading interrupted
+
+驗證：host 600 項、ruff 乾淨；App 254 項、analyze 乾淨；**模擬器端到端通過**（全新模擬器＋重播主機＋`FAKE_PHOTO`：出發 → 拍照問 → ask-photo → 輪詢 → 下載兩段 → 回到可再問；主機日誌確認）。全程沒有呼叫真實 Claude。
+
+**還沒做（須使用者同意才能做）**：
+- 「Claude 能正確讀取照片並回答，回答經過自動驗收」的**真實驗證**：需要真的呼叫 Claude（每次約 50k～80k 輸入 token，Sonnet）。建議 1 次：用一張手機照片、問「這是什麼」，看 Claude 有沒有真的用 `Read` 讀到照片、答案是否合理、合成驗收是否通過。**先請使用者同意次數與哪一張照片**
+- 實機：相機權限對話框、指南針準確度、錄音／拍照切換
+- 風險（已寫進 host/README）：給了 `Read` 工具，Claude 技術上能讀主機上任何檔案；照片來自使用者自己的手機，屬已知取捨

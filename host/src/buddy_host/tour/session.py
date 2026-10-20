@@ -16,17 +16,19 @@ from typing import Protocol
 from buddy_host.llm.budget import LlmBudgetExhaustedError
 from buddy_host.llm.claude_cli import QuotaExceededError
 from buddy_host.llm.models import ForbiddenModelError
+from buddy_host.llm.quota import QuotaGate
 from buddy_host.narration.preparer import PreparedNarration
 from buddy_host.narration.traveler import TravelerContext
 from buddy_host.places.geo import haversine_m
 from buddy_host.places.models import Location
+from buddy_host.speech.units import unit_starts
 from buddy_host.tour.journey import JourneyMemory
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_REPREPARE_DISTANCE_M = 250.0
 DEFAULT_RETRY_AFTER_FAILURE_S = 60.0
-DEFAULT_QUOTA_RETRY_AFTER_S = 900.0  # 不知道額度何時恢復時，隔這麼久再試一次
+DEFAULT_QUOTA_RETRY_AFTER_S = 900.0  # 不知道額度何時恢復時，隔這麼久再試一次（沒傳入共用閘門時）
 
 
 class TourNotActiveError(RuntimeError):
@@ -78,6 +80,8 @@ class NarrationEvent:
     lat: float
     lon: float
     audio_seconds: float
+    # 各個合成單位（句）開始播放的秒數：被問題打斷時，App 回到被打斷那一句的開頭
+    unit_starts: tuple[float, ...] = ()
 
 
 class TourSession:
@@ -91,16 +95,16 @@ class TourSession:
         monotonic: Callable[[], float] = time.monotonic,
         wall_clock: Callable[[], float] = time.time,  # 額度恢復時間（resetsAt）是牆鐘時間
         journey: JourneyMemory | None = None,
+        quota: QuotaGate | None = None,  # 與問答共用：任一邊撞到額度，兩邊一起停
     ):
         self._preparer = preparer
         self._reprepare_distance_m = reprepare_distance_m
         self._retry_after_failure_s = retry_after_failure_s
-        self._quota_retry_after_s = quota_retry_after_s
+        self._quota = quota or QuotaGate(retry_after_s=quota_retry_after_s, wall_clock=wall_clock)
         self._monotonic = monotonic
         self._wall_clock = wall_clock
         self._journey = journey if journey is not None else JourneyMemory(None)
         self._started_at: float | None = None
-        self._quota_resumes_at: float | None = None  # 額度停止中：何時可以再試
         self._failed_at: float | None = None  # 最近一次準備失敗的時間；冷卻後即使沒移動也重試
         self._seq = 0  # 跨趟持續遞增，App 的游標才不會在新的一趟失效
         self._generation = 0
@@ -111,7 +115,13 @@ class TourSession:
         self._audio: dict[str, Path] = {}
         self._published: dict[str, PreparedNarration] = {}
         self.active = False
-        self.stopped_reason: str | None = None
+        self._stopped_reason: str | None = None  # 額度以外的停止原因；額度看共用閘門
+
+    @property
+    def stopped_reason(self) -> str | None:
+        if self.active and self._quota.tripped:
+            return "quota"
+        return self._stopped_reason
 
     @property
     def preparing(self) -> bool:
@@ -141,7 +151,7 @@ class TourSession:
         if not self.active:
             raise TourNotActiveError("還沒有出發")
         self._journey.touch(self._wall_clock())
-        if self._quota_may_have_recovered():
+        if self._quota.may_probe():
             self._resume_after_quota(fix)
         elif self.stopped_reason is None and self._needs_preparation(fix):
             self._schedule(fix)
@@ -184,25 +194,15 @@ class TourSession:
         self._pending = None
         self._anchor = None
         self._started_at = None
-        self._quota_resumes_at = None
         self._failed_at = None
         self._events = []
         self._audio = {}
         self._published = {}
         self.active = False
-        self.stopped_reason = None
-
-    def _quota_may_have_recovered(self) -> bool:
-        return (
-            self.stopped_reason == "quota"
-            and self._quota_resumes_at is not None
-            and self._wall_clock() >= self._quota_resumes_at
-        )
+        self._stopped_reason = None
 
     def _resume_after_quota(self, fix: TourFix) -> None:
-        """不另外探測額度：直接再準備一次，這次呼叫就是探測；還是被拒絕會再停下。"""
-        self.stopped_reason = None
-        self._quota_resumes_at = None
+        """不另外探測額度：直接再準備一次，這次呼叫就是探測（閘門在 `_run` 裡打開）。"""
         self._schedule(fix)  # 繞過 _needs_preparation：人可能沒走多遠，但該準備的還沒準備
 
     def _needs_preparation(self, fix: TourFix) -> bool:
@@ -229,6 +229,12 @@ class TourSession:
 
     async def _run(self, generation: int) -> None:
         while self._pending is not None and generation == self._generation:
+            if not self._quota.admit():  # 問答先撞到額度了：不再呼叫 Claude，等恢復
+                self._pending = None
+                # 這次沒準備成：忘掉錨點，之後不論誰先把閘門打開，下一次回報都會補做，
+                # 不必等人走滿重新準備的距離
+                self._anchor = None
+                return
             fix, self._pending = self._pending, None
             try:
                 prepared = await self._preparer.prepare(
@@ -262,13 +268,14 @@ class TourSession:
     def _stop(self, generation: int, reason: str, resets_at: float | None = None) -> None:
         if generation != self._generation:
             return
-        self.stopped_reason = reason
         self._pending = None
         if reason == "quota":
-            now = self._wall_clock()
-            # 沒給或已過期的恢復時間不可信：否則每次回報位置都會重試一次
-            known = resets_at is not None and resets_at > now
-            self._quota_resumes_at = resets_at if known else now + self._quota_retry_after_s
+            self._quota.trip(resets_at)
+            # 這次沒準備成：忘掉錨點。額度恢復後若是問答先探測成功、把閘門打開，
+            # 下一次回報才會補準備，不必等人走滿重新準備的距離
+            self._anchor = None
+        else:
+            self._stopped_reason = reason
         logger.warning("停止準備介紹：%s", reason)
 
     def _publish_if_current(self, generation: int, item: PreparedNarration) -> None:
@@ -281,6 +288,12 @@ class TourSession:
         self._published[item.candidate_id] = item
         self._events.append(
             NarrationEvent(
-                self._seq, item.candidate_id, item.name, item.lat, item.lon, item.audio_seconds
+                self._seq,
+                item.candidate_id,
+                item.name,
+                item.lat,
+                item.lon,
+                item.audio_seconds,
+                unit_starts(item.wav_path),  # 從 wav 偵測：快取命中的舊介紹也有
             )
         )

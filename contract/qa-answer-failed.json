@@ -1,0 +1,9 @@
+{
+  "id": "a1b2c3d4e5f6",
+  "status": "failed",
+  "text": "",
+  "segments": [],
+  "first_segment_seconds": null,
+  "searching_web": false,
+  "reason": "cancelled"
+}

@@ -41,6 +41,10 @@ dependencies:
   geolocator: ^14.1.2
   audio_service: ^0.18.19
   audio_session: ^0.2.4
+  speech_to_text: ^7.4.0
+  image_picker: ^1.2.4
+  flutter_compass: ^0.8.1
+  permission_handler: ^13.0.2
 
 dev_dependencies:
   flutter_test:

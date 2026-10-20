@@ -96,6 +96,7 @@ def test_start_prepares_the_start_area_and_publishes_the_narration(client, prepa
             "lat": 25.0556,
             "lon": 121.5103,
             "audio_seconds": 34.7,
+            "unit_starts": [],  # 測試用的假 wav 讀不出來：沒有各句的起點
         }
     ]
     location, _, traveler = preparer.calls[0]
@@ -308,7 +309,7 @@ def test_writing_the_usage_report_does_not_block_the_event_loop(tmp_path, prepar
         seen["loop"] = threading.get_ident()  # tour_end 在事件迴圈上呼叫它
         return real_end(self)
 
-    def fake_finish(recap, usage_log_path, reports_dir):
+    def fake_finish(recap, usage_log_path, reports_dir, qa_latency_log_path=None):
         seen.setdefault("reports", []).append(threading.get_ident())
         return {"calls": 0}
 
@@ -335,7 +336,7 @@ def test_the_report_of_an_abandoned_trip_is_not_written_on_the_event_loop_either
     seen: dict[str, list[int]] = {"reports": []}
     loop_threads: list[int] = []
 
-    def fake_finish(recap, usage_log_path, reports_dir):
+    def fake_finish(recap, usage_log_path, reports_dir, qa_latency_log_path=None):
         seen["reports"].append(threading.get_ident())
 
     from buddy_host.tour.session import TourSession
@@ -355,3 +356,43 @@ def test_the_report_of_an_abandoned_trip_is_not_written_on_the_event_loop_either
 
     assert len(seen["reports"]) == 1
     assert loop_threads[0] not in seen["reports"]
+
+
+def test_the_narration_carries_the_start_time_of_each_sentence(tmp_path, preparer):
+    import wave
+
+    import numpy as np
+
+    pcm = np.concatenate([np.full(1000, 9000), np.zeros(500), np.full(1000, 9000)]).astype("<i2")
+    with wave.open(str(preparer.wav), "wb") as f:
+        f.setnchannels(1)
+        f.setsampwidth(2)
+        f.setframerate(1000)
+        f.writeframes(pcm.tobytes())
+    config = HostConfig(home=tmp_path)
+    with TestClient(create_app(config, preparer=preparer)) as client:
+        client.post("/v1/tour/start", json=BODY)
+
+        body = wait_for(client, 1)
+
+    assert body["narrations"][0]["unit_starts"] == [0.0, 1.5]
+
+
+def test_a_non_ascii_token_is_an_authentication_failure_not_a_server_error(tmp_path, preparer):
+    config = HostConfig(home=tmp_path, token="s3cret")
+    with TestClient(create_app(config, preparer=preparer)) as bare:
+        response = bare.get(
+            "/v1/tour/narrations", headers={"X-Buddy-Token": "café".encode("latin-1")}
+        )
+
+    assert response.status_code == 401
+
+
+def test_a_configured_token_with_non_ascii_characters_still_works(tmp_path, preparer):
+    config = HostConfig(home=tmp_path, token="通關密語")
+    with TestClient(create_app(config, preparer=preparer)) as client:
+        ok = client.get("/v1/tour/narrations", headers={"X-Buddy-Token": "通關密語".encode()})
+        wrong = client.get("/v1/tour/narrations", headers={"X-Buddy-Token": "別的".encode()})
+
+    assert ok.status_code == 200
+    assert wrong.status_code == 401

@@ -81,6 +81,12 @@
 	<string>出發後依你所在的位置，介紹身邊的景點。</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>手機放在口袋、螢幕鎖定時，也要持續知道你走到哪裡，才能在對的時候開口。</string>
+	<key>NSCameraUsageDescription</key>
+	<string>拍照問「這是什麼」時使用相機。照片會傳到你家中的主機，由主機請 Claude（Anthropic）看圖回答。</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>按住說話發問時，用麥克風聽你的問題。</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>把你說的問題轉成文字送給主機。優先在手機上辨識；這台手機不支援時，會改用 Apple 的線上辨識（語音會送到 Apple）。</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>連線到你家中的 Buddy Host 主機。</string>
 </dict>

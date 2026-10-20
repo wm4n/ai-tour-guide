@@ -6,6 +6,7 @@ import pytest
 
 from buddy_host.llm.budget import LlmBudgetExhaustedError
 from buddy_host.llm.claude_cli import QuotaExceededError
+from buddy_host.llm.quota import QuotaGate
 from buddy_host.narration.preparer import PreparedNarration
 from buddy_host.narration.traveler import Companions, TravelerContext, TravelMode
 from buddy_host.places.models import Location
@@ -558,3 +559,129 @@ async def test_pressing_end_closes_the_trip_in_the_journey(tmp_path):
 
     assert outcome.resumed is False
     assert outcome.abandoned is None
+
+
+async def test_a_quota_hit_trips_the_shared_gate_so_questions_stop_too(tmp_path):
+    clock = WallClock()
+    gate = QuotaGate(wall_clock=clock)
+    preparer = FakePreparer(tmp_path, [QuotaExceededError("limit", resets_at=clock.now + 3600)])
+    session = TourSession(preparer, quota=gate, wall_clock=clock)
+
+    session.start(fix())
+    await session.wait_idle()
+
+    assert gate.blocked()
+
+
+async def test_a_gate_tripped_elsewhere_stops_preparing_until_it_recovers(tmp_path):
+    clock = WallClock()
+    gate = QuotaGate(wall_clock=clock)
+    gate.trip(resets_at=clock.now + 3600)  # 問答先撞到額度
+    preparer = FakePreparer(tmp_path, [["A"]])
+    session = TourSession(preparer, quota=gate, wall_clock=clock)
+
+    session.start(fix())
+    await session.wait_idle()
+
+    assert session.stopped_reason == "quota"
+    assert preparer.calls == []  # 沒有再呼叫 Claude
+
+    clock.now += 3601
+    session.report(fix())
+    await session.wait_idle()
+
+    assert session.stopped_reason is None
+    assert [e.name for e in session.narrations_after(0)] == ["A"]
+
+
+async def test_a_gate_tripped_in_the_middle_of_a_tour_stops_the_next_preparation(tmp_path):
+    clock = WallClock()
+    gate = QuotaGate(wall_clock=clock)
+    preparer = FakePreparer(tmp_path, [["A"], ["B"]])
+    session = TourSession(preparer, quota=gate, wall_clock=clock, reprepare_distance_m=100)
+    session.start(fix())
+    await session.wait_idle()
+
+    gate.trip(resets_at=clock.now + 3600)
+    session.report(fix(north_of(START, 500)))
+    await session.wait_idle()
+
+    assert session.stopped_reason == "quota"
+    assert len(preparer.calls) == 1
+
+
+async def test_a_new_tour_does_not_clear_a_quota_that_is_still_exhausted(tmp_path):
+    clock = WallClock()
+    gate = QuotaGate(wall_clock=clock)
+    gate.trip(resets_at=clock.now + 3600)
+    preparer = FakePreparer(tmp_path, [["A"]])
+    session = TourSession(preparer, quota=gate, wall_clock=clock)
+
+    session.start(fix())
+    session.end()
+    session.start(fix())
+    await session.wait_idle()
+
+    assert session.stopped_reason == "quota"
+    assert preparer.calls == []
+
+
+async def test_a_question_probing_the_gate_first_does_not_lose_the_blocked_preparation(tmp_path):
+    clock = WallClock()
+    gate = QuotaGate(wall_clock=clock)
+    gate.trip(resets_at=clock.now + 3600)
+    preparer = FakePreparer(tmp_path, [["A"]])
+    session = TourSession(preparer, quota=gate, wall_clock=clock)
+    session.start(fix())  # 被閘門擋下，沒有準備
+    await session.wait_idle()
+
+    clock.now += 3601
+    assert gate.admit()  # 問答搶先探測，閘門被它打開
+    session.report(fix())  # 人沒移動，但該準備的還沒準備
+    await session.wait_idle()
+
+    assert [e.name for e in session.narrations_after(0)] == ["A"]
+
+
+async def test_a_published_narration_has_the_start_of_every_unit_even_when_it_came_from_cache(
+    tmp_path,
+):
+    import wave
+
+    import numpy as np
+
+    item = narration("A", tmp_path)
+    pcm = np.concatenate([np.full(1000, 9000), np.zeros(500), np.full(1000, 9000)]).astype("<i2")
+    with wave.open(str(item.wav_path), "wb") as f:
+        f.setnchannels(1)
+        f.setsampwidth(2)
+        f.setframerate(1000)
+        f.writeframes(pcm.tobytes())
+    session = TourSession(FakePreparer(tmp_path, [[item]]))
+
+    session.start(fix())
+    await session.wait_idle()
+
+    [event] = session.narrations_after(0)
+    assert event.unit_starts == (0.0, 1.5)
+
+
+async def test_a_question_probing_the_quota_first_does_not_lose_the_blocked_preparation(
+    tmp_path,
+):
+    clock = WallClock()
+    gate = QuotaGate(wall_clock=clock)
+    preparer = FakePreparer(
+        tmp_path, [QuotaExceededError("limit", resets_at=clock.now + 3600), ["A"]]
+    )
+    session = TourSession(preparer, quota=gate, wall_clock=clock)
+    session.start(fix())
+    await session.wait_idle()
+    assert session.stopped_reason == "quota"
+
+    clock.now += 3601
+    assert gate.admit()  # 問答先探測成功，閘門被它打開
+    session.report(fix())  # 人沒移動，但該準備的還沒準備
+    await session.wait_idle()
+
+    assert [e.name for e in session.narrations_after(0)] == ["A"]

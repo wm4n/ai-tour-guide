@@ -39,5 +39,13 @@ end
 post_install do |installer|
   installer.pods_project.targets.each do |target|
     flutter_additional_ios_build_settings(target)
+
+    # permission_handler 預設不編入任何權限（App Store 審查）；只開定位：
+    # geolocator 只會要到「使用 App 期間」，升級成「永遠」要靠它（lib/tour/location_permission.dart）
+    next unless target.name == 'permission_handler_apple'
+    target.build_configurations.each do |config|
+      config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= ['$(inherited)']
+      config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] << 'PERMISSION_LOCATION=1'
+    end
   end
 end

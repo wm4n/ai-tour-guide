@@ -1,4 +1,6 @@
+import asyncio
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -204,6 +206,23 @@ async def test_timeout_kills_the_process(home, record, monkeypatch):
         await make_client(home).run(request(timeout=0.5))
 
 
+async def test_cancelling_the_call_kills_the_process(home, record, monkeypatch):
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", "hang")
+    task = asyncio.create_task(make_client(home).run(request(timeout=30)))
+    for _ in range(100):  # 等假的 claude 起來、寫下自己的 pid
+        if record.exists() and record.read_text(encoding="utf-8"):
+            break
+        await asyncio.sleep(0.05)
+    pid = seen(record)["pid"]
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    with pytest.raises(ProcessLookupError):  # 行程已經被殺掉、也收掉了
+        os.kill(pid, 0)
+
+
 async def test_each_call_is_independent(home, record):
     client = make_client(home)
 
@@ -223,3 +242,51 @@ async def test_unparseable_stdout_lines_are_counted_in_the_usage_record(home, re
     assert result.text == "你好，這是串流回覆。"
     [entry] = UsageLog(home / "usage.jsonl").read_all()
     assert entry["unparsed_lines"] == 2
+
+
+async def test_reports_each_tool_use_once_even_though_it_appears_twice_in_the_stream(
+    home, record, monkeypatch
+):
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", "tool")
+    tools: list[str] = []
+
+    result = await make_client(home).run(request(), on_tool=tools.append)
+
+    assert tools == ["WebSearch", "Read"]
+    assert result.text == "你好，這是串流回覆。"
+
+
+async def test_on_tool_is_optional(home, record, monkeypatch):
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", "tool")
+
+    result = await make_client(home).run(request())
+
+    assert result.text
+
+
+async def test_only_the_built_in_tools_a_request_needs_are_available(home, record):
+    await make_client(home).run(
+        request(allowed_tools=("Read(//home/x/photos/**)", "WebSearch", "mcp__places__*", "Read"))
+    )
+
+    argv = seen(record)["argv"]
+    # 權限規則的括號與 MCP 工具名不屬於內建工具；重複的只留一個
+    assert argv[argv.index("--tools") + 1] == "Read,WebSearch"
+    assert argv[argv.index("--allowedTools") + 1] == (
+        "Read(//home/x/photos/**),WebSearch,mcp__places__*,Read"
+    )
+
+
+async def test_a_request_without_tools_gets_no_built_in_tools_at_all(home, record):
+    await make_client(home).run(request())
+
+    argv = seen(record)["argv"]
+    # 預設的工具集連 Bash 都有（唯讀指令不用詢問）：沒有需要就一個都不給
+    assert argv[argv.index("--tools") + 1] == ""
+
+
+async def test_an_mcp_only_request_gets_no_built_in_tools(home, record):
+    await make_client(home).run(request(allowed_tools=("mcp__probe__probe_nonce",)))
+
+    argv = seen(record)["argv"]
+    assert argv[argv.index("--tools") + 1] == ""

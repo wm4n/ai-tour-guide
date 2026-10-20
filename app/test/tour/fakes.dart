@@ -5,6 +5,7 @@ import 'package:buddy_tour/audio/fixed_phrase.dart';
 import 'package:buddy_tour/audio/narration_player.dart';
 import 'package:buddy_tour/audio/phrase_player.dart';
 import 'package:buddy_tour/audio/remote_controls.dart';
+import 'package:buddy_tour/tour/location_permission.dart';
 import 'package:buddy_tour/tour/location_source.dart';
 import 'package:buddy_tour/tour/playback_policy.dart';
 import 'package:buddy_tour/tour/tour_api.dart';
@@ -120,7 +121,13 @@ class FakeLocation implements LocationSource {
   bool granted = true;
 
   @override
+  LocationAccess access = LocationAccess.always;
+
+  @override
   Future<bool> ensurePermission() async => granted;
+
+  @override
+  Future<LocationAccess> refreshAccess() async => access;
 
   @override
   Future<RawFix?> current() async => first;
@@ -132,18 +139,41 @@ class FakeLocation implements LocationSource {
 class FakePlayer implements NarrationPlayer {
   final played = <String>[];
   final events = <String>[];
-  Completer<void>? _current;
+
+  /// 每次 play 從哪裡開始。
+  final starts = <Duration>[];
+
+  /// `position` 回傳這個值，測試用來安排「播到哪裡被打斷」。
+  Duration positionNow = Duration.zero;
+  Completer<bool>? _current;
 
   @override
-  Future<void> play(Uint8List wav, {required String title}) {
+  Duration get position => positionNow;
+
+  @override
+  Future<bool> play(
+    Uint8List wav, {
+    required String title,
+    Duration start = Duration.zero,
+    bool releaseFocus = true,
+  }) {
     played.add(String.fromCharCodes(wav));
     events.add('play:$title');
-    _current = Completer<void>();
+    starts.add(start);
+    focusReleasedAfter.add(releaseFocus);
+    _current = Completer<bool>();
     return _current!.future;
   }
 
+  /// 每次 play 是否要求播完就釋放 audio focus。
+  final focusReleasedAfter = <bool>[];
+
+  @override
+  Future<void> release() async => events.add('release');
+
+  /// 自然播完。
   void finish() {
-    if (_current?.isCompleted == false) _current!.complete();
+    if (_current?.isCompleted == false) _current!.complete(true);
   }
 
   @override
@@ -153,9 +183,9 @@ class FakePlayer implements NarrationPlayer {
   Future<void> resume() async => events.add('resume');
 
   @override
-  Future<void> stop() async {
-    events.add('stop');
-    if (_current?.isCompleted == false) _current!.complete();
+  Future<void> stop({bool releaseFocus = true}) async {
+    events.add(releaseFocus ? 'stop' : 'stop(keep focus)');
+    if (_current?.isCompleted == false) _current!.complete(false);
   }
 
   @override
@@ -183,8 +213,26 @@ class FakeRemote implements RemoteControls {
 class FakePhrases implements PhrasePlayer {
   final played = <FixedPhrase>[];
 
+  /// 每次 play 是否要求念完就釋放 audio focus。
+  final focusReleasedAfter = <bool>[];
+  var stops = 0;
+  Object? errorOnce; // 下一次 play 丟這個（Error 或 Exception 都可以）
+  Completer<void>? gate; // 讓測試卡住「短句還在念」
+
   @override
-  Future<void> play(FixedPhrase phrase) async => played.add(phrase);
+  Future<void> play(FixedPhrase phrase, {bool releaseFocus = true}) async {
+    final error = errorOnce;
+    if (error != null) {
+      errorOnce = null;
+      throw error;
+    }
+    played.add(phrase);
+    focusReleasedAfter.add(releaseFocus);
+    await gate?.future;
+  }
+
+  @override
+  Future<void> stop() async => stops++;
 
   @override
   Future<void> dispose() async {}

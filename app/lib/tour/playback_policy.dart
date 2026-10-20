@@ -13,6 +13,10 @@ class PositionFix {
   final double lon;
   final DateTime time;
   final double? heading;
+
+  /// 同一個位置換一個方向（拍照時用指南針方向取代走路的方向）；[heading] 為 null 就是不帶方向。
+  PositionFix withHeading(double? heading) =>
+      PositionFix(lat: lat, lon: lon, time: time, heading: heading);
 }
 
 /// 主機通知「這一段準備好了」。
@@ -24,6 +28,7 @@ class NarrationInfo {
     required this.lat,
     required this.lon,
     required this.audioSeconds,
+    this.unitStarts = const [],
   });
 
   factory NarrationInfo.fromJson(Map<String, dynamic> json) => NarrationInfo(
@@ -33,6 +38,10 @@ class NarrationInfo {
     lat: (json['lat'] as num).toDouble(),
     lon: (json['lon'] as num).toDouble(),
     audioSeconds: (json['audio_seconds'] as num).toDouble(),
+    unitStarts: [
+      for (final value in json['unit_starts'] as List? ?? const [])
+        (value as num).toDouble(),
+    ],
   );
 
   final int seq;
@@ -41,6 +50,9 @@ class NarrationInfo {
   final double lat;
   final double lon;
   final double audioSeconds;
+
+  /// 各句（合成單位）開始播放的秒數；被問題打斷時回到那一句的開頭。舊主機沒給就是空的。
+  final List<double> unitStarts;
 }
 
 class QueuedNarration {

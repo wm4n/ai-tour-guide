@@ -176,3 +176,36 @@ def test_a_disk_error_never_breaks_the_trip(tmp_path):
     journey.finish(T0 + 700)
 
     assert journey.told_before() == {"wiki:A": ("稿",)}  # 記憶體裡照常運作
+
+
+def test_last_told_is_the_most_recent_narration_that_finished_playing(tmp_path):
+    journey = JourneyMemory(tmp_path / "journey.json")
+    journey.begin(T0)
+    assert journey.last_told() is None  # 這趟還沒講過任何東西
+
+    journey.record_told(T0 + 60, "wiki:A", "A", "A 的稿子")
+    journey.record_told(T0 + 600, "wiki:B", "B", "B 的稿子")
+
+    assert journey.last_told() == ("B", "B 的稿子")
+
+
+def test_last_told_is_clipped_like_the_rest_of_the_summary(tmp_path):
+    journey = JourneyMemory(tmp_path / "journey.json", told_chars=10)
+    journey.begin(T0)
+    journey.record_told(T0 + 60, "wiki:A", "A", "一二三四五六七八九十十一十二")
+
+    name, script = journey.last_told()
+
+    assert name == "A"
+    assert len(script) == 10 and script.endswith("…")
+
+
+def test_last_told_does_not_carry_over_to_a_new_trip(tmp_path):
+    journey = JourneyMemory(tmp_path / "journey.json")
+    journey.begin(T0)
+    journey.record_told(T0 + 60, "wiki:A", "A", "稿")
+    journey.finish(T0 + 120)
+
+    journey.begin(T0 + 180)
+
+    assert journey.last_told() is None

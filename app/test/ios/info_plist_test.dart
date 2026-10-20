@@ -24,4 +24,21 @@ void main() {
       contains('<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>'),
     );
   });
+
+  test('explains why the microphone and speech recognition are needed', () {
+    // 按住說話：沒有這兩項說明，iOS 一要權限就直接讓 App 當掉
+    expect(plist, contains('<key>NSMicrophoneUsageDescription</key>'));
+    expect(plist, contains('<key>NSSpeechRecognitionUsageDescription</key>'));
+  });
+
+  test('explains why the camera is needed', () {
+    // 拍照提問：沒有這項說明，iOS 一開相機就直接讓 App 當掉
+    expect(plist, contains('<key>NSCameraUsageDescription</key>'));
+  });
+
+  test('compiles the location permission code that upgrades to always', () {
+    // permission_handler 預設不編入任何權限；少了這個巨集，請求「永遠」會靜靜地什麼都不做
+    final podfile = File('ios/Podfile').readAsStringSync();
+    expect(podfile, contains('PERMISSION_LOCATION=1'));
+  });
 }

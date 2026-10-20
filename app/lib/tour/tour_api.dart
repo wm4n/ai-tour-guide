@@ -4,21 +4,12 @@ import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
+import '../host/host_http.dart';
 import '../host/host_settings.dart';
 import 'playback_policy.dart';
 import 'traveler_state.dart';
 
-class TourApiException implements Exception {
-  TourApiException(this.message, {this.statusCode});
-
-  final String message;
-
-  /// 主機有回應但拒絕時的 HTTP 狀態碼；連不上、逾時等沒有回應的情況是 null。
-  final int? statusCode;
-
-  @override
-  String toString() => 'TourApiException: $message';
-}
+export '../host/host_http.dart' show TourApiException;
 
 class NarrationPoll {
   const NarrationPoll({
@@ -100,13 +91,12 @@ abstract class TourApi {
 
 class HttpTourApi implements TourApi {
   HttpTourApi(
-    this._http, {
-    this.timeout = const Duration(seconds: 10),
+    http.Client client, {
+    Duration timeout = const Duration(seconds: 10),
     this.offset,
-  });
+  }) : _host = HostHttp(client, timeout: timeout);
 
-  final http.Client _http;
-  final Duration timeout;
+  final HostHttp _host;
 
   /// 回報當地時間用的時區偏移；測試時固定，平常用裝置的時區。
   final Duration? offset;
@@ -116,27 +106,31 @@ class HttpTourApi implements TourApi {
     HostSettings settings,
     PositionFix fix,
     TravelerState traveler,
-  ) => _post(settings, '/v1/tour/start', body: _body(fix, traveler));
+  ) => _host.post(
+    settings,
+    '/v1/tour/start',
+    body: locationBody(fix, traveler, offset: offset),
+  );
 
   @override
   Future<void> reportLocation(
     HostSettings settings,
     PositionFix fix,
     TravelerState traveler,
-  ) => _post(settings, '/v1/tour/location', body: _body(fix, traveler));
+  ) => _host.post(
+    settings,
+    '/v1/tour/location',
+    body: locationBody(fix, traveler, offset: offset),
+  );
 
   @override
   Future<void> markPlayed(HostSettings settings, String id) =>
-      _post(settings, '/v1/tour/played', body: {'id': id});
+      _host.post(settings, '/v1/tour/played', body: {'id': id});
 
   /// 摘要只是附帶的：主機沒給或格式不對時回傳 null，不讓它擋住結束。
   @override
   Future<TourSummary?> end(HostSettings settings) async {
-    final response = await _send(
-      settings,
-      (uri, headers) => _http.post(uri, headers: headers),
-      '/v1/tour/end',
-    );
+    final response = await _host.post(settings, '/v1/tour/end');
     try {
       final json = jsonDecode(utf8.decode(response.bodyBytes));
       final summary = json is Map<String, dynamic> ? json['summary'] : null;
@@ -155,9 +149,8 @@ class HttpTourApi implements TourApi {
     HostSettings settings, {
     required int after,
   }) async {
-    final response = await _send(
+    final response = await _host.get(
       settings,
-      (uri, headers) => _http.get(uri, headers: headers),
       '/v1/tour/narrations',
       query: {'after': '$after'},
     );
@@ -178,72 +171,11 @@ class HttpTourApi implements TourApi {
 
   @override
   Future<Uint8List> downloadAudio(HostSettings settings, String id) async {
-    final response = await _send(
+    final response = await _host.get(
       settings,
-      (uri, headers) => _http.get(uri, headers: headers),
       '/v1/tour/audio',
       query: {'id': id},
     );
     return response.bodyBytes;
-  }
-
-  Map<String, Object> _body(PositionFix fix, TravelerState traveler) => {
-    'lat': fix.lat,
-    'lon': fix.lon,
-    if (fix.heading != null) 'heading_deg': fix.heading!,
-    ...traveler.toJson(),
-    'local_time': isoWithOffset(fix.time, offset: offset),
-  };
-
-  Future<void> _post(
-    HostSettings settings,
-    String path, {
-    Map<String, Object>? body,
-  }) async {
-    await _send(
-      settings,
-      (uri, headers) => _http.post(
-        uri,
-        headers: {...headers, 'Content-Type': 'application/json'},
-        body: body == null ? null : jsonEncode(body),
-      ),
-      path,
-    );
-  }
-
-  Future<http.Response> _send(
-    HostSettings settings,
-    Future<http.Response> Function(Uri uri, Map<String, String> headers) call,
-    String path, {
-    Map<String, String>? query,
-  }) async {
-    final base = Uri.tryParse(_normalise(settings.url));
-    if (base == null || base.host.isEmpty) {
-      throw TourApiException('host is not configured');
-    }
-    try {
-      final response = await call(
-        base.replace(path: path, queryParameters: query),
-        {if (settings.token.isNotEmpty) 'X-Buddy-Token': settings.token},
-      ).timeout(timeout);
-      if (response.statusCode != 200) {
-        throw TourApiException(
-          '$path answered ${response.statusCode}',
-          statusCode: response.statusCode,
-        );
-      }
-      return response;
-    } on TourApiException {
-      rethrow;
-    } on Exception catch (error) {
-      throw TourApiException('$path failed: $error');
-    }
-  }
-
-  static String _normalise(String raw) {
-    var text = raw.trim();
-    if (text.isEmpty) return '';
-    if (!text.contains('://')) text = 'http://$text';
-    return text.replaceFirst(RegExp(r'/+$'), '');
   }
 }

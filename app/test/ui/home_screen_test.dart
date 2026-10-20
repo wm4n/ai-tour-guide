@@ -1,5 +1,9 @@
 import 'package:buddy_tour/audio/fixed_phrase.dart';
 import 'package:buddy_tour/audio/phrase_player.dart';
+import 'package:buddy_tour/qa/photo_source.dart';
+import 'package:buddy_tour/qa/qa_api.dart';
+import 'package:buddy_tour/qa/qa_controller.dart';
+import 'package:buddy_tour/tour/location_permission.dart';
 import 'package:buddy_tour/tour/tour_controller.dart';
 import 'package:buddy_tour/tour/tour_api.dart';
 import 'package:buddy_tour/tour/traveler_state.dart';
@@ -12,6 +16,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../qa/fakes.dart';
 import '../tour/fakes.dart';
 
 class _FixedClient implements HostClient {
@@ -24,6 +29,12 @@ class _FixedClient implements HostClient {
 late FakePhrases phrases;
 late FakeTourApi api;
 late FakeRemote remote;
+late FakeQaApi qaApi;
+late FakeRecognizer recognizer;
+late FakePlayer answerPlayer;
+late FakePhotoSource photoSource;
+late FakeCompass compass;
+late FakeLocation location;
 
 Future<void> pumpHome(
   WidgetTester tester,
@@ -37,18 +48,30 @@ Future<void> pumpHome(
   phrases = FakePhrases();
   api = FakeTourApi();
   remote = FakeRemote();
+  qaApi = FakeQaApi();
+  recognizer = FakeRecognizer();
+  answerPlayer = FakePlayer();
+  photoSource = FakePhotoSource();
+  compass = FakeCompass();
+  location = FakeLocation();
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
         sharedPreferencesProvider.overrideWithValue(prefs),
         phrasePlayerProvider.overrideWithValue(phrases),
         tourApiProvider.overrideWithValue(api),
-        locationSourceProvider.overrideWithValue(FakeLocation()),
+        locationSourceProvider.overrideWithValue(location),
         narrationPlayerProvider.overrideWithValue(FakePlayer()),
         remoteControlsProvider.overrideWithValue(remote),
         tourTickIntervalProvider.overrideWithValue(const Duration(hours: 1)),
         hostClientProvider.overrideWithValue(_FixedClient(status)),
         pollIntervalProvider.overrideWithValue(const Duration(hours: 1)),
+        qaApiProvider.overrideWithValue(qaApi),
+        photoSourceProvider.overrideWithValue(photoSource),
+        compassSourceProvider.overrideWithValue(compass),
+        speechRecognizerProvider.overrideWithValue(recognizer),
+        answerPlayerProvider.overrideWithValue(answerPlayer),
+        qaPollIntervalProvider.overrideWithValue(const Duration(seconds: 1)),
       ],
       child: const MaterialApp(home: HomeScreen()),
     ),
@@ -250,5 +273,294 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('tour-summary')), findsNothing);
+  });
+
+  group('asking a question', () {
+    Future<void> startTour(WidgetTester tester) async {
+      await tester.tap(find.byKey(const Key('tour-toggle')));
+      await tester.pumpAndSettle();
+    }
+
+    /// 結束測試前讓背景的輪詢收尾（待處理的計時器會讓測試失敗）。
+    Future<void> wrapUp(WidgetTester tester) async {
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(HomeScreen)),
+      );
+      await container.read(qaProvider.notifier).cancel();
+      await tester.pump(const Duration(seconds: 5));
+    }
+
+    testWidgets('there is no ask button before the tour starts', (
+      tester,
+    ) async {
+      await pumpHome(tester, ConnectionStatus.connected);
+
+      expect(find.byKey(const Key('ask-button')), findsNothing);
+    });
+
+    testWidgets('during a tour there is a hold-to-talk button', (tester) async {
+      await pumpHome(tester, ConnectionStatus.connected);
+      await startTour(tester);
+
+      expect(find.byKey(const Key('ask-button')), findsOneWidget);
+      expect(find.text('按住說話'), findsOneWidget);
+    });
+
+    testWidgets('holding listens, releasing sends the question', (
+      tester,
+    ) async {
+      await pumpHome(tester, ConnectionStatus.connected);
+      await startTour(tester);
+      qaApi.answers = [poll(status: AnswerStatus.done)];
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byKey(const Key('ask-button'))),
+      );
+      await tester.pump();
+      expect(find.text('聽你說…'), findsOneWidget);
+      expect(recognizer.attempts, [true]);
+
+      await gesture.up();
+      await tester.pump();
+      await tester.pump();
+
+      expect(qaApi.asked.single.question, '那間廟拜的是誰');
+      await wrapUp(tester);
+    });
+
+    testWidgets(
+      'a cancelled touch while the answer is playing does not stop it',
+      (tester) async {
+        await pumpHome(tester, ConnectionStatus.connected);
+        await startTour(tester);
+        qaApi.answers = [poll(segments: 1)]; // 答案的第一段在播
+
+        final first = await tester.startGesture(
+          tester.getCenter(find.byKey(const Key('ask-button'))),
+        );
+        await tester.pump();
+        await first.up();
+        for (var i = 0; i < 5; i++) {
+          await tester.pump();
+        }
+        expect(answerPlayer.played, isNotEmpty);
+
+        // 答案播放中又碰了一下按鈕（按下會被忽略），然後被系統取消
+        final second = await tester.startGesture(
+          tester.getCenter(find.byKey(const Key('ask-button'))),
+        );
+        await tester.pump();
+        await second.cancel();
+        await tester.pump();
+
+        expect(answerPlayer.events, isNot(contains('stop')));
+        await wrapUp(tester);
+      },
+    );
+
+    testWidgets('a cancelled touch throws the recording away', (tester) async {
+      await pumpHome(tester, ConnectionStatus.connected);
+      await startTour(tester);
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byKey(const Key('ask-button'))),
+      );
+      await tester.pump();
+      await gesture.cancel();
+      await tester.pump();
+      await tester.pump();
+
+      expect(qaApi.asked, isEmpty);
+      expect(find.text('按住說話'), findsOneWidget);
+    });
+
+    testWidgets('shows when Claude is searching the web', (tester) async {
+      await pumpHome(tester, ConnectionStatus.connected);
+      await startTour(tester);
+      qaApi.answers = [poll(searching: true)];
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byKey(const Key('ask-button'))),
+      );
+      await tester.pump();
+      await gesture.up();
+      await tester.pump();
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.byKey(const Key('qa-searching')), findsOneWidget);
+      await wrapUp(tester);
+    });
+
+    testWidgets('quota exhausted is shown on screen', (tester) async {
+      await pumpHome(tester, ConnectionStatus.connected);
+      await startTour(tester);
+      qaApi.answers = [poll(status: AnswerStatus.failed, reason: 'quota')];
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byKey(const Key('ask-button'))),
+      );
+      await tester.pump();
+      await gesture.up();
+      for (var i = 0; i < 5; i++) {
+        await tester.pump();
+      }
+
+      expect(find.byKey(const Key('qa-quota')), findsOneWidget);
+      expect(find.textContaining('額度'), findsWidgets);
+      await wrapUp(tester);
+    });
+
+    testWidgets('an error is shown and the button works again', (tester) async {
+      await pumpHome(tester, ConnectionStatus.connected);
+      await startTour(tester);
+      recognizer.heard = '';
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byKey(const Key('ask-button'))),
+      );
+      await tester.pump();
+      await gesture.up();
+      for (var i = 0; i < 5; i++) {
+        await tester.pump();
+      }
+
+      expect(find.byKey(const Key('qa-error')), findsOneWidget);
+      expect(find.text('按住說話'), findsOneWidget);
+      await wrapUp(tester);
+    });
+
+    testWidgets('says which recognition method is in use', (tester) async {
+      await pumpHome(tester, ConnectionStatus.connected);
+      await startTour(tester);
+      qaApi.answers = [poll(status: AnswerStatus.done)];
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byKey(const Key('ask-button'))),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.textContaining('本機辨識'), findsOneWidget);
+      await gesture.up();
+      await wrapUp(tester);
+    });
+  });
+
+  group('asking with a photo', () {
+    Future<void> startTour(WidgetTester tester) async {
+      await tester.tap(find.byKey(const Key('tour-toggle')));
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> wrapUp(WidgetTester tester) async {
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(HomeScreen)),
+      );
+      await container.read(qaProvider.notifier).cancel();
+      await tester.pump(const Duration(seconds: 5));
+    }
+
+    testWidgets('there is a photo button during a tour only', (tester) async {
+      await pumpHome(tester, ConnectionStatus.connected);
+      expect(find.byKey(const Key('photo-button')), findsNothing);
+
+      await startTour(tester);
+
+      expect(find.byKey(const Key('photo-button')), findsOneWidget);
+      expect(find.text('拍照問'), findsOneWidget);
+    });
+
+    testWidgets('tapping it takes a photo and asks about it', (tester) async {
+      await pumpHome(tester, ConnectionStatus.connected);
+      await startTour(tester);
+      qaApi.answers = [poll(status: AnswerStatus.done)];
+
+      await tester.tap(find.byKey(const Key('photo-button')));
+      for (var i = 0; i < 5; i++) {
+        await tester.pump();
+      }
+
+      expect(photoSource.taken, 1);
+      expect(qaApi.askedPhotos.single.compassHeading, 270);
+      await wrapUp(tester);
+    });
+
+    testWidgets('a camera that cannot open shows why', (tester) async {
+      await pumpHome(tester, ConnectionStatus.connected);
+      await startTour(tester);
+      photoSource.error = PhotoUnavailable('需要相機權限才能拍照');
+
+      await tester.tap(find.byKey(const Key('photo-button')));
+      for (var i = 0; i < 5; i++) {
+        await tester.pump();
+      }
+
+      expect(find.byKey(const Key('qa-error')), findsOneWidget);
+      expect(find.text('需要相機權限才能拍照'), findsOneWidget);
+      await wrapUp(tester);
+    });
+
+    testWidgets('is disabled while another question is in progress', (
+      tester,
+    ) async {
+      await pumpHome(tester, ConnectionStatus.connected);
+      await startTour(tester);
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byKey(const Key('ask-button'))),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      final button = tester.widget<OutlinedButton>(
+        find.byKey(const Key('photo-button')),
+      );
+      expect(button.onPressed, isNull);
+      await gesture.up();
+      await wrapUp(tester);
+    });
+  });
+
+  group('location access hint', () {
+    testWidgets('no hint when always is granted', (tester) async {
+      await pumpHome(tester, ConnectionStatus.connected);
+      await tester.tap(find.byKey(const Key('tour-toggle')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('location-hint')), findsNothing);
+    });
+
+    testWidgets(
+      'the hint goes away once the user switches to always in Settings',
+      (tester) async {
+        await pumpHome(tester, ConnectionStatus.connected);
+        location.access = LocationAccess.whileInUse;
+        await tester.tap(find.byKey(const Key('tour-toggle')));
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('location-hint')), findsOneWidget);
+
+        location.access = LocationAccess.always;
+        tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('location-hint')), findsNothing);
+      },
+    );
+
+    testWidgets('while-in-use warns that locking the screen may cut it off', (
+      tester,
+    ) async {
+      await pumpHome(tester, ConnectionStatus.connected);
+      location.access = LocationAccess.whileInUse;
+      await tester.tap(find.byKey(const Key('tour-toggle')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('location-hint')), findsOneWidget);
+      expect(find.textContaining('永遠'), findsOneWidget);
+    });
   });
 }

@@ -11,8 +11,10 @@ import '../audio/remote_controls.dart';
 import '../host/host_connection.dart';
 import 'geo.dart';
 import 'host_reachability.dart';
+import 'location_permission.dart';
 import 'location_source.dart';
 import 'playback_policy.dart';
+import 'resume_point.dart';
 import 'tour_api.dart';
 import 'traveler_state.dart';
 
@@ -82,6 +84,7 @@ class TourState {
     this.stoppedReason,
     this.error,
     this.summary,
+    this.locationAccess = LocationAccess.always,
   });
 
   final bool active;
@@ -97,6 +100,9 @@ class TourState {
   /// 上一趟結束時主機回報的用量摘要；下一次出發就清掉。
   final TourSummary? summary;
 
+  /// 這一趟拿到的定位權限程度；不是「永遠」時畫面會提醒鎖定螢幕可能收不到位置。
+  final LocationAccess locationAccess;
+
   TourState copyWith({
     bool? active,
     bool? paused,
@@ -104,6 +110,7 @@ class TourState {
     Object? stoppedReason = _keep,
     Object? error = _keep,
     Object? summary = _keep,
+    LocationAccess? locationAccess,
   }) => TourState(
     active: active ?? this.active,
     paused: paused ?? this.paused,
@@ -115,6 +122,7 @@ class TourState {
         : stoppedReason as String?,
     error: identical(error, _keep) ? this.error : error as String?,
     summary: identical(summary, _keep) ? this.summary : summary as TourSummary?,
+    locationAccess: locationAccess ?? this.locationAccess,
   );
 }
 
@@ -147,6 +155,9 @@ class TourController extends Notifier<TourState> {
   final _audio = <String, Future<Uint8List?>>{};
   final _seen = <String>{};
   final _gone = <String>{}; // 主機已經沒有的介紹（下載回 404）：丟掉，不重試
+  int _questionHolds = 0; // 使用者正在發問、等答案或聽答案：不開始新的主動介紹
+  _Playing? _playing; // 正在播（含使用者暫停中、或被問題打斷等著接續）的介紹
+  _Interrupted? _interrupted; // 被問題打斷、等答完從那一句的開頭接著播
 
   @override
   TourState build() {
@@ -168,6 +179,28 @@ class TourController extends Notifier<TourState> {
   }
 
   DateTime get _now => ref.read(clockProvider)();
+
+  /// 最近一次定位；問答要把它連同問題一起送給主機。還沒出發或還沒定位時是 null。
+  PositionFix? get position => _position;
+
+  /// 使用者開始發問：正在播的介紹先停下、記住位置，到 [endQuestion] 之前不開始新的主動介紹
+  /// （也不念「連不上主機」），免得蓋過答案。答完從被打斷的那一句的開頭接著播。
+  /// 可以疊加，每個 begin 都要有對應的 end。
+  void beginQuestion() {
+    _questionHolds++;
+    if (_questionHolds == 1) unawaited(_interruptNarration());
+  }
+
+  void endQuestion() {
+    if (_questionHolds > 0) _questionHolds--;
+    if (_questionHolds == 0) _evaluate();
+  }
+
+  /// 問答連不上主機：和輪詢失敗一樣算一次斷線（只念一次「連不上」，並退避重試）。
+  void noteHostFailed() => _onHostFailed(_session);
+
+  /// 問答連上了主機：結束斷線，安靜恢復。
+  void noteHostReached() => _onHostReached();
 
   Future<void> start() async {
     if (state.active) return;
@@ -200,12 +233,22 @@ class TourController extends Notifier<TourState> {
     }
     if (session != _session) return; // 等待期間已經結束或重新出發
 
-    state = const TourState(active: true);
+    state = TourState(active: true, locationAccess: location.access);
     _lastReportAt = fix.time;
     _syncRemote();
     unawaited(ref.read(phrasePlayerProvider).play(FixedPhrase.startTour));
     _positions = location.positions().listen(_onRawFix);
     _timer = Timer.periodic(ref.read(tourTickIntervalProvider), (_) => tick());
+  }
+
+  /// App 回到前景：使用者可能剛到「設定」把定位改成「永遠」，重讀一次讓畫面的提醒跟上。
+  Future<void> refreshLocationAccess() async {
+    if (!state.active) return;
+    final session = _session;
+    final access = await ref.read(locationSourceProvider).refreshAccess();
+    if (session == _session && state.active) {
+      state = state.copyWith(locationAccess: access);
+    }
   }
 
   Future<void> end() async {
@@ -381,7 +424,12 @@ class TourController extends Notifier<TourState> {
   }
 
   void _evaluate() {
-    if (!state.active) return;
+    if (!state.active || _questionHolds > 0) return;
+    if (_interrupted != null) {
+      // 被問題打斷的介紹先接著講完；使用者按了暫停就等他按繼續
+      if (!state.paused) unawaited(_resumeInterrupted());
+      return;
+    }
     if (_unreachableDue && !_busy && !state.paused) {
       _unreachableDue = false;
       unawaited(
@@ -434,22 +482,36 @@ class TourController extends Notifier<TourState> {
       _busy = false;
       return;
     }
-    if (state.paused) {
-      // 等音檔的時候使用者按了暫停：先放回去，繼續後再講
+    if (state.paused || _questionHolds > 0) {
+      // 等音檔的時候使用者按了暫停、或開始發問：先放回去，之後再講
       _queue.insert(0, item);
       _audio[item.info.id] = Future.value(bytes);
       _busy = false;
       return;
     }
+    await _playBytes(session, item, bytes, Duration.zero);
+  }
 
+  /// 播一段介紹（或從 [start] 接著播）。被問題打斷時不算播完，也不收尾（還在「講」這一段）。
+  Future<void> _playBytes(
+    int session,
+    QueuedNarration item,
+    Uint8List bytes,
+    Duration start,
+  ) async {
     state = state.copyWith(nowPlaying: item.info.name);
     _syncRemote(title: item.info.name);
+    final playing = _Playing(item, bytes);
+    _playing = playing;
     try {
-      await ref
+      final completed = await ref
           .read(narrationPlayerProvider)
-          .play(bytes, title: item.info.name);
-      if (session == _session) {
-        // 播到最後才算講過（結束時被打斷的不算）；主機一直不收就只留最近的，不無限累積
+          .play(bytes, title: item.info.name, start: start);
+      if (completed && session == _session) {
+        playing.finished = true;
+        // 剛好在播完的同一刻被問：已經講完了，答完不用再接
+        if (_interrupted?.playing == playing) _interrupted = null;
+        // 播到最後才算講過（被打斷、結束時被停掉的不算）；主機一直不收就只留最近的，不無限累積
         _unreportedPlayed.add(item.info.id);
         if (_unreportedPlayed.length > _maxUnreportedPlayed) {
           _unreportedPlayed.removeAt(0);
@@ -459,13 +521,52 @@ class TourController extends Notifier<TourState> {
     } on Exception catch (error) {
       debugPrint('播放 ${item.info.id} 失敗：$error');
     } finally {
-      if (session == _session) {
+      if (session == _session && (playing.finished || !playing.interrupted)) {
+        if (identical(_playing, playing)) _playing = null;
         _lastFinishedAt = _now;
         _busy = false;
         state = state.copyWith(nowPlaying: null);
         _syncRemote();
       }
+      playing.done.complete(); // 這一次播放（含收尾）結束了：接續才可以開始
     }
+  }
+
+  /// 發問開始：停下正在播的介紹，記住要從哪一句的開頭接著播。
+  Future<void> _interruptNarration() async {
+    final playing = _playing;
+    // 已經播完的不用打斷；已經在等著接續的（例如使用者暫停中又問一次）要保留原本的接續點，
+    // 這時播放器已經停了，位置不可靠
+    if (playing == null || playing.finished || playing.interrupted) return;
+    playing.interrupted = true;
+    final player = ref.read(narrationPlayerProvider);
+    _interrupted = _Interrupted(
+      playing,
+      resumePoint(player.position, playing.item.info.unitStarts),
+    );
+    // 不釋放 audio focus：緊接著要念短句、播答案，其他 App 的音量不要在中間跳回來
+    await player.stop(releaseFocus: false);
+  }
+
+  Future<void> _resumeInterrupted() async {
+    final interrupted = _interrupted;
+    if (interrupted == null) return;
+    _interrupted = null; // 同步清掉，下一次評估不會再接一次
+    final session = _session;
+    // 被停掉的那一次播放要先收尾完（播放器、暫存檔），才能開始下一次
+    await interrupted.playing.done.future;
+    if (session != _session) return;
+    if (_questionHolds > 0 || state.paused) {
+      // 等收尾的時候又開始發問、或使用者按了暫停：接續點留著，等之後
+      _interrupted = interrupted;
+      return;
+    }
+    await _playBytes(
+      session,
+      interrupted.playing.item,
+      interrupted.playing.bytes,
+      interrupted.resumeAt,
+    );
   }
 
   /// 一次一個、照順序送；送不出去就留著，下次輪詢連上時再送。不算斷線（輪詢才是心跳）。
@@ -521,5 +622,34 @@ class TourController extends Notifier<TourState> {
     _audio.clear();
     _seen.clear();
     _gone.clear();
+    _questionHolds = 0;
+    _playing = null;
+    _interrupted = null;
   }
+}
+
+/// 一次播放。每次播放各有一個，旗標與完成訊號不會和下一次混在一起。
+class _Playing {
+  _Playing(this.item, this.bytes);
+
+  final QueuedNarration item;
+  final Uint8List bytes;
+
+  /// 被問題打斷了（等答完接著播）。
+  bool interrupted = false;
+
+  /// 自然播到最後。
+  bool finished = false;
+
+  /// 這一次播放（含收尾）結束。
+  final done = Completer<void>();
+}
+
+class _Interrupted {
+  const _Interrupted(this.playing, this.resumeAt);
+
+  final _Playing playing;
+
+  /// 答完要從這裡接著播（被打斷那一句的開頭）。
+  final Duration resumeAt;
 }

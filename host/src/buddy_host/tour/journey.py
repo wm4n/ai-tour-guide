@@ -108,6 +108,14 @@ class JourneyMemory:
         stops = self._trip.stops if self._trip else []
         return tuple(stop.name for stop in stops[-self._max_recent :])
 
+    def last_told(self) -> tuple[str, str] | None:
+        """這趟最近一段播完的介紹（地方名、截斷的稿子）。「再多說一點」要接著它講。"""
+        stops = self._trip.stops if self._trip else []
+        if not stops:
+            return None
+        told = self._visited.get(stops[-1].id, {}).get("told")
+        return (stops[-1].name, self._clip(told[-1]["script"])) if told else None
+
     def told_before(self) -> dict[str, tuple[str, ...]]:
         """每個講過的地方最近幾次的稿子（各自截斷），讓 Claude 換個角度講。"""
         return {

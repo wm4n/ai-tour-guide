@@ -1,14 +1,18 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../host/host_client.dart';
 import '../host/host_connection.dart';
 import '../host/host_settings.dart';
+import '../qa/qa_controller.dart';
+import '../qa/speech_recognizer.dart';
 import '../tour/tour_api.dart';
 import '../tour/tour_controller.dart';
 import '../tour/traveler_state.dart';
 
-class HomeScreen extends ConsumerWidget {
+class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
   static String statusLabel(ConnectionStatus status) => switch (status) {
@@ -26,7 +30,33 @@ class HomeScreen extends ConsumerWidget {
   };
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends ConsumerState<HomeScreen>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // 使用者可能剛到「設定」把定位改成「永遠」：回到前景時重讀，畫面的提醒才跟得上
+    if (state == AppLifecycleState.resumed) {
+      unawaited(ref.read(tourProvider.notifier).refreshLocationAccess());
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final status = ref.watch(connectionProvider);
     final tour = ref.watch(tourProvider);
     final controller = ref.read(tourProvider.notifier);
@@ -55,10 +85,22 @@ class HomeScreen extends ConsumerWidget {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 _StatusChip(status: status),
+                if (tour.active &&
+                    !tour.locationAccess.keepsWorkingWhenLocked) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    '定位目前只允許「使用 App 期間」：手機鎖定螢幕時可能收不到位置。'
+                    '請到「設定 → Buddy Tour → 位置」改成「永遠」。',
+                    key: const Key('location-hint'),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ],
                 if (tour.stoppedReason != null) ...[
                   const SizedBox(height: 12),
                   Text(
-                    stoppedLabel(tour.stoppedReason!),
+                    HomeScreen.stoppedLabel(tour.stoppedReason!),
                     key: const Key('stopped-reason'),
                     style: TextStyle(
                       color: Theme.of(context).colorScheme.error,
@@ -97,6 +139,8 @@ class HomeScreen extends ConsumerWidget {
                               : '陪你走，有好內容再開口'),
                     key: const Key('tour-status'),
                   ),
+                  const SizedBox(height: 24),
+                  const AskButton(),
                 ],
                 if (tour.error != null) ...[
                   const SizedBox(height: 12),
@@ -303,6 +347,106 @@ class TourSummaryCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// 按住說話發問（設計文件第 8 節）：按下開始聽，放開就送出並等答案；答案以語音播出。
+///
+/// 用 [Listener] 而不是長按手勢：一按下就要開麥克風，不等長按的判定時間。
+class AskButton extends ConsumerWidget {
+  const AskButton({super.key});
+
+  static String _label(QaPhase phase) => switch (phase) {
+    QaPhase.idle => '按住說話',
+    QaPhase.listening => '聽你說…',
+    QaPhase.photographing => '拍照中…',
+    QaPhase.asking => '想一想…',
+    QaPhase.answering => '回答中…',
+  };
+
+  static String _modeLabel(RecognitionMode mode) => switch (mode) {
+    RecognitionMode.onDevice => '本機辨識',
+    RecognitionMode.online => '線上辨識（語音會送到 Apple）',
+  };
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final qa = ref.watch(qaProvider);
+    final controller = ref.read(qaProvider.notifier);
+    final scheme = Theme.of(context).colorScheme;
+    final listening = qa.phase == QaPhase.listening;
+    final idle = qa.phase == QaPhase.idle;
+    return Column(
+      children: [
+        Listener(
+          key: const Key('ask-button'),
+          behavior: HitTestBehavior.opaque,
+          onPointerDown: (_) => controller.press(),
+          onPointerUp: (_) => controller.release(),
+          // 手指被系統奪走（例如被當成捲動）：不要把講到一半的話送出去
+          onPointerCancel: (_) {
+            // 只有「按住中」才丟掉錄音；答案播放中碰一下又被取消，不該停掉答案
+            if (ref.read(qaProvider).phase == QaPhase.listening) {
+              controller.cancel();
+            }
+          },
+          child: Container(
+            width: 160,
+            height: 160,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: listening
+                  ? scheme.error
+                  : (idle ? scheme.primary : scheme.surfaceContainerHighest),
+            ),
+            child: Text(
+              _label(qa.phase),
+              style: TextStyle(
+                fontSize: 18,
+                color: listening
+                    ? scheme.onError
+                    : (idle ? scheme.onPrimary : scheme.onSurfaceVariant),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        OutlinedButton.icon(
+          key: const Key('photo-button'),
+          onPressed: idle ? controller.askWithPhoto : null,
+          icon: const Icon(Icons.photo_camera),
+          label: const Text('拍照問'),
+        ),
+        if (qa.mode != null && !idle) ...[
+          const SizedBox(height: 8),
+          Text(
+            _modeLabel(qa.mode!),
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+        if (qa.searchingWeb && !idle) ...[
+          const SizedBox(height: 8),
+          const Text('正在上網查…', key: Key('qa-searching')),
+        ],
+        if (qa.quotaExhausted) ...[
+          const SizedBox(height: 8),
+          Text(
+            'Claude 額度用完了，這題先不回答',
+            key: const Key('qa-quota'),
+            style: TextStyle(color: scheme.error),
+          ),
+        ],
+        if (qa.error != null) ...[
+          const SizedBox(height: 8),
+          Text(
+            qa.error!,
+            key: const Key('qa-error'),
+            style: TextStyle(color: scheme.error),
+          ),
+        ],
+      ],
     );
   }
 }

@@ -199,6 +199,41 @@ void main() {
   });
 
   test(
+    'poll parses the start of every sentence, and copes with a host that has none',
+    () async {
+      Future<NarrationPoll> pollWith(Map<String, Object> extra) => apiWith(
+        (request) async => http.Response(
+          jsonEncode({
+            'active': true,
+            'preparing': false,
+            'stopped_reason': null,
+            'narrations': [
+              {
+                'seq': 1,
+                'id': 'a',
+                'name': 'A',
+                'lat': 25.0,
+                'lon': 121.5,
+                'audio_seconds': 34.7,
+                ...extra,
+              },
+            ],
+          }),
+          200,
+        ),
+      ).poll(settings, after: 0);
+
+      final withStarts = await pollWith({
+        'unit_starts': [0.0, 1.5, 3.5],
+      });
+      final without = await pollWith({});
+
+      expect(withStarts.narrations.single.unitStarts, [0.0, 1.5, 3.5]);
+      expect(without.narrations.single.unitStarts, isEmpty);
+    },
+  );
+
+  test(
     'download returns the audio bytes, id passed as a query value',
     () async {
       late http.Request seen;

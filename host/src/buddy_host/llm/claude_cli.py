@@ -63,11 +63,23 @@ class ClaudeSettings:
         return replace(base, **overrides)
 
 
+def _built_in_tools(allowed: tuple[str, ...]) -> list[str]:
+    """權限規則（`Read(//路徑/**)`）裡的內建工具名稱；MCP 工具（`mcp__…`）不在 `--tools` 管轄內。"""
+    names = (rule.split("(")[0] for rule in allowed)
+    return list(dict.fromkeys(name for name in names if not name.startswith("mcp__")))
+
+
 class _Stream:
     """累積 stream-json 事件。"""
 
-    def __init__(self, on_text: Callable[[str], None] | None):
+    def __init__(
+        self,
+        on_text: Callable[[str], None] | None,
+        on_tool: Callable[[str], None] | None = None,
+    ):
         self.on_text = on_text
+        self.on_tool = on_tool
+        self._tools_seen: set[str] = set()
         self.partial_text: list[str] = []
         self.assistant_text: list[str] = []
         self.rate_limits: list[dict] = []
@@ -80,12 +92,17 @@ class _Stream:
         if kind == "system" and event.get("subtype") == "init":
             self.init_model = event.get("model")
         elif kind == "stream_event":
-            delta = event.get("event", {}).get("delta", {})
+            inner = event.get("event", {})
+            delta = inner.get("delta", {})
             if delta.get("type") == "text_delta" and delta.get("text"):
                 self.partial_text.append(delta["text"])
                 self._emit(delta["text"])
+            elif inner.get("type") == "content_block_start":
+                self._tool_use(inner.get("content_block", {}))
         elif kind == "assistant":
             blocks = event.get("message", {}).get("content", [])
+            for block in blocks:
+                self._tool_use(block)
             text = "".join(b.get("text", "") for b in blocks if b.get("type") == "text")
             self.assistant_text.append(text)
             if not self.partial_text:
@@ -99,6 +116,15 @@ class _Stream:
         if text and self.on_text:
             self.on_text(text)
 
+    def _tool_use(self, block: dict) -> None:
+        """同一次工具呼叫會先後出現在 content_block_start 與完整的 assistant 訊息：以 id 去重。"""
+        if block.get("type") != "tool_use" or not self.on_tool:
+            return
+        key = block.get("id") or str(block.get("name"))  # 沒有 id 時退而以名稱去重
+        if key not in self._tools_seen:
+            self._tools_seen.add(key)
+            self.on_tool(str(block.get("name", "")))
+
 
 class ClaudeCliClient:
     def __init__(self, settings: ClaudeSettings):
@@ -106,11 +132,14 @@ class ClaudeCliClient:
         self._usage = UsageLog(settings.usage_log_path)
 
     async def run(
-        self, request: LlmRequest, on_text: Callable[[str], None] | None = None
+        self,
+        request: LlmRequest,
+        on_text: Callable[[str], None] | None = None,
+        on_tool: Callable[[str], None] | None = None,
     ) -> LlmResult:
         model = resolve_model(request.purpose, request.model)
         token = self._read_token()
-        stream = _Stream(on_text)
+        stream = _Stream(on_text, on_tool)
         started = time.perf_counter()
         error: str | None = None
         returncode: int | None = None
@@ -196,6 +225,9 @@ class ClaudeCliClient:
             args += ["--mcp-config", str(request.mcp_config)]
         if request.system_prompt:
             args += ["--append-system-prompt", request.system_prompt]
+        # 預設的內建工具集連 Bash 都有（唯讀指令免詢問）：只開這次真的需要的，沒有需要就全關（""）。
+        # 網頁、照片裡的文字都是第三方內容，可能夾帶指示；工具越少，被牽著走的後果越小。
+        args += ["--tools", ",".join(_built_in_tools(request.allowed_tools))]
         if request.allowed_tools:
             args += ["--allowedTools", ",".join(request.allowed_tools)]
         for directory in request.add_dirs:
@@ -238,7 +270,7 @@ class ClaudeCliClient:
             returncode = await asyncio.wait_for(
                 converse(), request.timeout or self._s.default_timeout
             )
-        except TimeoutError:
+        except (TimeoutError, asyncio.CancelledError):  # 逾時或呼叫端放棄：行程不能留著繼續耗額度
             proc.kill()
             await proc.wait()
             stderr_task.cancel()

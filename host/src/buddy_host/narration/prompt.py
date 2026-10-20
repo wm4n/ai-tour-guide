@@ -48,7 +48,7 @@ def describe_direction(relative_deg: float | None) -> str:
     return "後方"
 
 
-def _facts(ctx: ScriptContext) -> str:
+def facts_text(ctx: ScriptContext) -> str:
     tags = "；".join(
         f"{k}={ctx.candidate.tags[k]}" for k in _INTERESTING_TAGS if ctx.candidate.tags.get(k)
     )
@@ -73,7 +73,7 @@ def build_script_request(
     parts = [
         f"我們正走到「{ctx.candidate.name}」，它在{describe_direction(ctx.bearing_relative_deg)}"
         f"約 {ctx.distance_m:.0f} 公尺。請為它寫一段 {seconds[0]} 到 {seconds[1]} 秒的口說介紹。",
-        _facts(ctx),
+        facts_text(ctx),
     ]
     if ctx.told_before:
         parts.append(

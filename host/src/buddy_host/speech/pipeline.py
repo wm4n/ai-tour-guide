@@ -7,6 +7,7 @@ import re
 import time
 import wave
 from collections.abc import Callable
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, Protocol
@@ -136,7 +137,11 @@ class SpeechPipeline:
         self._clock = clock
         self._progress = progress
 
-    def run(self, text: str) -> SpeechResult:
+    def run(
+        self, text: str, unit_guard: Callable[[], AbstractContextManager] | None = None
+    ) -> SpeechResult:
+        """`unit_guard`：每個合成單位（含它的換 seed 重試）開始前進入、做完離開；
+        排程用，讓別的工作可以在單位之間插進來，而不會打斷正在合成的單位。"""
         started = self._clock()
         planned: list[tuple[str, float]] = []  # (合成單位, 它後面接多久的停頓)
         for paragraph in prepare_paragraphs(text):
@@ -148,7 +153,8 @@ class SpeechPipeline:
         parts: list[np.ndarray] = []
         pending_gap = 0.0
         for index, (chunk_text, gap_after) in enumerate(planned, start=1):
-            chunk = self._speak(chunk_text, opening=index == 1)
+            with unit_guard() if unit_guard else nullcontext():
+                chunk = self._speak(chunk_text, opening=index == 1)
             chunks.append(chunk)
             if self._progress:
                 self._progress(index, len(planned), chunk)

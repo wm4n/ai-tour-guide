@@ -1,18 +1,25 @@
 import asyncio
+import base64
+import binascii
+import contextlib
 import hmac
 from collections.abc import Callable
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
+from typing import Annotated
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 
 from buddy_host import __version__
 from buddy_host.config import HostConfig
+from buddy_host.llm.quota import QuotaGate
 from buddy_host.narration.traveler import Companions, TravelerContext, TravelMode
 from buddy_host.places.models import Location
+from buddy_host.qa.photos import PhotoRejected, PhotoTooLarge
+from buddy_host.qa.service import PhotosUnavailable, QaService
 from buddy_host.tour.journey import JourneyMemory
 from buddy_host.tour.session import PreparerLike, TourFix, TourNotActiveError, TourSession
 from buddy_host.tour.usage_report import finish_tour
@@ -22,7 +29,11 @@ def _require_token(config: HostConfig) -> Callable[..., None]:
     def dependency(x_buddy_token: str | None = Header(default=None)) -> None:
         if config.token is None:
             return
-        if x_buddy_token is None or not hmac.compare_digest(x_buddy_token, config.token):
+        # compare_digest 對含非 ASCII 的 str 會丟 TypeError（變成 500）：改比位元組。
+        # header 在 Starlette 是以 latin-1 解碼的，用 latin-1 還原原始位元組；token 設定檔是 UTF-8。
+        if x_buddy_token is None or not hmac.compare_digest(
+            x_buddy_token.encode("latin-1", errors="replace"), config.token.encode("utf-8")
+        ):
             raise HTTPException(status_code=401, detail="invalid token")
 
     return dependency
@@ -51,24 +62,78 @@ class FixBody(BaseModel):
         )
 
 
+class AskBody(FixBody):
+    """一個問題，連同提問當下的位置與旅人狀態。`more`＝「再多說一點」：接著剛播完的那段講。"""
+
+    question: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
+    more: bool = False
+
+
+class AskPhotoBody(FixBody):
+    """拍照提問。`heading_deg` 是拍照時手機的指南針方向（不是走路的方向）。
+
+    沒給問題就是「這是什麼？」。
+    """
+
+    question: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)
+    ] = "這是什麼？"
+    # 8 MB 的照片 base64 後約 11.2M 字元（上限與 PhotoStore 的 8 MB 對齊，不白白解碼更大的東西）
+    image_base64: Annotated[str, StringConstraints(min_length=1, max_length=11_200_000)]
+
+
+AnswererFactory = Callable[[QuotaGate, JourneyMemory], QaService]
+PHOTO_PURGE_INTERVAL_S = 3600.0
+
+
+async def _purge_photos_forever(answerer: QaService, interval_s: float) -> None:
+    while True:
+        await asyncio.sleep(interval_s)
+        await asyncio.to_thread(answerer.purge_photos)
+
+
 def create_app(
     config: HostConfig,
     preparer: PreparerLike | None = None,
     *,
     usage_log_path: Path | None = None,
     reports_dir: Path | None = None,
+    qa_latency_log_path: Path | None = None,
     journey_path: Path | None = None,
+    answerer_factory: AnswererFactory | None = None,
+    photo_purge_interval_s: float = PHOTO_PURGE_INTERVAL_S,
 ) -> FastAPI:
-    app = FastAPI(title="Buddy Host", version=__version__)
+    """`answerer_factory` 拿到與旅程共用的額度閘門和旅程記憶，回傳問答服務；沒給就不開問答。"""
+    journey = JourneyMemory(journey_path)
+    quota = QuotaGate()  # 旅程準備與問答共用：任一邊撞到額度，兩邊一起停
+    session = TourSession(preparer, journey=journey, quota=quota) if preparer is not None else None
+    answerer = answerer_factory(quota, journey) if answerer_factory is not None else None
+
+    @contextlib.asynccontextmanager
+    async def lifespan(_: FastAPI):
+        # 照片只留保留期限那麼久：即使主機一直沒重啟、也沒人再發問，也要定期清掉過期的
+        purger = None
+        if answerer is not None and answerer.photos_enabled:
+            purger = asyncio.create_task(_purge_photos_forever(answerer, photo_purge_interval_s))
+        try:
+            yield
+        finally:
+            if purger is not None:
+                purger.cancel()
+                await asyncio.gather(purger, return_exceptions=True)
+
+    app = FastAPI(title="Buddy Host", version=__version__, lifespan=lifespan)
     authed = Depends(_require_token(config))
-    session = (
-        TourSession(preparer, journey=JourneyMemory(journey_path)) if preparer is not None else None
-    )
 
     def tour() -> TourSession:
         if session is None:
             raise HTTPException(status_code=503, detail="介紹準備尚未啟用")
         return session
+
+    def qa() -> QaService:
+        if answerer is None:
+            raise HTTPException(status_code=503, detail="問答尚未啟用")
+        return answerer
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -83,7 +148,9 @@ def create_app(
         outcome = tour().start(body.to_fix())
         if outcome.abandoned is not None:  # 上一趟沒按結束就被丟下：替它收尾
             # 報告要讀整份 usage.jsonl（只會越來越大），不在事件迴圈上做
-            await asyncio.to_thread(finish_tour, outcome.abandoned, usage_log_path, reports_dir)
+            await asyncio.to_thread(
+                finish_tour, outcome.abandoned, usage_log_path, reports_dir, qa_latency_log_path
+            )
         return {"status": "started", "resumed": outcome.resumed}
 
     @app.post("/v1/tour/location", dependencies=[authed])
@@ -104,7 +171,9 @@ def create_app(
         recap = tour().end()
         if recap is None:
             return {"status": "ended", "summary": None}
-        summary = await asyncio.to_thread(finish_tour, recap, usage_log_path, reports_dir)
+        summary = await asyncio.to_thread(
+            finish_tour, recap, usage_log_path, reports_dir, qa_latency_log_path
+        )
         return {"status": "ended", "summary": summary}
 
     @app.get("/v1/tour/narrations", dependencies=[authed])
@@ -122,6 +191,49 @@ def create_app(
         path = tour().audio_path(id)
         if path is None or not path.exists():
             raise HTTPException(status_code=404, detail="找不到這段介紹")
+        return FileResponse(path, media_type="audio/wav")
+
+    @app.post("/v1/qa/ask", dependencies=[authed])
+    async def qa_ask(body: AskBody) -> dict[str, str]:
+        return {"id": qa().ask(body.question, body.to_fix(), more=body.more)}
+
+    @app.post("/v1/qa/ask-photo", dependencies=[authed])
+    async def qa_ask_photo(body: AskPhotoBody) -> dict[str, str]:
+        service = qa()
+        if not service.photos_enabled:
+            raise HTTPException(status_code=503, detail="拍照提問尚未啟用")
+        try:
+            image = await asyncio.to_thread(base64.b64decode, body.image_base64, validate=True)
+        except (binascii.Error, ValueError):
+            raise HTTPException(status_code=400, detail="照片不是有效的 base64") from None
+        try:
+            return {"id": await service.ask_photo(body.question, body.to_fix(), image)}
+        except PhotoTooLarge as error:
+            raise HTTPException(status_code=413, detail=str(error)) from None
+        except PhotoRejected as error:
+            raise HTTPException(status_code=400, detail=str(error)) from None
+        except PhotosUnavailable:
+            raise HTTPException(status_code=503, detail="拍照提問尚未啟用") from None
+
+    @app.post("/v1/qa/cancel", dependencies=[authed])
+    async def qa_cancel(id: str) -> dict[str, bool]:
+        service = qa()
+        if service.answer(id) is None:
+            raise HTTPException(status_code=404, detail="找不到這個問題的答案")
+        return {"cancelled": service.cancel(id)}
+
+    @app.get("/v1/qa/answer", dependencies=[authed])
+    async def qa_answer(id: str) -> dict:
+        answer = qa().answer(id)
+        if answer is None:
+            raise HTTPException(status_code=404, detail="找不到這個問題的答案")
+        return asdict(answer)
+
+    @app.get("/v1/qa/audio", dependencies=[authed])
+    async def qa_audio(id: str, index: int) -> FileResponse:
+        path = qa().audio_path(id, index)
+        if path is None or not path.exists():
+            raise HTTPException(status_code=404, detail="找不到這一段答案的語音")
         return FileResponse(path, media_type="audio/wav")
 
     return app

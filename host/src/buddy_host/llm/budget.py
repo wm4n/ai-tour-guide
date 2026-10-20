@@ -20,8 +20,10 @@ class BudgetedLlm:
     def calls_left(self) -> int:
         return self._max_calls - self.calls_used
 
-    async def run(self, request: LlmRequest, on_text=None) -> LlmResult:
+    async def run(self, request: LlmRequest, on_text=None, on_tool=None) -> LlmResult:
         if self.calls_used >= self._max_calls:
             raise LlmBudgetExhaustedError(f"已達 Claude 呼叫上限 {self._max_calls} 次")
         self.calls_used += 1  # 先記帳：呼叫失敗或逾時也可能已經消耗額度
-        return await self._inner.run(request, on_text)
+        if on_tool is None:  # 沒要的就不傳，只認 on_text 的舊介面照樣能接
+            return await self._inner.run(request, on_text)
+        return await self._inner.run(request, on_text, on_tool=on_tool)

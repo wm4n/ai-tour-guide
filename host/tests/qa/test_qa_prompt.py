@@ -140,9 +140,17 @@ def test_a_photo_question_hands_over_the_file_and_lets_claude_read_it():
 
     assert "/home/x/.buddy-host/photos/abc.jpg" in request.prompt
     assert "Read" in request.prompt  # 明說要用 Read 工具看照片
-    assert "Read" in request.allowed_tools
-    assert set(WEB_TOOLS) <= set(request.allowed_tools)  # 上網的工具照舊
+    # 只准讀照片所在的資料夾（絕對路徑要以兩個斜線開頭）
+    assert request.allowed_tools == ("Read(//home/x/.buddy-host/photos/**)",)
     assert request.add_dirs == (PHOTO.path.parent,)
+
+
+def test_a_photo_question_cannot_go_on_the_web():
+    # 照片內容（招牌、海報上的字）是第三方內容，可能夾帶指示：不給能把東西送出主機的工具
+    request = build(photo=PHOTO, question="這是什麼？")
+
+    assert not set(WEB_TOOLS) & set(request.allowed_tools)
+    assert "上網" in request.system_prompt  # 並且明說這一題不能上網
 
 
 def test_a_photo_question_uses_the_compass_not_the_travel_direction():

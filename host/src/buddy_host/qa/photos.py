@@ -49,25 +49,35 @@ class PhotoStore:
         if suffix is None:
             raise PhotoRejected("只收 JPEG 或 PNG 照片")
         self.purge()
-        self.directory.mkdir(parents=True, exist_ok=True)
+        self.directory.mkdir(mode=0o700, parents=True, exist_ok=True)
         path = self.directory / f"{uuid.uuid4().hex}{suffix}"
         # 只有本人可讀：先以 0600 建檔再寫入，不留下「先公開再改權限」的空窗
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(fd, "wb") as f:
-            f.write(data)
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(data)
+        except BaseException:
+            path.unlink(missing_ok=True)  # 寫到一半失敗：不留殘缺的照片
+            raise
         return path
 
     def purge(self) -> int:
         """刪掉超過保留期限的照片；回傳刪了幾張。只動自己存的照片（副檔名為 .jpg／.png）。"""
-        if not self.directory.exists():
-            return 0
         cutoff = self._clock() - self._retention_s
         removed = 0
-        for path in self.directory.iterdir():
-            if path.suffix not in _SUFFIXES or not path.is_file():
+        try:
+            paths = list(self.directory.iterdir())
+        except FileNotFoundError:
+            return 0
+        except OSError:
+            # 清理只是附帶的：列不出來不能讓存照片、問答跟著失敗
+            logger.exception("列不出照片資料夾，這次不清理：%s", self.directory)
+            return 0
+        for path in paths:
+            if path.suffix not in _SUFFIXES:
                 continue
             try:
-                if path.stat().st_mtime < cutoff:
+                if path.is_file() and path.stat().st_mtime < cutoff:
                     path.unlink()
                     removed += 1
             except OSError:

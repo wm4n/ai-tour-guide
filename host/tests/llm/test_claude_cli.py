@@ -243,3 +243,31 @@ async def test_on_tool_is_optional(home, record, monkeypatch):
     result = await make_client(home).run(request())
 
     assert result.text
+
+
+async def test_only_the_built_in_tools_a_request_needs_are_available(home, record):
+    await make_client(home).run(
+        request(allowed_tools=("Read(//home/x/photos/**)", "WebSearch", "mcp__places__*", "Read"))
+    )
+
+    argv = seen(record)["argv"]
+    # 權限規則的括號與 MCP 工具名不屬於內建工具；重複的只留一個
+    assert argv[argv.index("--tools") + 1] == "Read,WebSearch"
+    assert argv[argv.index("--allowedTools") + 1] == (
+        "Read(//home/x/photos/**),WebSearch,mcp__places__*,Read"
+    )
+
+
+async def test_a_request_without_tools_gets_no_built_in_tools_at_all(home, record):
+    await make_client(home).run(request())
+
+    argv = seen(record)["argv"]
+    # 預設的工具集連 Bash 都有（唯讀指令不用詢問）：沒有需要就一個都不給
+    assert argv[argv.index("--tools") + 1] == ""
+
+
+async def test_an_mcp_only_request_gets_no_built_in_tools(home, record):
+    await make_client(home).run(request(allowed_tools=("mcp__probe__probe_nonce",)))
+
+    argv = seen(record)["argv"]
+    assert argv[argv.index("--tools") + 1] == ""

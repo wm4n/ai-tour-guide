@@ -31,6 +31,7 @@ class JustAudioPhrasePlayer implements PhrasePlayer {
       if (stops != _stops) return; // 排隊的時候已經被 stop() 取消了
       try {
         await _player.setAsset(phrase.assetPath);
+        if (stops != _stops) return; // 載入的時候被 stop() 取消了
         await _player.play();
         if (releaseFocus) await releaseAudioFocus();
       } catch (error) {

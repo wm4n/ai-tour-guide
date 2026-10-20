@@ -364,3 +364,47 @@ def test_photo_questions_are_unavailable_when_photos_are_not_enabled(tmp_path, w
     with build_client(tmp_path, wav, persona, llm, photos=False) as client:
         body = {**BODY, "image_base64": JPEG_B64}
         assert client.post("/v1/qa/ask-photo", json=body).status_code == 503
+
+
+def test_expired_photos_are_cleared_in_the_background_even_without_questions(
+    tmp_path, wav, persona, llm
+):
+    import os
+
+    photos = tmp_path / "photos"
+    photos.mkdir()
+    old = photos / "old.jpg"
+    old.write_bytes(b"\xff\xd8\xff\xe0")
+    os.utime(old, (1, 1))  # 1970 年：一定過期
+    config = HostConfig(home=tmp_path)
+
+    def factory(quota, journey):
+        return QaService(
+            llm,
+            FakeNearby(),
+            FakeSpeech(),
+            persona_path=persona,
+            out_dir=tmp_path / "qa",
+            quota=quota,
+            journey=journey,
+            photos=PhotoStore(photos),
+        )
+
+    app = create_app(
+        config, preparer=FakePreparer(wav), answerer_factory=factory, photo_purge_interval_s=0.01
+    )
+    with TestClient(app):
+        for _ in range(100):
+            if not old.exists():
+                break
+            time.sleep(0.02)
+
+    assert not old.exists()
+
+
+def test_the_request_limit_matches_the_photo_limit(client):
+    # 8 MB 的照片 base64 後約 11.2M 字元：欄位上限不能比這個大太多，否則白白解碼
+    from buddy_host.app import AskPhotoBody
+
+    limit = AskPhotoBody.model_fields["image_base64"].metadata[0].max_length
+    assert 8 * 1024 * 1024 * 4 // 3 <= limit <= 8 * 1024 * 1024 * 4 // 3 + 100_000

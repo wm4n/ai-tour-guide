@@ -49,7 +49,8 @@ flutter pub get && flutter analyze && flutter test
 
 - 拿著手機拍照時，「眼前、左右」以**指南針**（手機背面對著的方向，`flutter_compass` 的 `headingForCameraMode`）為準，
   不是走路的方向；讀不到指南針就不帶方向（主機會明說方向不明），不拿走路的方向冒充。
-- 照片縮到長邊 1600 像素、JPEG 品質 80 再上傳；照片只傳給你家中的主機，主機只存在本機、保留 24 小時（見 `host/README.md`）。
+- 照片縮到長邊 1600 像素、JPEG 品質 80 再上傳到你家中的主機；主機只存在本機、保留 24 小時（見 `host/README.md`）。
+  **但主機會請 Claude 看這張照片，所以影像會送到 Anthropic**（和問答的文字一樣走你的 Claude Pro 訂閱）。
 - 使用者取消拍照：安靜結束，暫停的介紹接著播；拍照時正在播的介紹會先停下（和發問相同）。
 - 模擬器沒有相機與指南針：`--dart-define=FAKE_PHOTO=true` 固定「拍到」一張小圖、朝向西方。
 

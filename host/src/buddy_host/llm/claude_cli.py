@@ -63,6 +63,12 @@ class ClaudeSettings:
         return replace(base, **overrides)
 
 
+def _built_in_tools(allowed: tuple[str, ...]) -> list[str]:
+    """權限規則（`Read(//路徑/**)`）裡的內建工具名稱；MCP 工具（`mcp__…`）不在 `--tools` 管轄內。"""
+    names = (rule.split("(")[0] for rule in allowed)
+    return list(dict.fromkeys(name for name in names if not name.startswith("mcp__")))
+
+
 class _Stream:
     """累積 stream-json 事件。"""
 
@@ -219,6 +225,9 @@ class ClaudeCliClient:
             args += ["--mcp-config", str(request.mcp_config)]
         if request.system_prompt:
             args += ["--append-system-prompt", request.system_prompt]
+        # 預設的內建工具集連 Bash 都有（唯讀指令免詢問）：只開這次真的需要的，沒有需要就全關（""）。
+        # 網頁、照片裡的文字都是第三方內容，可能夾帶指示；工具越少，被牽著走的後果越小。
+        args += ["--tools", ",".join(_built_in_tools(request.allowed_tools))]
         if request.allowed_tools:
             args += ["--allowedTools", ",".join(request.allowed_tools)]
         for directory in request.add_dirs:

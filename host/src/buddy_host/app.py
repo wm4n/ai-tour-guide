@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import binascii
+import contextlib
 import hmac
 from collections.abc import Callable
 from dataclasses import asdict
@@ -73,10 +74,18 @@ class AskPhotoBody(FixBody):
     question: Annotated[
         str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)
     ] = "這是什麼？"
-    image_base64: Annotated[str, StringConstraints(min_length=1, max_length=16_000_000)]
+    # 8 MB 的照片 base64 後約 11.2M 字元（上限與 PhotoStore 的 8 MB 對齊，不白白解碼更大的東西）
+    image_base64: Annotated[str, StringConstraints(min_length=1, max_length=11_200_000)]
 
 
 AnswererFactory = Callable[[QuotaGate, JourneyMemory], QaService]
+PHOTO_PURGE_INTERVAL_S = 3600.0
+
+
+async def _purge_photos_forever(answerer: QaService, interval_s: float) -> None:
+    while True:
+        await asyncio.sleep(interval_s)
+        await asyncio.to_thread(answerer.purge_photos)
 
 
 def create_app(
@@ -88,14 +97,29 @@ def create_app(
     qa_latency_log_path: Path | None = None,
     journey_path: Path | None = None,
     answerer_factory: AnswererFactory | None = None,
+    photo_purge_interval_s: float = PHOTO_PURGE_INTERVAL_S,
 ) -> FastAPI:
     """`answerer_factory` 拿到與旅程共用的額度閘門和旅程記憶，回傳問答服務；沒給就不開問答。"""
-    app = FastAPI(title="Buddy Host", version=__version__)
-    authed = Depends(_require_token(config))
     journey = JourneyMemory(journey_path)
     quota = QuotaGate()  # 旅程準備與問答共用：任一邊撞到額度，兩邊一起停
     session = TourSession(preparer, journey=journey, quota=quota) if preparer is not None else None
     answerer = answerer_factory(quota, journey) if answerer_factory is not None else None
+
+    @contextlib.asynccontextmanager
+    async def lifespan(_: FastAPI):
+        # 照片只留保留期限那麼久：即使主機一直沒重啟、也沒人再發問，也要定期清掉過期的
+        purger = None
+        if answerer is not None and answerer.photos_enabled:
+            purger = asyncio.create_task(_purge_photos_forever(answerer, photo_purge_interval_s))
+        try:
+            yield
+        finally:
+            if purger is not None:
+                purger.cancel()
+                await asyncio.gather(purger, return_exceptions=True)
+
+    app = FastAPI(title="Buddy Host", version=__version__, lifespan=lifespan)
+    authed = Depends(_require_token(config))
 
     def tour() -> TourSession:
         if session is None:

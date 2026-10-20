@@ -96,3 +96,39 @@ def test_purge_returns_how_many_were_deleted_and_ignores_other_files(tmp_path):
 
 def test_purge_on_a_missing_directory_is_a_no_op(tmp_path):
     assert PhotoStore(tmp_path / "never-created").purge() == 0
+
+
+def test_the_photo_directory_is_private_too(tmp_path):
+    store = PhotoStore(tmp_path / "photos")
+
+    store.save(JPEG)
+
+    assert stat.S_IMODE(os.stat(tmp_path / "photos").st_mode) == 0o700
+
+
+def test_a_failed_write_leaves_no_half_written_photo(tmp_path, monkeypatch):
+    store = PhotoStore(tmp_path / "photos")
+
+    def boom(fd, mode):
+        raise OSError("磁碟滿了")
+
+    monkeypatch.setattr(os, "fdopen", boom)
+
+    with pytest.raises(OSError):
+        store.save(JPEG)
+
+    assert list((tmp_path / "photos").iterdir()) == []
+
+
+def test_a_purge_that_cannot_read_the_directory_does_not_break_saving(tmp_path, monkeypatch):
+    store = PhotoStore(tmp_path / "photos")
+    store.save(JPEG)
+
+    from pathlib import Path
+
+    def broken(self):
+        raise PermissionError("不能列出")
+
+    monkeypatch.setattr(Path, "iterdir", broken)
+
+    assert store.purge() == 0  # 清理失敗只記 log，不會讓存照片或問答跟著失敗

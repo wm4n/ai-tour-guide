@@ -679,7 +679,7 @@ async def test_a_photo_question_saves_the_photo_and_hands_it_to_claude(persona):
     [request] = llm.requests
     assert saved.read_bytes() == JPEG
     assert str(saved) in request.prompt
-    assert "Read" in request.allowed_tools
+    assert request.allowed_tools == (f"Read(/{store.directory}/**)",)
     assert request.add_dirs == (store.directory,)
     assert "西" in request.prompt and "指南針" in request.prompt  # 拍照時的方向
     assert service.answer(answer_id).status == "done"
@@ -724,3 +724,36 @@ async def test_a_photo_question_goes_through_the_same_quota_gate(persona):
 
     assert service.answer(answer_id).reason == "quota"
     assert llm.requests == []
+
+
+async def test_asking_any_question_clears_photos_past_their_retention(persona):
+    import os
+
+    clock = Clock(1_000_000.0)
+    store = PhotoStore(persona.parent / "photos", retention_s=3600, clock=clock)
+    old = store.save(JPEG)
+    os.utime(old, (clock.now - 7200, clock.now - 7200))
+    service, _ = make(persona, photos=store)
+
+    await ask_and_wait(service)  # 一般問題，沒有拍照
+
+    assert not old.exists()
+
+
+async def test_purge_photos_reports_how_many_were_removed(persona):
+    import os
+
+    clock = Clock(1_000_000.0)
+    store = PhotoStore(persona.parent / "photos", retention_s=60, clock=clock)
+    old = store.save(JPEG)
+    os.utime(old, (clock.now - 120, clock.now - 120))
+    service, _ = make(persona, photos=store)
+
+    assert service.purge_photos() == 1
+    assert service.purge_photos() == 0
+
+
+async def test_purge_photos_without_a_store_does_nothing(persona):
+    service, _ = make(persona)
+
+    assert service.purge_photos() == 0

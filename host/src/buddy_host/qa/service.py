@@ -120,6 +120,10 @@ class QaService:
     def photos_enabled(self) -> bool:
         return self._photos is not None
 
+    def purge_photos(self) -> int:
+        """刪掉超過保留期限的照片；回傳刪了幾張（沒有照片存放處時是 0）。"""
+        return self._photos.purge() if self._photos is not None else 0
+
     def ask(self, question: str, fix: TourFix, *, more: bool = False) -> str:
         """收下問題、開始回答，回傳答案的 id（App 用它輪詢）。需要在事件迴圈裡呼叫。"""
         return self._start(question, fix, more=more, photo=None)
@@ -138,6 +142,7 @@ class QaService:
         )
 
     def _start(self, question: str, fix: TourFix, *, more: bool, photo: PhotoInput | None) -> str:
+        self.purge_photos()  # 每次發問順便清一次
         started = self._monotonic()
         answer = Answer(uuid.uuid4().hex[:12])
         self._answers[answer.id] = answer

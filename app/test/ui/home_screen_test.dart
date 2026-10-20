@@ -1,5 +1,7 @@
 import 'package:buddy_tour/audio/fixed_phrase.dart';
 import 'package:buddy_tour/audio/phrase_player.dart';
+import 'package:buddy_tour/qa/qa_api.dart';
+import 'package:buddy_tour/qa/qa_controller.dart';
 import 'package:buddy_tour/tour/tour_controller.dart';
 import 'package:buddy_tour/tour/tour_api.dart';
 import 'package:buddy_tour/tour/traveler_state.dart';
@@ -12,6 +14,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../qa/fakes.dart';
 import '../tour/fakes.dart';
 
 class _FixedClient implements HostClient {
@@ -24,6 +27,9 @@ class _FixedClient implements HostClient {
 late FakePhrases phrases;
 late FakeTourApi api;
 late FakeRemote remote;
+late FakeQaApi qaApi;
+late FakeRecognizer recognizer;
+late FakePlayer answerPlayer;
 
 Future<void> pumpHome(
   WidgetTester tester,
@@ -37,6 +43,9 @@ Future<void> pumpHome(
   phrases = FakePhrases();
   api = FakeTourApi();
   remote = FakeRemote();
+  qaApi = FakeQaApi();
+  recognizer = FakeRecognizer();
+  answerPlayer = FakePlayer();
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
@@ -49,6 +58,10 @@ Future<void> pumpHome(
         tourTickIntervalProvider.overrideWithValue(const Duration(hours: 1)),
         hostClientProvider.overrideWithValue(_FixedClient(status)),
         pollIntervalProvider.overrideWithValue(const Duration(hours: 1)),
+        qaApiProvider.overrideWithValue(qaApi),
+        speechRecognizerProvider.overrideWithValue(recognizer),
+        answerPlayerProvider.overrideWithValue(answerPlayer),
+        qaPollIntervalProvider.overrideWithValue(const Duration(seconds: 1)),
       ],
       child: const MaterialApp(home: HomeScreen()),
     ),
@@ -250,5 +263,147 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('tour-summary')), findsNothing);
+  });
+
+  group('asking a question', () {
+    Future<void> startTour(WidgetTester tester) async {
+      await tester.tap(find.byKey(const Key('tour-toggle')));
+      await tester.pumpAndSettle();
+    }
+
+    /// 結束測試前讓背景的輪詢收尾（待處理的計時器會讓測試失敗）。
+    Future<void> wrapUp(WidgetTester tester) async {
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(HomeScreen)),
+      );
+      await container.read(qaProvider.notifier).cancel();
+      await tester.pump(const Duration(seconds: 5));
+    }
+
+    testWidgets('there is no ask button before the tour starts', (
+      tester,
+    ) async {
+      await pumpHome(tester, ConnectionStatus.connected);
+
+      expect(find.byKey(const Key('ask-button')), findsNothing);
+    });
+
+    testWidgets('during a tour there is a hold-to-talk button', (tester) async {
+      await pumpHome(tester, ConnectionStatus.connected);
+      await startTour(tester);
+
+      expect(find.byKey(const Key('ask-button')), findsOneWidget);
+      expect(find.text('按住說話'), findsOneWidget);
+    });
+
+    testWidgets('holding listens, releasing sends the question', (
+      tester,
+    ) async {
+      await pumpHome(tester, ConnectionStatus.connected);
+      await startTour(tester);
+      qaApi.answers = [poll(status: AnswerStatus.done)];
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byKey(const Key('ask-button'))),
+      );
+      await tester.pump();
+      expect(find.text('聽你說…'), findsOneWidget);
+      expect(recognizer.attempts, [true]);
+
+      await gesture.up();
+      await tester.pump();
+      await tester.pump();
+
+      expect(qaApi.asked.single.question, '那間廟拜的是誰');
+      await wrapUp(tester);
+    });
+
+    testWidgets('a cancelled touch throws the recording away', (tester) async {
+      await pumpHome(tester, ConnectionStatus.connected);
+      await startTour(tester);
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byKey(const Key('ask-button'))),
+      );
+      await tester.pump();
+      await gesture.cancel();
+      await tester.pump();
+      await tester.pump();
+
+      expect(qaApi.asked, isEmpty);
+      expect(find.text('按住說話'), findsOneWidget);
+    });
+
+    testWidgets('shows when Claude is searching the web', (tester) async {
+      await pumpHome(tester, ConnectionStatus.connected);
+      await startTour(tester);
+      qaApi.answers = [poll(searching: true)];
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byKey(const Key('ask-button'))),
+      );
+      await tester.pump();
+      await gesture.up();
+      await tester.pump();
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.byKey(const Key('qa-searching')), findsOneWidget);
+      await wrapUp(tester);
+    });
+
+    testWidgets('quota exhausted is shown on screen', (tester) async {
+      await pumpHome(tester, ConnectionStatus.connected);
+      await startTour(tester);
+      qaApi.answers = [poll(status: AnswerStatus.failed, reason: 'quota')];
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byKey(const Key('ask-button'))),
+      );
+      await tester.pump();
+      await gesture.up();
+      for (var i = 0; i < 5; i++) {
+        await tester.pump();
+      }
+
+      expect(find.byKey(const Key('qa-quota')), findsOneWidget);
+      expect(find.textContaining('額度'), findsWidgets);
+      await wrapUp(tester);
+    });
+
+    testWidgets('an error is shown and the button works again', (tester) async {
+      await pumpHome(tester, ConnectionStatus.connected);
+      await startTour(tester);
+      recognizer.heard = '';
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byKey(const Key('ask-button'))),
+      );
+      await tester.pump();
+      await gesture.up();
+      for (var i = 0; i < 5; i++) {
+        await tester.pump();
+      }
+
+      expect(find.byKey(const Key('qa-error')), findsOneWidget);
+      expect(find.text('按住說話'), findsOneWidget);
+      await wrapUp(tester);
+    });
+
+    testWidgets('says which recognition method is in use', (tester) async {
+      await pumpHome(tester, ConnectionStatus.connected);
+      await startTour(tester);
+      qaApi.answers = [poll(status: AnswerStatus.done)];
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byKey(const Key('ask-button'))),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.textContaining('本機辨識'), findsOneWidget);
+      await gesture.up();
+      await wrapUp(tester);
+    });
   });
 }

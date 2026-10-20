@@ -8,13 +8,21 @@ import 'audio_focus.dart';
 import 'narration_player.dart';
 
 class JustAudioNarrationPlayer implements NarrationPlayer {
+  /// [fileName]：暫存音檔的名字。介紹與問答各用一個播放器，檔名要分開才不會互相覆蓋。
+  JustAudioNarrationPlayer({this.fileName = 'buddy_narration.wav'});
+
+  final String fileName;
   final AudioPlayer _player = AudioPlayer();
   Completer<void>? _done;
   bool _paused = false;
 
   @override
-  Future<void> play(Uint8List wav, {required String title}) async {
-    final file = File('${Directory.systemTemp.path}/buddy_narration.wav');
+  Future<void> play(
+    Uint8List wav, {
+    required String title,
+    bool releaseFocus = true,
+  }) async {
+    final file = File('${Directory.systemTemp.path}/$fileName');
     await file.writeAsBytes(wav, flush: true);
     _paused = false;
     final done = _done = Completer<void>();
@@ -32,7 +40,7 @@ class JustAudioNarrationPlayer implements NarrationPlayer {
     } finally {
       await finished.cancel();
       await _player.stop();
-      await releaseAudioFocus();
+      if (releaseFocus) await releaseAudioFocus();
       _done = null;
       try {
         await file.delete();
@@ -41,6 +49,9 @@ class JustAudioNarrationPlayer implements NarrationPlayer {
       }
     }
   }
+
+  @override
+  Future<void> release() => releaseAudioFocus();
 
   @override
   Future<void> pause() async {

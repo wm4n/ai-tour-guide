@@ -135,12 +135,23 @@ class FakePlayer implements NarrationPlayer {
   Completer<void>? _current;
 
   @override
-  Future<void> play(Uint8List wav, {required String title}) {
+  Future<void> play(
+    Uint8List wav, {
+    required String title,
+    bool releaseFocus = true,
+  }) {
     played.add(String.fromCharCodes(wav));
     events.add('play:$title');
+    focusReleasedAfter.add(releaseFocus);
     _current = Completer<void>();
     return _current!.future;
   }
+
+  /// 每次 play 是否要求播完就釋放 audio focus。
+  final focusReleasedAfter = <bool>[];
+
+  @override
+  Future<void> release() async => events.add('release');
 
   void finish() {
     if (_current?.isCompleted == false) _current!.complete();

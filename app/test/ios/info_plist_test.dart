@@ -24,4 +24,10 @@ void main() {
       contains('<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>'),
     );
   });
+
+  test('explains why the microphone and speech recognition are needed', () {
+    // 按住說話：沒有這兩項說明，iOS 一要權限就直接讓 App 當掉
+    expect(plist, contains('<key>NSMicrophoneUsageDescription</key>'));
+    expect(plist, contains('<key>NSSpeechRecognitionUsageDescription</key>'));
+  });
 }

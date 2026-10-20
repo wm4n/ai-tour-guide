@@ -919,4 +919,113 @@ void main() {
       );
     });
   });
+
+  group('while a question is being asked', () {
+    test(
+      'a narration that is ready waits until the question is over',
+      () async {
+        final h = await makeHarness();
+        await h.tour.start();
+        h.api.queue([info('A')]);
+        await h.moveTo(nearFix());
+
+        h.tour.beginQuestion();
+        await h.tick();
+        expect(h.player.played, isEmpty);
+
+        h.tour.endQuestion();
+        await h.tick();
+        expect(h.player.played, ['A']);
+      },
+    );
+
+    test(
+      'overlapping questions only release the hold when all are done',
+      () async {
+        final h = await makeHarness();
+        await h.tour.start();
+        h.api.queue([info('A')]);
+        await h.moveTo(nearFix());
+
+        h.tour.beginQuestion();
+        h.tour.beginQuestion();
+        h.tour.endQuestion();
+        await h.tick();
+        expect(h.player.played, isEmpty);
+
+        h.tour.endQuestion();
+        await h.tick();
+        expect(h.player.played, ['A']);
+      },
+    );
+
+    test('ending the tour clears the hold for the next tour', () async {
+      final h = await makeHarness();
+      await h.tour.start();
+      h.tour.beginQuestion();
+      await h.tour.end();
+
+      await h.tour.start();
+      h.api.queue([info('A')]);
+      await h.moveTo(nearFix());
+      await h.tick();
+
+      expect(h.player.played, ['A']);
+    });
+
+    test(
+      'the unreachable phrase waits too, so it does not talk over an answer',
+      () async {
+        final h = await makeHarness();
+        await h.tour.start();
+        h.tour.beginQuestion();
+        h.api.pollError = TourApiException('down');
+
+        await h.tick();
+        expect(h.phrases.played, [FixedPhrase.startTour]);
+
+        h.tour.endQuestion();
+        await h.tick(after: const Duration(seconds: 70));
+        expect(h.phrases.played, contains(FixedPhrase.hostUnreachable));
+      },
+    );
+  });
+
+  group('the host failing during a question', () {
+    test('counts as an outage: the unreachable phrase is said once', () async {
+      final h = await makeHarness();
+      await h.tour.start();
+
+      h.tour.noteHostFailed();
+      h.tour.noteHostFailed();
+      await h.tick();
+
+      expect(
+        h.phrases.played.where((p) => p == FixedPhrase.hostUnreachable),
+        hasLength(1),
+      );
+    });
+
+    test('reaching the host again ends the outage quietly', () async {
+      final h = await makeHarness();
+      await h.tour.start();
+      h.tour.noteHostFailed();
+      await h.tick();
+      final spoken = h.phrases.played.length;
+
+      h.tour.noteHostReached();
+      await h.tick();
+
+      expect(h.phrases.played, hasLength(spoken));
+    });
+
+    test('exposes the latest position for questions', () async {
+      final h = await makeHarness();
+      expect(h.tour.position, isNull);
+      await h.tour.start();
+      await h.moveTo(nearFix());
+
+      expect(h.tour.position!.lat, closeTo(nearFix().lat, 1e-9));
+    });
+  });
 }

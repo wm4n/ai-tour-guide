@@ -147,6 +147,7 @@ class TourController extends Notifier<TourState> {
   final _audio = <String, Future<Uint8List?>>{};
   final _seen = <String>{};
   final _gone = <String>{}; // 主機已經沒有的介紹（下載回 404）：丟掉，不重試
+  int _questionHolds = 0; // 使用者正在發問、等答案或聽答案：不開始新的主動介紹
 
   @override
   TourState build() {
@@ -168,6 +169,24 @@ class TourController extends Notifier<TourState> {
   }
 
   DateTime get _now => ref.read(clockProvider)();
+
+  /// 最近一次定位；問答要把它連同問題一起送給主機。還沒出發或還沒定位時是 null。
+  PositionFix? get position => _position;
+
+  /// 使用者開始發問：到 [endQuestion] 之前不開始新的主動介紹（也不念「連不上主機」），
+  /// 免得蓋過答案。可以疊加，每個 begin 都要有對應的 end。
+  void beginQuestion() => _questionHolds++;
+
+  void endQuestion() {
+    if (_questionHolds > 0) _questionHolds--;
+    if (_questionHolds == 0) _evaluate();
+  }
+
+  /// 問答連不上主機：和輪詢失敗一樣算一次斷線（只念一次「連不上」，並退避重試）。
+  void noteHostFailed() => _onHostFailed(_session);
+
+  /// 問答連上了主機：結束斷線，安靜恢復。
+  void noteHostReached() => _onHostReached();
 
   Future<void> start() async {
     if (state.active) return;
@@ -381,7 +400,7 @@ class TourController extends Notifier<TourState> {
   }
 
   void _evaluate() {
-    if (!state.active) return;
+    if (!state.active || _questionHolds > 0) return;
     if (_unreachableDue && !_busy && !state.paused) {
       _unreachableDue = false;
       unawaited(
@@ -521,5 +540,6 @@ class TourController extends Notifier<TourState> {
     _audio.clear();
     _seen.clear();
     _gone.clear();
+    _questionHolds = 0;
   }
 }

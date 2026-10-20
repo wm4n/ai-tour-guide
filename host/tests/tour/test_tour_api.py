@@ -96,6 +96,7 @@ def test_start_prepares_the_start_area_and_publishes_the_narration(client, prepa
             "lat": 25.0556,
             "lon": 121.5103,
             "audio_seconds": 34.7,
+            "unit_starts": [],  # 測試用的假 wav 讀不出來：沒有各句的起點
         }
     ]
     location, _, traveler = preparer.calls[0]
@@ -355,3 +356,23 @@ def test_the_report_of_an_abandoned_trip_is_not_written_on_the_event_loop_either
 
     assert len(seen["reports"]) == 1
     assert loop_threads[0] not in seen["reports"]
+
+
+def test_the_narration_carries_the_start_time_of_each_sentence(tmp_path, preparer):
+    import wave
+
+    import numpy as np
+
+    pcm = np.concatenate([np.full(1000, 9000), np.zeros(500), np.full(1000, 9000)]).astype("<i2")
+    with wave.open(str(preparer.wav), "wb") as f:
+        f.setnchannels(1)
+        f.setsampwidth(2)
+        f.setframerate(1000)
+        f.writeframes(pcm.tobytes())
+    config = HostConfig(home=tmp_path)
+    with TestClient(create_app(config, preparer=preparer)) as client:
+        client.post("/v1/tour/start", json=BODY)
+
+        body = wait_for(client, 1)
+
+    assert body["narrations"][0]["unit_starts"] == [0.0, 1.5]

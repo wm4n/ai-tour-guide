@@ -641,3 +641,26 @@ async def test_a_question_probing_the_gate_first_does_not_lose_the_blocked_prepa
     await session.wait_idle()
 
     assert [e.name for e in session.narrations_after(0)] == ["A"]
+
+
+async def test_a_published_narration_has_the_start_of_every_unit_even_when_it_came_from_cache(
+    tmp_path,
+):
+    import wave
+
+    import numpy as np
+
+    item = narration("A", tmp_path)
+    pcm = np.concatenate([np.full(1000, 9000), np.zeros(500), np.full(1000, 9000)]).astype("<i2")
+    with wave.open(str(item.wav_path), "wb") as f:
+        f.setnchannels(1)
+        f.setsampwidth(2)
+        f.setframerate(1000)
+        f.writeframes(pcm.tobytes())
+    session = TourSession(FakePreparer(tmp_path, [[item]]))
+
+    session.start(fix())
+    await session.wait_idle()
+
+    [event] = session.narrations_after(0)
+    assert event.unit_starts == (0.0, 1.5)

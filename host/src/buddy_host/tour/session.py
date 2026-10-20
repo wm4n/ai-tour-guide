@@ -21,6 +21,7 @@ from buddy_host.narration.preparer import PreparedNarration
 from buddy_host.narration.traveler import TravelerContext
 from buddy_host.places.geo import haversine_m
 from buddy_host.places.models import Location
+from buddy_host.speech.units import unit_starts
 from buddy_host.tour.journey import JourneyMemory
 
 logger = logging.getLogger(__name__)
@@ -79,6 +80,8 @@ class NarrationEvent:
     lat: float
     lon: float
     audio_seconds: float
+    # 各個合成單位（句）開始播放的秒數：被問題打斷時，App 回到被打斷那一句的開頭
+    unit_starts: tuple[float, ...] = ()
 
 
 class TourSession:
@@ -282,6 +285,12 @@ class TourSession:
         self._published[item.candidate_id] = item
         self._events.append(
             NarrationEvent(
-                self._seq, item.candidate_id, item.name, item.lat, item.lon, item.audio_seconds
+                self._seq,
+                item.candidate_id,
+                item.name,
+                item.lat,
+                item.lon,
+                item.audio_seconds,
+                unit_starts(item.wav_path),  # 從 wav 偵測：快取命中的舊介紹也有
             )
         )

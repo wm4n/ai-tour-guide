@@ -60,7 +60,7 @@ uv run python -m buddy_host.speech --text-file 稿子.txt --name demo
 | `POST /v1/tour/location` | 位置與旅人狀態回報（同上欄位）；還沒出發回 409 |
 | `POST /v1/tour/played` | App 回報一段介紹**播完**了（`{"id": …}`），主機才記成「講過」；不認得的 id 直接忽略（回 200） |
 | `POST /v1/tour/end` | 結束；回傳 `summary`（本趟用量摘要，沒有進行中的旅程時是 `null`），並寫出用量報告 |
-| `GET /v1/tour/narrations?after=N` | 輪詢：`active`、`preparing`、`stopped_reason`（`quota`／`llm_budget`／`forbidden_model`）、序號大於 N 的介紹（含景點座標與秒數） |
+| `GET /v1/tour/narrations?after=N` | 輪詢：`active`、`preparing`、`stopped_reason`（`quota`／`llm_budget`／`forbidden_model`）、序號大於 N 的介紹（含景點座標、秒數，以及 `unit_starts`：各個合成單位〔句〕開始播放的秒數，被問題打斷時 App 回到那一句的開頭；從 wav 裡單位之間的靜音偵測，快取命中的舊介紹也有，讀不出來時是空陣列） |
 | `GET /v1/tour/audio?id=…` | 下載一段介紹的 wav |
 
 **Claude 用量保護**：`--max-llm-calls N` 用 `BudgetedLlm` 包住 Claude 呼叫，次數用完就停止準備並回報 `llm_budget`。

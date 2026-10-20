@@ -252,3 +252,25 @@ code-review 後修正：
 - `reason` 用字串、`question/fix/more` 透傳：判斷題，未重構
 
 **還沒做**：真實合成與端到端延遲量測（M3 上第一段要多久）——要實機／真實 Claude，須使用者先同意次數。
+
+## #22 問答（主機）：問答優先使用 GPU，主動介紹讓路（2026-10-20，分支 `feat/v2-qa`）
+
+做了：
+- `SpeechPipeline.run(text, unit_guard=)`：每個合成單位（pipeline 的一個 chunk，含換 seed 重試）前後進出，排程用
+- `speech/scheduler.py`（`SpeechScheduler`，取代 #21 的 `SerializedSpeech`）：介紹每個單位開始前，有問答排隊或進行中就等；正在合成的單位做完才讓路；問答全部做完介紹自動繼續。`narration` lane 給 `AreaPreparer`，`answers` lane 給 `QaService`
+- **問答整個答案持有一張號碼牌**（`answers.begin()` → `turn.run(段)` … → `turn.end()`）：從開始回答到結束，包含等 Claude 寫下一段的空檔，介紹都不會插進來。`end()` 時還有一段在合成就等它做完才讓出 GPU；等待中被 `end()` 的 `run` 拋 `TurnEnded`；放棄／失敗／取消都會 `end()`
+- `QaService` 以 `speech.begin()` 取得 turn，`finally` 一定 `end()`；額度擋下的問題不取號
+
+驗證：host 560 項、ruff 乾淨；全程假合成器（刻意放慢＋Event 卡住）：問答先、介紹後；進行中的單位不被打斷；介紹最終完成；多個問答不同時合成；失敗的問答與介紹單位不卡住別人；Claude 寫字空檔介紹不插隊（含真的 `SpeechScheduler`＋`QaService` 的整合測試）；變異檢查（拿掉讓路條件測試會失敗）。**沒有呼叫真實 Claude／合成。**
+
+code-review 後修正：
+- 原本「每段答案各取一次號碼牌」：Claude 寫下一段的空檔介紹會插進來、下一段問答要再等一個介紹單位 → 改成整個答案持有
+- `_Narration`／`_Answers` 不再存取 scheduler 私有屬性；補「介紹單位拋例外會釋放 busy」測試；`contextlib` import 移到檔頭
+
+審查指出但刻意不改：
+- 兩個介紹同時進來時，單位會交錯（原本的鎖是整段輪流）：實際上主機同一時間只跑一次準備（`TourSession`），不會發生
+- 問答被取消後，`to_thread` 裡已在跑的那段仍合成到底才讓出 GPU（無法中止執行緒）
+- `pending_answers` 目前只有測試與除錯用
+- 獨立的 CLI（`narration`／`speech`／`phrases` 的 `__main__`）自己建 pipeline、不經排程器：手動工具，不在服務行程內
+
+**還沒做**：真實 M3 上「介紹合成到一半時進來的問題要多等多久」的量測——要實機合成。

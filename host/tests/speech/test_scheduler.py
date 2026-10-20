@@ -224,3 +224,104 @@ def test_two_narration_runs_never_synthesize_at_the_same_time():
     second.join(5)
 
     assert synth.max_inside == 1
+
+
+def test_the_narration_does_not_slip_in_between_the_segments_of_one_answer():
+    scheduler, synth = make()
+    synth.block("介紹第一段。")
+    story, _ = in_thread(scheduler.narration.run, STORY)
+    synth.started["介紹第一段。"].wait(5)
+    turn = scheduler.answers.begin()  # 開始回答：從這一刻到結束都算問答優先
+    first, _ = in_thread(turn.run, ANSWER)
+    wait_until(lambda: scheduler.pending_answers == 1)
+    synth.blocked["介紹第一段。"].set()
+    first.join(5)
+
+    time.sleep(0.15)  # 等 Claude 寫下一段的空檔：介紹不可以趁機開始新單位
+    assert synth.calls == ["介紹第一段。", ANSWER]
+
+    second, _ = in_thread(turn.run, ANSWER_2)
+    second.join(5)
+    assert synth.calls == ["介紹第一段。", ANSWER, ANSWER_2]
+
+    turn.end()
+    story.join(5)
+    assert synth.calls == ["介紹第一段。", ANSWER, ANSWER_2, "介紹第二段。", "介紹第三段。"]
+
+
+def test_a_turn_that_never_synthesized_anything_does_not_block_the_next_one():
+    scheduler, synth = make()
+    abandoned = scheduler.answers.begin()
+    waiting = scheduler.answers.begin()
+
+    abandoned.end()  # 例如答案寫到一半失敗，一段都沒做
+    result = waiting.run(ANSWER)
+    waiting.end()
+
+    assert result.audio_seconds > 0
+    assert scheduler.pending_answers == 0
+
+
+def test_ending_a_turn_while_its_run_is_still_waiting_does_not_hang_or_synthesize():
+    scheduler, synth = make()
+    first = scheduler.answers.begin()
+    second = scheduler.answers.begin()
+    thread, out = in_thread(second.run, ANSWER_2)  # 還輪不到第二個
+    wait_until(lambda: scheduler.pending_answers == 2)
+
+    second.end()  # 答案被放棄
+    thread.join(5)
+
+    assert not thread.is_alive()
+    assert type(out["error"]).__name__ == "TurnEnded"
+    assert synth.calls == []
+    first.end()
+    assert scheduler.pending_answers == 0
+
+
+def test_the_next_turn_waits_for_a_run_that_is_still_synthesizing_even_if_its_turn_ended():
+    scheduler, synth = make()
+    synth.block(ANSWER)
+    first = scheduler.answers.begin()
+    running, _ = in_thread(first.run, ANSWER)
+    synth.started[ANSWER].wait(5)
+    second = scheduler.answers.begin()
+    nxt, _ = in_thread(second.run, ANSWER_2)
+
+    first.end()  # 取消了，但合成的執行緒還沒做完
+    time.sleep(0.1)
+    assert synth.calls == [ANSWER]  # 下一個還不能開始
+
+    synth.blocked[ANSWER].set()
+    running.join(5)
+    nxt.join(5)
+    assert synth.calls == [ANSWER, ANSWER_2]
+    assert synth.max_inside == 1
+
+
+def test_ending_a_turn_twice_is_harmless():
+    scheduler, _ = make()
+    turn = scheduler.answers.begin()
+
+    turn.end()
+    turn.end()
+
+    assert scheduler.pending_answers == 0
+
+
+def test_a_narration_unit_that_crashes_releases_the_gpu_for_everyone_else():
+    scheduler, synth = make()
+    original = synth.synthesize
+
+    def explode_once(text, seed):
+        if text == "介紹第一段。":
+            synth.synthesize = original
+            raise RuntimeError("引擎壞了")
+        return original(text, seed)
+
+    synth.synthesize = explode_once
+    story, out = in_thread(scheduler.narration.run, STORY)
+    story.join(5)
+
+    assert isinstance(out["error"], RuntimeError)
+    assert scheduler.answers.run(ANSWER).audio_seconds > 0  # 沒有卡在「介紹忙碌中」

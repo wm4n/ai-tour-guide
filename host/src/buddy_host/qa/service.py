@@ -48,8 +48,15 @@ class NearbyLike(Protocol):
     async def nearby(self, location: Location, *, limit: int = ...) -> list[ScriptContext]: ...
 
 
-class SpeechLike(Protocol):
+class AnswerTurnLike(Protocol):
     def run(self, text: str) -> SpeechResult: ...
+    def end(self) -> None: ...
+
+
+class AnswerSpeechLike(Protocol):
+    def begin(self) -> AnswerTurnLike:
+        """開始一個問答的語音排程（整個答案持有一個位置，見 speech.scheduler）。"""
+        ...
 
 
 @dataclass
@@ -75,7 +82,7 @@ class QaService:
         self,
         llm: LlmLike,
         nearby: NearbyLike,
-        speech: SpeechLike,
+        speech: AnswerSpeechLike,
         *,
         persona_path: Path,
         out_dir: Path,
@@ -137,13 +144,15 @@ class QaService:
         if not self._quota.admit():  # 額度還沒恢復：連 Claude 都不呼叫
             return self._fail(answer, "quota")
         segments: asyncio.Queue[str | None] = asyncio.Queue()
-        speaker = asyncio.create_task(self._speak(answer, segments, started))
+        turn = self._speech.begin()  # 從開始回答起就算問答優先，介紹不會趁 Claude 寫字的空檔插進來
+        speaker = asyncio.create_task(self._speak(answer, segments, started, turn))
         try:
             reason = await self._converse(answer, question, fix, more, segments, speaker)
         finally:
             # 不論成功、失敗或被取消都收掉合成的任務：已經做好的段落留著，還沒做的不做了
             speaker.cancel()
             await asyncio.gather(speaker, return_exceptions=True)
+            turn.end()  # 還有一段在合成時，排程器會等它做完才讓出 GPU
         if reason is None:
             answer.status = "done"
         else:
@@ -218,13 +227,17 @@ class QaService:
         return text
 
     async def _speak(
-        self, answer: Answer, segments: asyncio.Queue[str | None], started: float
+        self,
+        answer: Answer,
+        segments: asyncio.Queue[str | None],
+        started: float,
+        turn: AnswerTurnLike,
     ) -> None:
         """一次合成一段（只有一顆 GPU）；做好就加進 answer.segments，App 即可下載。"""
         while (text := await segments.get()) is not None:
             index = len(answer.segments)
             try:
-                seconds = await asyncio.to_thread(self._synthesize, answer, index, text)
+                seconds = await asyncio.to_thread(self._synthesize, turn, answer, index, text)
             except Exception:  # 一段合成失敗只跳過這段
                 logger.exception("答案語音合成失敗，跳過這一段：%s", text)
                 continue
@@ -239,10 +252,10 @@ class QaService:
         """答案還在進行、也還沒被淘汰：失敗或被淘汰的答案不再合成、不再寫檔。"""
         return answer.status == "answering" and self._answers.get(answer.id) is answer
 
-    def _synthesize(self, answer: Answer, index: int, text: str) -> float:
+    def _synthesize(self, turn: AnswerTurnLike, answer: Answer, index: int, text: str) -> float:
         if not self._active(answer):
             return 0.0
-        result = self._speech.run(text)
+        result = turn.run(text)
         if result.audio_seconds <= 0 or not self._active(answer):
             return 0.0
         path = self._segment_path(answer.id, index)

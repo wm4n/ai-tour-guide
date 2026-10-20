@@ -606,3 +606,52 @@ async def test_an_unexpected_synthesis_bug_does_not_leave_the_answer_stuck(perso
     answer = await ask_and_wait(service)
 
     assert answer.status in ("done", "failed")  # 不會永遠停在 answering
+
+
+async def test_the_speech_turn_is_held_for_the_whole_answer_and_always_given_back(persona):
+    hold = asyncio.Event()
+    speech = FakeSpeech()
+    service, _ = make(persona, speech=speech, llm=FakeLlm([FIRST], events=[FIRST, hold]))
+
+    answer_id = service.ask("問題", FIX)
+    await wait_until(lambda: service.answer(answer_id).segments)
+
+    [turn] = speech.turns  # Claude 還在寫下一段，優先權還在手上
+    assert turn.ended is False
+
+    hold.set()
+    await service.wait_idle()
+    assert turn.ended is True
+
+
+async def test_the_speech_turn_is_given_back_when_the_answer_fails(persona):
+    speech = FakeSpeech()
+    service, _ = make(persona, speech=speech, llm=FakeLlm([LlmError("斷線")]))
+
+    await ask_and_wait(service)
+
+    assert [turn.ended for turn in speech.turns] == [True]
+
+
+async def test_the_speech_turn_is_given_back_when_the_service_is_cancelled(persona):
+    hold = asyncio.Event()
+    speech = FakeSpeech()
+    service, _ = make(persona, speech=speech, llm=FakeLlm([FIRST], events=[FIRST, hold]))
+    answer_id = service.ask("問題", FIX)
+    await wait_until(lambda: service.answer(answer_id).segments)
+
+    for task in list(service._tasks):
+        task.cancel()
+    await asyncio.sleep(0.05)
+
+    assert [turn.ended for turn in speech.turns] == [True]
+
+
+async def test_a_question_blocked_by_the_quota_never_takes_a_turn(persona):
+    speech = FakeSpeech()
+    service, parts = make(persona, speech=speech)
+    parts["quota"].trip(resets_at=parts["clock"].now + 3600)
+
+    await ask_and_wait(service)
+
+    assert speech.turns == []

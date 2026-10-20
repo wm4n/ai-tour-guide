@@ -1,3 +1,4 @@
+import contextlib
 import json
 import wave
 from pathlib import Path
@@ -534,8 +535,6 @@ def test_last_resort_piece_accepts_a_worse_attempt_than_a_near_miss():
 
 
 def test_the_unit_guard_wraps_every_synthesis_unit_but_not_the_gaps_between_them():
-    import contextlib
-
     events: list[str] = []
     pipeline, synth = make()
 
@@ -553,8 +552,6 @@ def test_the_unit_guard_wraps_every_synthesis_unit_but_not_the_gaps_between_them
 
 
 def test_a_unit_that_needs_retries_is_one_guarded_unit():
-    import contextlib
-
     entered = []
     text = "大稻埕是老街。"
     pipeline, synth = make(wrong={(text, 1234): "完全不一樣的話"})

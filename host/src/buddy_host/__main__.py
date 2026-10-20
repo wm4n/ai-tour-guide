@@ -37,13 +37,13 @@ def build_real_services(max_llm_calls: int):
     from buddy_host.qa.service import QaService
     from buddy_host.speech.engines import KittenSynthesizer, WhisperRecognizer
     from buddy_host.speech.pipeline import PipelineConfig, SpeechPipeline
-    from buddy_host.speech.serialized import SerializedSpeech
+    from buddy_host.speech.scheduler import SpeechScheduler
     from buddy_host.speech.voice import load_reference
 
     truststore.inject_into_ssl()
     home = default_home()
-    # 介紹與問答共用同一顆 GPU 與同一組模型：一次只讓一邊合成（問答優先見 #22）
-    speech = SerializedSpeech(
+    # 介紹與問答共用同一顆 GPU 與同一組模型：問答優先，介紹在合成單位之間讓路
+    speech = SpeechScheduler(
         SpeechPipeline(
             KittenSynthesizer(load_reference(home / "voice" / "F2")),
             WhisperRecognizer(home / "cache" / "whisper"),
@@ -56,7 +56,7 @@ def build_real_services(max_llm_calls: int):
         OverpassClient(http, JsonCache(home / "cache" / "overpass", DAY)),
         WikipediaClient(http, JsonCache(home / "cache" / "wikipedia", 7 * DAY)),
         llm,
-        speech,
+        speech.narration,
         persona_path=PERSONA,
         out_dir=home / "out" / "narrations",
     )
@@ -65,7 +65,7 @@ def build_real_services(max_llm_calls: int):
         return QaService(
             llm,
             preparer,
-            speech,
+            speech.answers,
             persona_path=PERSONA,
             out_dir=home / "out" / "answers",
             quota=quota,

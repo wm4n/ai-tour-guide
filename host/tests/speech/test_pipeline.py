@@ -531,3 +531,48 @@ def test_last_resort_piece_accepts_a_worse_attempt_than_a_near_miss():
     pipeline, _ = make(wrong=wrong, leaf_approx_cer=0.2)
 
     assert pipeline.run(text).chunks[0].status == "skipped"
+
+
+def test_the_unit_guard_wraps_every_synthesis_unit_but_not_the_gaps_between_them():
+    import contextlib
+
+    events: list[str] = []
+    pipeline, synth = make()
+
+    @contextlib.contextmanager
+    def guard():
+        events.append("enter")
+        yield
+        events.append("exit")
+
+    synth_calls_before = len(synth.calls)
+    pipeline.run("第一段話。\n\n第二段話。\n\n第三段話。", unit_guard=guard)
+
+    assert events == ["enter", "exit"] * 3
+    assert len(synth.calls) - synth_calls_before == 3
+
+
+def test_a_unit_that_needs_retries_is_one_guarded_unit():
+    import contextlib
+
+    entered = []
+    text = "大稻埕是老街。"
+    pipeline, synth = make(wrong={(text, 1234): "完全不一樣的話"})
+
+    @contextlib.contextmanager
+    def guard():
+        entered.append(len(synth.calls))
+        yield
+
+    pipeline.run(text, unit_guard=guard)
+
+    assert entered == [0]  # 換 seed 重試（共兩次合成）都在同一次守門裡
+    assert len(synth.calls) == 2
+
+
+def test_without_a_guard_nothing_changes():
+    pipeline, synth = make()
+
+    result = pipeline.run("大稻埕是老街。")
+
+    assert result.audio_seconds > 0

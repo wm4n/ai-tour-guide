@@ -8,7 +8,7 @@ import time
 import wave
 from collections.abc import Callable
 from contextlib import AbstractContextManager, nullcontext
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Literal, Protocol
 
@@ -24,6 +24,7 @@ from buddy_host.speech.text_prep import (
     prepare_paragraphs,
     split_sentences,
 )
+from buddy_host.speech.voice import ReferenceVoice
 
 _PIECE_RE = re.compile(r"[^，、；：]+[，、；：]?")
 
@@ -140,6 +141,16 @@ class SpeechPipeline:
         self._config = config or PipelineConfig()
         self._clock = clock
         self._progress = progress
+
+    def use_voice(self, voice: ReferenceVoice) -> None:
+        """換成另一個聲音：合成器換參考聲音與語速，回答的停頓上限也跟著聲音。
+        只能在合成單位之間呼叫（`SpeechScheduler` 負責），不然正在合成的單位會被換掉。"""
+        switch = getattr(self._synth, "use_voice", None)
+        if switch is not None:
+            switch(voice)
+        self._config = replace(
+            self._config, answer_max_pause_seconds=voice.answer_max_pause_seconds
+        )
 
     def run(
         self,

@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 from buddy_host.speech.pipeline import PipelineConfig, SpeechPipeline, write_outputs
+from buddy_host.speech.voice import ReferenceVoice
 
 SR = 1000
 
@@ -600,3 +601,29 @@ def test_answers_keep_their_pauses_for_a_voice_without_a_cap():
     result = pipeline.run(TWO_PARAGRAPHS, cap_pauses=True)
 
     assert len(result.audio) == 40 + 1500 + 40
+
+
+def test_a_new_voice_changes_the_answer_pause_cap_and_reaches_the_synthesizer():
+    pipeline, synth = make(chunk_chars=4, paragraph_gap_seconds=1.5, answer_max_pause_seconds=0.45)
+    switched = []
+    synth.use_voice = switched.append
+    capped = ReferenceVoice(Path("a.wav"), "稿", "M1", 1.0, 0.45)
+    uncapped = ReferenceVoice(Path("b.wav"), "稿", "F2", 1.0, None)
+
+    pipeline.use_voice(uncapped)
+    after_uncapped = pipeline.run(TWO_PARAGRAPHS, cap_pauses=True)
+    pipeline.use_voice(capped)
+    after_capped = pipeline.run(TWO_PARAGRAPHS, cap_pauses=True)
+
+    assert switched == [uncapped, capped]
+    assert len(after_uncapped.audio) == 40 + 1500 + 40
+    assert len(after_capped.audio) == pytest.approx(40 + 450 + 40, abs=2 * 43)
+
+
+def test_a_synthesizer_that_cannot_switch_voices_still_follows_the_pause_cap():
+    pipeline, _ = make(chunk_chars=4, paragraph_gap_seconds=1.5)
+
+    pipeline.use_voice(ReferenceVoice(Path("a.wav"), "稿", "M1", 1.0, 0.45))
+
+    result = pipeline.run(TWO_PARAGRAPHS, cap_pauses=True)
+    assert len(result.audio) == pytest.approx(40 + 450 + 40, abs=2 * 43)

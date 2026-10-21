@@ -7,11 +7,18 @@ python -m buddy_host.speech.phrases
 python -m buddy_host.speech.phrases --finalize 1:42 2:42 ...
     對已挑好的版本重新驗收（句首檢查、裁掉多餘的前導聲音）
     → ~/.buddy-host/out/phrases-final/<編號>.wav
+
+python -m buddy_host.speech.phrases --voice <聲音> --auto [--max-seeds 8]
+    不必人工挑選：每句試多個 seed，在通過驗收門檻的版本裡挑 CER 最低（同分取較短）的一版
+    → ~/.buddy-host/out/voice-phrases/<聲音鍵>/<編號>.wav（聲音鍵含語速，如 F2@1.2）
+    上面兩條人工流程的輸出目錄不受影響。某句沒有任何版本通過就不寫那一句，列出來並以非 0 結束。
 """
 
 import argparse
 import json
+import sys
 import wave
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -32,6 +39,7 @@ PHRASES: dict[int, tuple[str, str]] = {
 }
 CANDIDATE_SEEDS = (1234, 7, 42, 2026, 99, 314, 777, 2468)
 WANTED = 3
+DEFAULT_MAX_SEEDS = 8
 
 
 @dataclass
@@ -59,6 +67,85 @@ def _read_wav(path: Path) -> tuple[np.ndarray, int]:
         rate = wav.getframerate()
         pcm = np.frombuffer(wav.readframes(wav.getnframes()), dtype="<i2")
     return pcm.astype(np.float32) / 32768, rate
+
+
+def voice_phrases_dir(home: Path, voice_key: str) -> Path:
+    """某個聲音（含語速）的固定短句；和人工挑選流程的 out/phrases 分開。"""
+    return home / "out" / "voice-phrases" / voice_key
+
+
+def seed_sequence(count: int) -> tuple[int, ...]:
+    """前 8 個與人工挑選流程相同；要試更多就接著往後補（不重複）。"""
+    seeds = list(CANDIDATE_SEEDS[:count])
+    candidate = 1
+    while len(seeds) < count:
+        if candidate not in seeds:
+            seeds.append(candidate)
+        candidate += 1
+    return tuple(seeds)
+
+
+def phrases_ready(home: Path, voice_key: str, phrases: Mapping[int, object] = PHRASES) -> bool:
+    """這個聲音（目前語速）的固定短句是不是每一句都已經產生。改了語速，聲音鍵就變了。"""
+    folder = voice_phrases_dir(home, voice_key)
+    return all((folder / f"{number}.wav").is_file() for number in phrases)
+
+
+def auto_voice_phrases(
+    pipeline,
+    sample_rate: int,
+    out_dir: Path,
+    *,
+    max_seeds: int = DEFAULT_MAX_SEEDS,
+    phrases: Mapping[int, tuple[str, str]] = PHRASES,
+    only: Collection[int] | None = None,
+    report: Callable[[str], None] = print,
+) -> list[int]:
+    """每句最多試 `max_seeds` 個 seed，把通過驗收門檻的最佳版本寫進 `out_dir/<編號>.wav`。
+
+    最佳＝CER 最低，同分取較短（短的通常是少了拖長的尾巴）。全部 seed 都沒通過的那一句不寫，
+    編號放進回傳值，呼叫端據此以非 0 結束。
+    """
+    failed: list[int] = []
+    summary: dict[str, dict] = {}
+    for number, (text, _) in phrases.items():
+        if only and number not in only:
+            continue
+        spoken = "".join(prepare_sentences(text))
+        threshold = pipeline.threshold_for(spoken)
+        best: tuple[float, float, int, np.ndarray, str] | None = (
+            None  # CER、取樣數、seed、音訊、轉寫
+        )
+        for seed in seed_sequence(max_seeds):
+            attempt, audio = pipeline.attempt(spoken, seed)
+            passed = attempt.rejected is None and attempt.cer <= threshold
+            report(
+                f"[{number}] seed={seed} cer={attempt.cer:.2f} "
+                f"{'OK' if passed else 'x ' + (attempt.rejected or '')}".rstrip()
+            )
+            if passed and (best is None or (attempt.cer, len(audio)) < (best[0], best[1])):
+                best = (attempt.cer, len(audio), seed, audio, attempt.hypothesis)
+        if best is None:
+            failed.append(number)
+            report(f"[{number}] 沒有任何版本通過驗收，不寫入：{text}")
+            continue
+        cer, _, seed, audio, hypothesis = best
+        write_outputs(SpeechResult(audio, sample_rate, [], 0.0), out_dir, str(number))
+        summary[str(number)] = {
+            "text": text,
+            "seed": seed,
+            "cer": round(cer, 3),
+            "hypothesis": hypothesis,
+        }
+        report(f"[{number}] 採用 seed={seed} cer={cer:.2f} 長度={len(audio) / sample_rate:.2f}s")
+    if summary:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        index = out_dir / "index.json"
+        previous = json.loads(index.read_text(encoding="utf-8")) if index.exists() else {}
+        index.write_text(
+            json.dumps({**previous, **summary}, ensure_ascii=False, indent=1), encoding="utf-8"
+        )
+    return failed
 
 
 def finalize(home: Path, voice_picks: dict[int, int]) -> None:
@@ -94,6 +181,12 @@ def main() -> None:
     parser.add_argument("--out-dir", type=Path, default=home / "out" / "phrases")
     parser.add_argument("--only", type=int, nargs="*")
     parser.add_argument(
+        "--auto", action="store_true", help="自動挑選：每句試多個 seed，存最好的一版（不必人工聽）"
+    )
+    parser.add_argument(
+        "--max-seeds", type=int, default=DEFAULT_MAX_SEEDS, help="--auto 每句最多試幾個 seed"
+    )
+    parser.add_argument(
         "--finalize", nargs="*", metavar="編號:seed", help="例如 1:42 2:42，只重新驗收不合成"
     )
     args = parser.parse_args()
@@ -106,10 +199,29 @@ def main() -> None:
     from buddy_host.speech.engines import KittenSynthesizer, WhisperRecognizer
     from buddy_host.speech.voice import load_reference
 
-    synth = KittenSynthesizer(load_reference(home / "voice" / args.voice))
+    voice = load_reference(home / "voice" / args.voice)
+    synth = KittenSynthesizer(voice)
     pipeline = SpeechPipeline(
         synth, WhisperRecognizer(home / "cache" / "whisper"), PipelineConfig()
     )
+    if args.auto:
+        failed = auto_voice_phrases(
+            pipeline,
+            synth.sample_rate,
+            voice_phrases_dir(home, voice.key),
+            max_seeds=args.max_seeds,
+            only=args.only,
+            report=lambda line: print(line, flush=True),
+        )
+        if failed:
+            sorted_failed = ", ".join(str(n) for n in sorted(failed))
+            print(
+                f"[{voice.key}] 這些句子沒有版本通過：{sorted_failed}"
+                "（可加大 --max-seeds 再跑；沒寫入的句子，這個聲音會維持「短句未準備」）"
+            )
+            sys.exit(1)
+        print(f"[{voice.key}] 短句都已準備")
+        return
     index: dict[str, dict] = {}
     for number, (text, usage) in PHRASES.items():
         if args.only and number not in args.only:

@@ -16,9 +16,9 @@ uv run python -m buddy_host --max-llm-calls N    # 真實準備與問答；兩�
 
 | 檔案／目錄 | 內容 |
 |---|---|
-| `config.toml` | `listen_host`（Tailscale 位址，不接受 `0.0.0.0`）、`listen_port`、`token` |
+| `config.toml` | `listen_host`（Tailscale 位址，不接受 `0.0.0.0`）、`listen_port`、`token`、`voice`（用哪個參考聲音，預設 `F2`） |
 | `claude-token` | `claude setup-token` 產生的 OAuth token（只用 Claude Pro 訂閱，不用 API key） |
-| `voice/F2/` | 參考聲音 `ref_24k.wav` 與逐字稿 `ref_text.txt`（缺逐字稿會直接報錯） |
+| `voice/<名稱>/` | 參考聲音 `ref_24k.wav` 與逐字稿 `ref_text.txt`（缺逐字稿會直接報錯）；選填的 `voice.toml` 是這個聲音的語速與停頓（見下方「聲音設定」） |
 | `usage.jsonl` | 每次 Claude 呼叫的用量紀錄 |
 | `journey.json` | 旅程記憶：這趟去過哪裡、永久記錄講過的景點與稿子（是位置歷史，不入 repo；壞檔會改名留存） |
 | `out/`、`cache/` | 合成產物、驗收紀錄、Overpass／Wikipedia 快取 |
@@ -32,7 +32,30 @@ Whisper 轉寫比對 CER（阿拉伯／中文數字先統一）→ 不合格換 
 
 ```bash
 uv run python -m buddy_host.speech --text-file 稿子.txt --name demo
+uv run python -m buddy_host.speech --text-file 稿子.txt --name demo --voice M1 --answer  # 當成回答問題
 ```
+
+### 聲音設定（`voice/<名稱>/voice.toml`，選填）
+
+有些參考聲音合成出來偏慢（約 4.4 字／秒），聽起來像在慢慢唸稿。每個聲音可以自己調：
+
+```toml
+speed = 1.2                      # 語速倍率（0.5～2.0），主動介紹與回答問題都套用
+answer_max_pause_seconds = 0.45  # 只有回答問題時，超過這個長度的停頓縮到這個長度
+```
+
+- **語速**：在聲碼器之前把 mel 的時間軸線性插值壓短，再交給聲碼器重新生成聲音，音高與音色不變
+  （上游 CosyVoice 的做法）。對成品音檔做時間伸縮（相位聲碼器）試過，聲音怪，不採用。
+  Whisper 驗收檢查的是加速後的聲音。實作換掉了 kittenml 的 `S3Codec.decode`，
+  `tests/speech/test_engines.py` 會在 kittenml 改版時提醒要重新檢查。
+- **停頓**：只壓縮回答問題的停頓（像平常聊天）；主動介紹保留停頓與段落換氣（像在說故事），
+  被問題打斷時找句子開頭的 `unit_starts` 也照舊。靜音的判斷與 `librosa.effects.split` 相同
+  （以整段最大音量為準，低於 35 dB），說話的部分一個取樣都不動，開頭與結尾各留上限的一半。
+- **沒有 `voice.toml` 的聲音一切照舊**：原速（完全走 kittenml 原本的解碼）、不壓停頓。
+- **換聲音**：改 `config.toml` 的 `voice` 後重新啟動。快取的介紹稿子還能用，只是要用新聲音重新合成，
+  不會再呼叫 Claude（meta 記著聲音與語速，例如 `F2@1`、`M1@1.2`；舊 meta 沒記的視為 `F2@1`）。
+  App 內建的固定短句（`app/assets/phrases/`）不會跟著換，要用新聲音重跑 `buddy_host.speech.phrases`
+  並重新 build App。
 
 ### 實測（M3／16 GB，2026-10-19）
 

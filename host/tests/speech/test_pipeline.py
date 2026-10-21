@@ -573,3 +573,30 @@ def test_without_a_guard_nothing_changes():
     result = pipeline.run("大稻埕是老街。")
 
     assert result.audio_seconds > 0
+
+
+TWO_PARAGRAPHS = "甲乙丙。\n\n庚辛壬。"  # 兩段各 40 個取樣，中間是 1.5 秒的段落停頓
+
+
+def test_answers_cap_long_pauses_when_the_voice_asks_for_it():
+    pipeline, _ = make(chunk_chars=4, paragraph_gap_seconds=1.5, answer_max_pause_seconds=0.45)
+
+    result = pipeline.run(TWO_PARAGRAPHS, cap_pauses=True)
+
+    assert len(result.audio) == pytest.approx(40 + 450 + 40, abs=2 * 43)
+
+
+def test_narration_keeps_its_pauses_even_when_the_voice_caps_answers():
+    pipeline, _ = make(chunk_chars=4, paragraph_gap_seconds=1.5, answer_max_pause_seconds=0.45)
+
+    result = pipeline.run(TWO_PARAGRAPHS)
+
+    assert len(result.audio) == 40 + 1500 + 40
+
+
+def test_answers_keep_their_pauses_for_a_voice_without_a_cap():
+    pipeline, _ = make(chunk_chars=4, paragraph_gap_seconds=1.5)
+
+    result = pipeline.run(TWO_PARAGRAPHS, cap_pauses=True)
+
+    assert len(result.audio) == 40 + 1500 + 40

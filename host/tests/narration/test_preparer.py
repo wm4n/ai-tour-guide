@@ -70,7 +70,7 @@ class FakeSpeech:
         return SpeechResult(np.full(self.seconds * 1000, 0.1, dtype=np.float32), 1000, [], 0.5)
 
 
-def make(tmp_path: Path, candidates, wiki=None, llm=None, speech=None, limit=2):
+def make(tmp_path: Path, candidates, wiki=None, llm=None, speech=None, limit=2, voice_key=None):
     persona = tmp_path / "buddy.md"
     persona.write_text("你是小花。", encoding="utf-8")
     parts = dict(
@@ -87,6 +87,7 @@ def make(tmp_path: Path, candidates, wiki=None, llm=None, speech=None, limit=2):
         persona_path=persona,
         out_dir=tmp_path / "out",
         limit=limit,
+        **({"voice_key": voice_key} if voice_key else {}),
     )
     return preparer, parts
 
@@ -469,3 +470,50 @@ async def test_nearby_queries_the_same_snapped_area_as_preparation(tmp_path):
 
     # 問答與主動介紹查同一個範圍，Overpass／維基的快取才共用
     assert len(boxes) == 2 and boxes[0] == boxes[1]
+
+
+async def test_switching_voices_resynthesises_the_cached_script_without_claude(tmp_path):
+    first, _ = make(tmp_path, [osm("霞海城隍廟", 100)], limit=1)
+    [old] = await first.prepare(HERE)
+
+    switched, parts = make(tmp_path, [osm("霞海城隍廟", 100)], limit=1, voice_key="M1@1.2")
+    [new] = await switched.prepare(HERE)
+
+    assert parts["llm"].requests == []
+    assert parts["speech"].texts == [old.script]
+    assert new.script == old.script
+    assert json.loads(new.meta_path.read_text(encoding="utf-8"))["voice"] == "M1@1.2"
+
+
+async def test_after_resynthesis_the_new_voice_is_a_plain_cache_hit(tmp_path):
+    await make(tmp_path, [osm("霞海城隍廟", 100)], limit=1)[0].prepare(HERE)
+    await make(tmp_path, [osm("霞海城隍廟", 100)], limit=1, voice_key="M1@1.2")[0].prepare(HERE)
+
+    again, parts = make(tmp_path, [osm("霞海城隍廟", 100)], limit=1, voice_key="M1@1.2")
+    await again.prepare(HERE)
+
+    assert parts["llm"].requests == []
+    assert parts["speech"].texts == []
+
+
+async def test_narrations_cached_before_voices_were_recorded_count_as_the_original_voice(tmp_path):
+    [old] = await make(tmp_path, [osm("霞海城隍廟", 100)], limit=1)[0].prepare(HERE)
+    meta = json.loads(old.meta_path.read_text(encoding="utf-8"))
+    del meta["voice"]
+    old.meta_path.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+
+    again, parts = make(tmp_path, [osm("霞海城隍廟", 100)], limit=1)
+    await again.prepare(HERE)
+
+    assert parts["llm"].requests == []
+    assert parts["speech"].texts == []
+
+
+async def test_a_new_script_is_still_written_when_the_place_changed_its_fingerprint(tmp_path):
+    await make(tmp_path, [osm("霞海城隍廟", 100)], limit=1)[0].prepare(HERE)
+
+    switched, parts = make(tmp_path, [osm("霞海城隍廟", 100)], limit=1, voice_key="M1@1.2")
+    (tmp_path / "buddy.md").write_text("你是小草。", encoding="utf-8")  # 個性檔改了：舊稿不能用
+    await switched.prepare(HERE)
+
+    assert len(parts["llm"].requests) == 1

@@ -4,7 +4,7 @@ import argparse
 import time
 from pathlib import Path
 
-from buddy_host.config import default_home
+from buddy_host.config import default_home, load_config
 from buddy_host.speech.pipeline import PipelineConfig, SpeechPipeline, write_outputs
 from buddy_host.speech.voice import load_reference
 
@@ -14,7 +14,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="稿子 → 驗收過的語音")
     parser.add_argument("--text-file", type=Path, required=True)
     parser.add_argument("--name", required=True)
-    parser.add_argument("--voice", default="F2", help="~/.buddy-host/voice/ 底下的聲音名稱")
+    parser.add_argument(
+        "--voice", default=load_config(home).voice, help="~/.buddy-host/voice/ 底下的聲音名稱"
+    )
+    parser.add_argument(
+        "--answer", action="store_true", help="當成回答問題合成（照聲音設定壓縮長停頓）"
+    )
     parser.add_argument("--out-dir", type=Path, default=home / "out")
     parser.add_argument("--cer-threshold", type=float, default=PipelineConfig.cer_threshold)
     parser.add_argument("--seeds", type=int, nargs="+", default=list(PipelineConfig.seeds))
@@ -37,13 +42,16 @@ def main() -> None:
         seeds=tuple(args.seeds),
         cer_threshold=args.cer_threshold,
         split_on_failure=not args.no_split,
+        answer_max_pause_seconds=voice.answer_max_pause_seconds,
     )
 
     def show(index: int, total: int, sentence) -> None:
         tries = " ".join(f"{a.seed}:{a.cer:.2f}" for a in sentence.attempts)
         print(f"[{index}/{total}] {sentence.status} ({tries}) {sentence.text[:20]}", flush=True)
 
-    result = SpeechPipeline(synthesizer, recognizer, config, progress=show).run(text)
+    result = SpeechPipeline(synthesizer, recognizer, config, progress=show).run(
+        text, cap_pauses=args.answer
+    )
     wav_path, log_path = write_outputs(result, args.out_dir, args.name)
 
     log = result.to_log()

@@ -82,3 +82,21 @@ def test_other_interfaces_are_rejected(tmp_path: Path, host: str):
 
     with pytest.raises(ConfigError, match="Tailscale"):
         load_config(tmp_path)
+
+
+def test_voice_defaults_to_the_original_reference_voice(tmp_path: Path):
+    assert load_config(tmp_path).voice == "F2"
+
+
+def test_voice_picks_a_folder_under_the_voice_directory(tmp_path: Path):
+    write_config(tmp_path, 'voice = "M1"\n')
+
+    assert load_config(tmp_path).voice == "M1"
+
+
+@pytest.mark.parametrize("voice", ["", "../M1", "a/b", ".", 3])
+def test_voice_must_be_a_plain_folder_name(tmp_path: Path, voice):
+    write_config(tmp_path, f"voice = {voice!r}\n".replace("'", '"'))
+
+    with pytest.raises(ConfigError, match="voice"):
+        load_config(tmp_path)

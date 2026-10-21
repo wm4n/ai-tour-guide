@@ -17,7 +17,7 @@ from pathlib import Path
 
 import numpy as np
 
-from buddy_host.config import default_home
+from buddy_host.config import default_home, load_config
 from buddy_host.speech.pipeline import PipelineConfig, SpeechPipeline, SpeechResult, write_outputs
 from buddy_host.speech.text_prep import prepare_sentences
 
@@ -90,7 +90,7 @@ def finalize(home: Path, voice_picks: dict[int, int]) -> None:
 def main() -> None:
     home = default_home()
     parser = argparse.ArgumentParser()
-    parser.add_argument("--voice", default="F2")
+    parser.add_argument("--voice", default=load_config(home).voice)
     parser.add_argument("--out-dir", type=Path, default=home / "out" / "phrases")
     parser.add_argument("--only", type=int, nargs="*")
     parser.add_argument(

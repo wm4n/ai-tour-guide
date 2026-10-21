@@ -14,7 +14,7 @@ from pathlib import Path
 import httpx2
 import truststore
 
-from buddy_host.config import default_home
+from buddy_host.config import default_home, load_config
 from buddy_host.llm.claude_cli import ClaudeCliClient, ClaudeSettings
 from buddy_host.narration.memory import PeakMemorySampler
 from buddy_host.narration.preparer import AreaPreparer
@@ -37,7 +37,8 @@ async def run(args: argparse.Namespace) -> dict:
     from buddy_host.speech.engines import KittenSynthesizer, WhisperRecognizer
 
     t0 = time.perf_counter()
-    synth = KittenSynthesizer(load_reference(home / "voice" / "F2"))
+    voice = load_reference(home / "voice" / load_config(home).voice)
+    synth = KittenSynthesizer(voice)
     asr = WhisperRecognizer(home / "cache" / "whisper")
     load_seconds = time.perf_counter() - t0
     speech = SpeechPipeline(synth, asr, PipelineConfig())
@@ -53,6 +54,7 @@ async def run(args: argparse.Namespace) -> dict:
             out_dir=home / "out" / "narrations",
             limit=args.limit,
             max_rewrites=args.max_rewrites,
+            voice_key=voice.key,
         )
         started = time.perf_counter()
         with PeakMemorySampler() as memory:

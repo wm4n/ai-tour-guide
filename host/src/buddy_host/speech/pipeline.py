@@ -17,6 +17,7 @@ import numpy as np
 from buddy_host.speech.cer import cer as compute_cer
 from buddy_host.speech.cer import normalize
 from buddy_host.speech.onset import trim_lead
+from buddy_host.speech.pauses import cap_pauses as shorten_pauses
 from buddy_host.speech.preroll import WordTiming, analyze_preroll
 from buddy_host.speech.text_prep import (
     chunk_sentences,
@@ -56,6 +57,9 @@ class PipelineConfig:
     # 與其拆開（失去語氣）或丟掉，不如收下 CER 最低的那一版；拆到不能再拆時放寬一些
     approx_cer: float = 0.10
     leaf_approx_cer: float = 0.25
+    # 回答問題時把過長的停頓縮短，聽起來像聊天（聲音的 voice.toml 決定；None＝不壓）。
+    # 主動介紹不壓：保留段落換氣，像在說故事
+    answer_max_pause_seconds: float | None = None
 
 
 @dataclass
@@ -138,10 +142,15 @@ class SpeechPipeline:
         self._progress = progress
 
     def run(
-        self, text: str, unit_guard: Callable[[], AbstractContextManager] | None = None
+        self,
+        text: str,
+        unit_guard: Callable[[], AbstractContextManager] | None = None,
+        *,
+        cap_pauses: bool = False,
     ) -> SpeechResult:
         """`unit_guard`：每個合成單位（含它的換 seed 重試）開始前進入、做完離開；
-        排程用，讓別的工作可以在單位之間插進來，而不會打斷正在合成的單位。"""
+        排程用，讓別的工作可以在單位之間插進來，而不會打斷正在合成的單位。
+        `cap_pauses`：這是回答問題，照 `answer_max_pause_seconds` 縮短過長的停頓。"""
         started = self._clock()
         planned: list[tuple[str, float]] = []  # (合成單位, 它後面接多久的停頓)
         for paragraph in prepare_paragraphs(text):
@@ -165,6 +174,9 @@ class SpeechPipeline:
                 pending_gap = 0.0
             pending_gap = max(pending_gap, gap_after)  # 被跳過的單位不吞掉它那一段的停頓
         audio = np.concatenate(parts) if parts else np.zeros(0, dtype=np.float32)
+        max_pause = self._config.answer_max_pause_seconds
+        if cap_pauses and max_pause is not None:
+            audio = shorten_pauses(audio, self._synth.sample_rate, max_pause)
         return SpeechResult(audio, self._synth.sample_rate, chunks, self._clock() - started)
 
     def _silence(self, seconds: float) -> np.ndarray:

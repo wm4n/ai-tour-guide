@@ -5,6 +5,7 @@ import hashlib
 import json
 import logging
 import re
+import wave
 from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -62,8 +63,13 @@ def _safe(candidate_id: str) -> str:
     return re.sub(r"[^\w\-]+", "_", candidate_id)
 
 
-# 快取的 meta 還沒記錄聲音時（聲音可設定之前），都是 F2 原速合成的
-ORIGINAL_VOICE_KEY = "F2@1"
+def wav_seconds(path: Path) -> float:
+    with wave.open(str(path)) as wav:
+        return round(wav.getnframes() / wav.getframerate(), 2)
+
+
+# 沒指定聲音時用的聲音鍵（`名稱@語速`，同 `ReferenceVoice.key`）
+DEFAULT_VOICE_KEY = "F2@1"
 
 SNAP_DECIMALS = 3  # 約 110 公尺；相近的位置共用同一份 Overpass／Wikipedia 查詢與快取
 SNAP_MARGIN_M = 150.0  # 吸附造成的位移上限（約 80 公尺）再留餘裕
@@ -103,11 +109,12 @@ class AreaPreparer:
         limit: int = 2,
         max_rewrites: int = 1,
         terms_path: Path = DEFAULT_TERMS_FILE,
-        voice_key: str = ORIGINAL_VOICE_KEY,
+        voice_key: str = DEFAULT_VOICE_KEY,
     ):
         self._overpass = overpass
-        # 換了聲音或語速，快取的稿子還能用，但要重新合成（不必再找 Claude 寫）
-        self._voice_key = voice_key
+        # 可在執行中改變（換聲音）：快取的稿子與聲音無關，音檔依聲音鍵分開存放，
+        # 換了聲音只重新合成（不必再找 Claude 寫）；每次 `prepare` 開始時取用當下的聲音鍵
+        self.voice_key = voice_key
         self._wiki = wiki
         self._llm = llm
         self._speech = speech
@@ -130,6 +137,7 @@ class AreaPreparer:
         on_ready: Callable[[PreparedNarration], None] | None = None,
     ) -> list[PreparedNarration]:
         """on_ready：每做好一段就呼叫（合成很慢，呼叫端不必等整批）。"""
+        voice_key = self.voice_key  # 這一批從頭到尾歸在同一個聲音底下，中途換聲音不會把音檔放錯地方
         ranked = await self._ranked(
             location, self._limit, exclude_ids=exclude_ids, recent_themes=recent_themes
         )
@@ -148,7 +156,9 @@ class AreaPreparer:
         # 已有快取的直接用；只是聲音換了的拿舊稿重新合成；其餘的稿子同時開寫，
         # 合成（只有一個模型）再依序進行
         cached = {
-            item.candidate.id: self._load_cached(item.candidate, prints[item.candidate.id])
+            item.candidate.id: self._load_cached(
+                item.candidate, prints[item.candidate.id], voice_key
+            )
             for item in ranked
         }
         reusable = {
@@ -187,7 +197,9 @@ class AreaPreparer:
                     logger.exception("寫稿失敗：%s", item.candidate.name)
                     continue
                 made = (
-                    await self._synthesize(item, script, prints[item.candidate.id], issues)
+                    await self._synthesize(
+                        item, script, prints[item.candidate.id], issues, voice_key
+                    )
                     if script
                     else None
                 )
@@ -240,32 +252,36 @@ class AreaPreparer:
             recent_themes=recent_themes,
         )
 
-    def _paths(self, candidate: Candidate) -> tuple[Path, Path]:
-        base = self._out_dir / _safe(candidate.id)
-        return base.with_suffix(".wav"), base.with_suffix(".meta.json")
+    def _meta_path(self, candidate: Candidate) -> Path:
+        return self._out_dir / f"{_safe(candidate.id)}.meta.json"
+
+    def _wav_path(self, candidate: Candidate, voice_key: str) -> Path:
+        return self._out_dir / voice_key / f"{_safe(candidate.id)}.wav"
 
     def _cached_meta(self, candidate: Candidate, fingerprint: str) -> dict | None:
-        """稿子還能用的快取（指紋相同）；聲音是否相同另外判斷。"""
-        wav, meta_path = self._paths(candidate)
-        if not (wav.exists() and meta_path.exists()):
+        """稿子還能用的快取（指紋相同）；與聲音無關，音檔是否存在另外判斷。"""
+        meta_path = self._meta_path(candidate)
+        if not meta_path.exists():
             return None
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
         return meta if meta.get("fingerprint") == fingerprint else None
 
-    def _load_cached(self, candidate: Candidate, fingerprint: str) -> PreparedNarration | None:
+    def _load_cached(
+        self, candidate: Candidate, fingerprint: str, voice_key: str
+    ) -> PreparedNarration | None:
         meta = self._cached_meta(candidate, fingerprint)
-        if meta is None or meta.get("voice", ORIGINAL_VOICE_KEY) != self._voice_key:
+        wav = self._wav_path(candidate, voice_key)
+        if meta is None or not wav.exists():
             return None
-        wav, meta_path = self._paths(candidate)
         return PreparedNarration(
-            candidate.id, meta["name"], meta["script"], wav, meta_path,
-            meta["audio_seconds"], meta["distance_m"], candidate.lat, candidate.lon,
+            candidate.id, meta["name"], meta["script"], wav, self._meta_path(candidate),
+            wav_seconds(wav), meta["distance_m"], candidate.lat, candidate.lon,
         )  # fmt: skip
 
     def _cached_script(
         self, candidate: Candidate, fingerprint: str
     ) -> tuple[str, list[Finding]] | None:
-        """聲音換了但稿子還能用：回傳舊稿（與它的用語問題），拿去重新合成。"""
+        """這個聲音還沒有音檔但稿子還能用：回傳舊稿（與它的用語問題），拿去重新合成。"""
         meta = self._cached_meta(candidate, fingerprint)
         if meta is None or not meta.get("script"):
             return None
@@ -314,15 +330,15 @@ class AreaPreparer:
         return script, issues
 
     async def _synthesize(
-        self, item: Ranked, script: str, fingerprint: str, issues: list[Finding]
+        self, item: Ranked, script: str, fingerprint: str, issues: list[Finding], voice_key: str
     ) -> PreparedNarration | None:
         candidate = item.candidate
         speech = await asyncio.to_thread(self._speech.run, script)
         if speech.audio_seconds <= 0:
             return None
 
-        wav, meta_path = self._paths(candidate)
-        write_speech(speech, wav.parent, wav.stem)
+        wav, meta_path = self._wav_path(candidate, voice_key), self._meta_path(candidate)
+        write_speech(speech, wav.parent, wav.stem)  # 音檔與合成紀錄依聲音分開
         meta = {
             "candidate_id": candidate.id,
             "name": candidate.name,
@@ -334,14 +350,11 @@ class AreaPreparer:
             "score": round(item.score, 3),
             "script": script,
             "fingerprint": fingerprint,
-            "voice": self._voice_key,
             "wording_issues": [{"term": f.term, "suggestion": f.suggestion} for f in issues],
-            "audio_seconds": round(speech.audio_seconds, 2),
-            "speech": speech.to_log(),
             "prepared_at": datetime.now(UTC).isoformat(),
         }
         meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
         return PreparedNarration(
             candidate.id, candidate.name, script, wav, meta_path,
-            meta["audio_seconds"], meta["distance_m"], candidate.lat, candidate.lon,
+            round(speech.audio_seconds, 2), meta["distance_m"], candidate.lat, candidate.lon,
         )  # fmt: skip

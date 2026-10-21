@@ -62,6 +62,9 @@ def _safe(candidate_id: str) -> str:
     return re.sub(r"[^\w\-]+", "_", candidate_id)
 
 
+# 快取的 meta 還沒記錄聲音時（聲音可設定之前），都是 F2 原速合成的
+ORIGINAL_VOICE_KEY = "F2@1"
+
 SNAP_DECIMALS = 3  # 約 110 公尺；相近的位置共用同一份 Overpass／Wikipedia 查詢與快取
 SNAP_MARGIN_M = 150.0  # 吸附造成的位移上限（約 80 公尺）再留餘裕
 
@@ -100,8 +103,11 @@ class AreaPreparer:
         limit: int = 2,
         max_rewrites: int = 1,
         terms_path: Path = DEFAULT_TERMS_FILE,
+        voice_key: str = ORIGINAL_VOICE_KEY,
     ):
         self._overpass = overpass
+        # 換了聲音或語速，快取的稿子還能用，但要重新合成（不必再找 Claude 寫）
+        self._voice_key = voice_key
         self._wiki = wiki
         self._llm = llm
         self._speech = speech
@@ -139,10 +145,16 @@ class AreaPreparer:
             )
             for item in ranked
         }
-        # 已有快取的直接用；其餘的稿子同時開寫，合成（只有一個模型）再依序進行
+        # 已有快取的直接用；只是聲音換了的拿舊稿重新合成；其餘的稿子同時開寫，
+        # 合成（只有一個模型）再依序進行
         cached = {
             item.candidate.id: self._load_cached(item.candidate, prints[item.candidate.id])
             for item in ranked
+        }
+        reusable = {
+            item.candidate.id: self._cached_script(item.candidate, prints[item.candidate.id])
+            for item in ranked
+            if cached[item.candidate.id] is None
         }
         scripts = {
             item.candidate.id: asyncio.create_task(
@@ -156,7 +168,7 @@ class AreaPreparer:
                 )
             )
             for item in ranked
-            if cached[item.candidate.id] is None
+            if cached[item.candidate.id] is None and reusable[item.candidate.id] is None
         }
         prepared: list[PreparedNarration] = []
         try:
@@ -168,7 +180,7 @@ class AreaPreparer:
                         on_ready(hit)
                     continue
                 try:
-                    script, issues = await scripts[item.candidate.id]
+                    script, issues = reusable[item.candidate.id] or await scripts[item.candidate.id]
                 except (ForbiddenModelError, QuotaExceededError):
                     raise  # 政策違規與額度用盡不是單段失敗，要讓呼叫端知道
                 except Exception:  # 一段寫稿失敗（逾時、格式…）不要拖垮其他段
@@ -232,17 +244,33 @@ class AreaPreparer:
         base = self._out_dir / _safe(candidate.id)
         return base.with_suffix(".wav"), base.with_suffix(".meta.json")
 
-    def _load_cached(self, candidate: Candidate, fingerprint: str) -> PreparedNarration | None:
+    def _cached_meta(self, candidate: Candidate, fingerprint: str) -> dict | None:
+        """稿子還能用的快取（指紋相同）；聲音是否相同另外判斷。"""
         wav, meta_path = self._paths(candidate)
         if not (wav.exists() and meta_path.exists()):
             return None
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
-        if meta.get("fingerprint") != fingerprint:
+        return meta if meta.get("fingerprint") == fingerprint else None
+
+    def _load_cached(self, candidate: Candidate, fingerprint: str) -> PreparedNarration | None:
+        meta = self._cached_meta(candidate, fingerprint)
+        if meta is None or meta.get("voice", ORIGINAL_VOICE_KEY) != self._voice_key:
             return None
+        wav, meta_path = self._paths(candidate)
         return PreparedNarration(
             candidate.id, meta["name"], meta["script"], wav, meta_path,
             meta["audio_seconds"], meta["distance_m"], candidate.lat, candidate.lon,
         )  # fmt: skip
+
+    def _cached_script(
+        self, candidate: Candidate, fingerprint: str
+    ) -> tuple[str, list[Finding]] | None:
+        """聲音換了但稿子還能用：回傳舊稿（與它的用語問題），拿去重新合成。"""
+        meta = self._cached_meta(candidate, fingerprint)
+        if meta is None or not meta.get("script"):
+            return None
+        issues = [Finding(i["term"], i["suggestion"]) for i in meta.get("wording_issues", [])]
+        return meta["script"], issues
 
     async def _summary(self, candidate: Candidate) -> str | None:
         title = candidate.wiki_title
@@ -306,6 +334,7 @@ class AreaPreparer:
             "score": round(item.score, 3),
             "script": script,
             "fingerprint": fingerprint,
+            "voice": self._voice_key,
             "wording_issues": [{"term": f.term, "suggestion": f.suggestion} for f in issues],
             "audio_seconds": round(speech.audio_seconds, 2),
             "speech": speech.to_log(),

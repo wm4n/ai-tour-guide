@@ -42,7 +42,7 @@ class AnswerTurn:
                 raise TurnEnded("問答已結束")
             self._running = True
         try:
-            return scheduler._pipeline.run(text)
+            return scheduler._pipeline.run(text, cap_pauses=True)  # 回答像聊天，不拖長停頓
         finally:
             with scheduler._cond:
                 self._running = False

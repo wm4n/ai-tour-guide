@@ -8,6 +8,7 @@ from pathlib import Path
 
 DEFAULT_LISTEN_HOST = "127.0.0.1"
 DEFAULT_LISTEN_PORT = 8765
+DEFAULT_VOICE = "F2"
 TAILSCALE_NETWORKS = (
     ipaddress.ip_network("100.64.0.0/10"),
     ipaddress.ip_network("fd7a:115c:a1e0::/48"),
@@ -24,6 +25,7 @@ class HostConfig:
     listen_host: str = DEFAULT_LISTEN_HOST
     listen_port: int = DEFAULT_LISTEN_PORT
     token: str | None = None
+    voice: str = DEFAULT_VOICE  # ~/.buddy-host/voice/ 底下的資料夾名稱
 
 
 def default_home() -> Path:
@@ -57,9 +59,14 @@ def load_config(home: Path | None = None) -> HostConfig:
     if token is not None and not token:
         raise ConfigError("token 不可為空字串；不需要驗證請直接移除這個欄位")
 
+    voice = raw.get("voice", DEFAULT_VOICE)
+    if not isinstance(voice, str) or voice in ("", ".", "..") or "/" in voice or "\\" in voice:
+        raise ConfigError(f"voice 要是 voice/ 底下的資料夾名稱，收到 {voice!r}")
+
     return HostConfig(
         home=home,
         listen_host=listen_host,
         listen_port=int(raw.get("listen_port", DEFAULT_LISTEN_PORT)),
         token=token,
+        voice=voice,
     )

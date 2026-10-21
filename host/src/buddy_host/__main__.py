@@ -31,7 +31,7 @@ def open_photo_store():
     return store
 
 
-def build_real_services(max_llm_calls: int):
+def build_real_services(max_llm_calls: int, voice_name: str):
     """回傳（介紹準備器, 問答服務的工廠）；兩邊共用同一個有上限的 Claude 客戶端。"""
     import httpx2
     import truststore
@@ -53,11 +53,12 @@ def build_real_services(max_llm_calls: int):
     truststore.inject_into_ssl()
     home = default_home()
     # 介紹與問答共用同一顆 GPU 與同一組模型：問答優先，介紹在合成單位之間讓路
+    voice = load_reference(home / "voice" / voice_name)
     speech = SpeechScheduler(
         SpeechPipeline(
-            KittenSynthesizer(load_reference(home / "voice" / "F2")),
+            KittenSynthesizer(voice),
             WhisperRecognizer(home / "cache" / "whisper"),
-            PipelineConfig(),
+            PipelineConfig(answer_max_pause_seconds=voice.answer_max_pause_seconds),
         )
     )
     http = RetryingHttp(httpx2.AsyncClient(timeout=30))
@@ -69,6 +70,7 @@ def build_real_services(max_llm_calls: int):
         speech.narration,
         persona_path=PERSONA,
         out_dir=home / "out" / "narrations",
+        voice_key=voice.key,
     )
 
     def answerer(quota, journey):
@@ -99,6 +101,7 @@ def main() -> None:
     if args.replay_dir and args.max_llm_calls is not None:
         sys.exit("--replay-dir 與 --max-llm-calls 擇一")
 
+    config = load_config()
     preparer = None
     answerer = None
     if args.replay_dir:
@@ -123,9 +126,8 @@ def main() -> None:
             return service
 
     elif args.max_llm_calls is not None:
-        preparer, answerer = build_real_services(args.max_llm_calls)
+        preparer, answerer = build_real_services(args.max_llm_calls, config.voice)
 
-    config = load_config()
     home = default_home()
     app = create_app(
         config,

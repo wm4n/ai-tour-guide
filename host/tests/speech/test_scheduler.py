@@ -325,3 +325,18 @@ def test_a_narration_unit_that_crashes_releases_the_gpu_for_everyone_else():
 
     assert isinstance(out["error"], RuntimeError)
     assert scheduler.answers.run(ANSWER).audio_seconds > 0  # 沒有卡在「介紹忙碌中」
+
+
+def test_answers_cap_pauses_but_narration_keeps_them():
+    synth = SlowSynth(delay=0)
+    config = PipelineConfig(
+        opening_extra_seeds=(), paragraph_gap_seconds=1.5, answer_max_pause_seconds=0.45
+    )
+    scheduler = SpeechScheduler(SpeechPipeline(synth, PerfectRecognizer(synth), config))
+    text = "甲乙丙。\n\n庚辛壬。"  # 兩段各 40 個取樣，中間 1.5 秒
+
+    story = scheduler.narration.run(text)
+    answer = scheduler.answers.run(text)
+
+    assert len(story.audio) == 40 + 1500 + 40
+    assert len(answer.audio) < 40 + 600 + 40

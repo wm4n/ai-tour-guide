@@ -4,6 +4,7 @@ import numpy as np
 
 from buddy_host.speech.phrases import (
     CANDIDATE_SEEDS,
+    LEAD_FILLERS,
     PHRASES,
     WANTED,
     auto_voice_phrases,
@@ -18,7 +19,7 @@ from buddy_host.speech.text_prep import prepare_sentences
 def test_there_are_six_numbered_phrases_matching_the_design_doc():
     # 5（額度用完）與 8（恢復）已取消：改成畫面提示與自動繼續
     assert sorted(PHRASES) == [1, 2, 3, 4, 6, 7]
-    assert PHRASES[7][0] == "好，我們出發吧！"
+    assert PHRASES[7][0] == "好，走吧，我陪你。"
 
 
 def test_phrases_need_no_preprocessing_beyond_a_terminal_mark():
@@ -47,6 +48,7 @@ class ScriptedPipeline:
     def __init__(self, scripted=None):
         self.scripted = scripted or {}
         self.calls: list[tuple[str, int]] = []
+        self.filler_calls: list[tuple[str, str, int]] = []
 
     def threshold_for(self, text):
         return 0.05 if len(text) <= 20 else 0.20
@@ -56,6 +58,10 @@ class ScriptedPipeline:
         cer, samples, rejected = self.scripted.get((text, seed), (0.0, 100, None))
         attempt = Attempt(seed, cer, text, 0.0, 0.0, samples / RATE, rejected=rejected)
         return attempt, np.full(samples, seed / 10000, dtype=np.float32)
+
+    def attempt_after_lead_filler(self, text, filler, seed):
+        self.filler_calls.append((text, filler, seed))
+        return self.attempt(text, seed)
 
 
 def spoken(number):
@@ -172,6 +178,20 @@ def test_a_phrase_with_no_passing_version_is_not_written_and_is_reported(tmp_pat
     ]
 
 
+def test_a_phrase_that_fails_this_time_drops_the_old_file_so_the_voice_is_not_ready(tmp_path):
+    folder = voice_phrases_dir(tmp_path, "F2@1.2")
+    auto_voice_phrases(ScriptedPipeline(), RATE, folder)  # 先全部產生
+    assert phrases_ready(tmp_path, "F2@1.2") is True
+
+    # 稿子改過之後重跑：3 號這次沒有版本通過，舊的 3 號音檔講的是舊稿，不能留
+    failing = ScriptedPipeline({(spoken(3), seed): (0.2, 100, None) for seed in CANDIDATE_SEEDS})
+    failed = auto_voice_phrases(failing, RATE, folder)
+
+    assert failed == [3]
+    assert not (folder / "3.wav").exists()
+    assert phrases_ready(tmp_path, "F2@1.2") is False
+
+
 def test_phrases_are_ready_only_when_every_phrase_exists_for_the_current_speed(tmp_path):
     assert phrases_ready(tmp_path, "F2@1.2") is False
 
@@ -220,3 +240,16 @@ def test_auto_works_with_the_real_pipeline_and_fake_engines(tmp_path):
     assert sorted(p.name for p in (tmp_path / "F2@1.2").glob("*.wav")) == [
         f"{n}.wav" for n in sorted(PHRASES)
     ]
+
+
+def test_phrases_that_start_with_a_filler_are_checked_after_the_filler(tmp_path):
+    pipeline = ScriptedPipeline()
+
+    run_auto(tmp_path, pipeline, max_seeds=2)
+
+    assert {n for n in LEAD_FILLERS} == {1, 2, 3}
+    fillered = {text for text, _, _ in pipeline.filler_calls}
+    assert fillered == {spoken(n) for n in LEAD_FILLERS}
+    for number, (text, _) in PHRASES.items():  # 語氣詞真的是句子的開頭
+        if number in LEAD_FILLERS:
+            assert text.startswith(LEAD_FILLERS[number])

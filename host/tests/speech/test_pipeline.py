@@ -627,3 +627,58 @@ def test_a_synthesizer_that_cannot_switch_voices_still_follows_the_pause_cap():
 
     result = pipeline.run(TWO_PARAGRAPHS, cap_pauses=True)
     assert len(result.audio) == pytest.approx(40 + 450 + 40, abs=2 * 43)
+
+
+# --- 開頭是語氣詞（嗯、喔）的短句：Whisper 常把它聽成別的字，只驗語氣詞後面的字 -----------
+
+
+def heard(pipeline, what):
+    """讓辨識器固定聽成 what。"""
+    pipeline._asr = type("Heard", (), {"transcribe": lambda self, audio, rate: what})()
+
+
+def test_a_lead_filler_misheard_as_another_word_does_not_fail_the_phrase():
+    pipeline, _ = make()
+    heard(pipeline, "请这个有意思我想想看")  # 「喔」被聽成「请」
+
+    attempt, audio = pipeline.attempt_after_lead_filler("喔，這個有意思，我想想看。", "喔", 1234)
+
+    assert attempt.cer == 0.0
+    assert attempt.rejected is None
+    assert len(audio) > 0
+
+
+def test_a_lead_filler_that_is_dropped_by_the_recognizer_is_fine_too():
+    pipeline, _ = make()
+    heard(pipeline, "這個有意思我想想看")
+
+    attempt, _ = pipeline.attempt_after_lead_filler("喔，這個有意思，我想想看。", "喔", 1234)
+
+    assert attempt.cer == 0.0
+
+
+def test_the_words_after_the_filler_are_still_checked():
+    pipeline, _ = make()
+    heard(pipeline, "请这个有意思我想吃饭")  # 後面的字唸錯了
+
+    attempt, _ = pipeline.attempt_after_lead_filler("喔，這個有意思，我想想看。", "喔", 1234)
+
+    assert attempt.cer > pipeline.threshold_for("喔，這個有意思，我想想看。")
+
+
+def test_only_a_filler_sized_amount_of_extra_leading_text_is_forgiven():
+    pipeline, _ = make()
+    heard(pipeline, "好的好的好的這個有意思我想想看")  # 句首多了一大串，不是語氣詞造成的
+
+    attempt, _ = pipeline.attempt_after_lead_filler("喔，這個有意思，我想想看。", "喔", 1234)
+
+    assert attempt.cer > 0.05
+
+
+def test_a_double_filler_with_an_ellipsis_in_the_middle():
+    pipeline, _ = make()
+    heard(pipeline, "嗯我整理一下該怎麼講")
+
+    attempt, _ = pipeline.attempt_after_lead_filler("嗯……我整理一下該怎麼講。", "嗯", 1234)
+
+    assert attempt.cer == 0.0

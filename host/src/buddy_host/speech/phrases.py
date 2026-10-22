@@ -31,13 +31,15 @@ from buddy_host.speech.text_prep import prepare_sentences
 
 # 編號沿用設計文件 9.3；5（額度用完）與 8（恢復）已取消，改成畫面提示與自動繼續
 PHRASES: dict[int, tuple[str, str]] = {
-    1: ("好，我來查一下，你稍等我一下。", "問答開頭"),
-    2: ("這個問題很好，讓我想一下。", "問答開頭替換"),
-    3: ("我想想怎麼說比較好。", "答案還沒好時補一句"),
-    4: ("我上網查一下，可能要多等一下。", "需要上網查時"),
-    6: ("我連不上家裡的電腦了，先安靜一下，連上了再跟你說。", "連不上主機"),
-    7: ("好，我們出發吧！", "按出發時"),
+    1: ("嗯嗯，讓我想一下。", "問答開頭"),
+    2: ("喔，這個有意思，我想想看。", "問答開頭替換"),
+    3: ("嗯……我整理一下該怎麼講。", "答案還沒好時補一句"),
+    4: ("這個要查一下，會稍微久一點。", "需要上網查時"),
+    6: ("我這邊訊號不太好，等連上了，我再接著講。", "連不上主機"),
+    7: ("好，走吧，我陪你。", "按出發時"),
 }
+# 開頭是語氣詞的短句：Whisper 聽不準語氣詞，--auto 只驗語氣詞後面的字，語氣詞靠人耳聽
+LEAD_FILLERS = {1: "嗯嗯", 2: "喔", 3: "嗯"}
 CANDIDATE_SEEDS = (1234, 7, 42, 2026, 99, 314, 777, 2468)
 WANTED = 3
 DEFAULT_MAX_SEEDS = 8
@@ -124,7 +126,12 @@ def auto_voice_phrases(
         threshold = pipeline.threshold_for(spoken)
         best: _Best | None = None
         for seed in seed_sequence(max_seeds):
-            attempt, audio = pipeline.attempt(spoken, seed)
+            if number in LEAD_FILLERS:
+                attempt, audio = pipeline.attempt_after_lead_filler(
+                    spoken, LEAD_FILLERS[number], seed
+                )
+            else:
+                attempt, audio = pipeline.attempt(spoken, seed)
             passed = attempt.rejected is None and attempt.cer <= threshold
             report(
                 f"[{number}] seed={seed} cer={attempt.cer:.2f} "
@@ -134,6 +141,8 @@ def auto_voice_phrases(
                 best = _Best(attempt.cer, len(audio), seed, audio, attempt.hypothesis)
         if best is None:
             failed.append(number)
+            for suffix in (".wav", ".log.json"):  # 上次的檔講的可能是舊稿：留著會被當成已準備
+                (out_dir / f"{number}{suffix}").unlink(missing_ok=True)
             report(f"[{number}] 沒有任何版本通過驗收，不寫入：{text}")
             continue
         cer, _, seed, audio, hypothesis = best

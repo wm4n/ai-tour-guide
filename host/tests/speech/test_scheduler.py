@@ -434,3 +434,44 @@ def test_the_last_change_before_a_unit_wins():
     scheduler.narration.run("介紹第一段。")
 
     assert synth.used == [("介紹第一段。", "C")]
+
+
+class BrokenVoiceSynth(VoicedSynth):
+    def use_voice(self, voice):
+        raise RuntimeError("語速調整不支援這個解碼器")
+
+
+def test_a_voice_that_cannot_be_applied_does_not_deadlock_narration():
+    synth = BrokenVoiceSynth()
+    pipeline = SpeechPipeline(
+        synth, PerfectRecognizer(synth), PipelineConfig(opening_extra_seeds=())
+    )
+    scheduler = SpeechScheduler(pipeline)
+    scheduler.change_voice(voice("B"))
+
+    story, out = in_thread(scheduler.narration.run, "介紹第一段。")
+    story.join(5)
+    assert isinstance(out["error"], RuntimeError)
+
+    again, out = in_thread(scheduler.narration.run, "介紹第一段。")  # 壞聲音只失敗一次，不卡住排程
+    again.join(5)
+    assert "result" in out
+
+
+def test_a_voice_that_cannot_be_applied_does_not_deadlock_answers():
+    synth = BrokenVoiceSynth()
+    pipeline = SpeechPipeline(
+        synth, PerfectRecognizer(synth), PipelineConfig(opening_extra_seeds=())
+    )
+    scheduler = SpeechScheduler(pipeline)
+    scheduler.change_voice(voice("B"))
+
+    turn = scheduler.answers.begin()
+    try:
+        turn.run(ANSWER)
+    except RuntimeError:
+        pass
+    turn.end()
+
+    assert scheduler.pending_answers == 0
+    assert scheduler.answers.run(ANSWER_2).audio_seconds > 0

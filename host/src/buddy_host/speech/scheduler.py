@@ -45,10 +45,11 @@ class AnswerTurn:
             if self._ended:
                 raise TurnEnded("問答已結束")
             self._running = True
+        try:
             if not self._started:  # 一個問答整個用同一個聲音：只在它的第一段前套用待換的聲音
                 self._started = True
-                scheduler._apply_pending_voice()
-        try:
+                with scheduler._cond:
+                    scheduler._apply_pending_voice()
             return scheduler._pipeline.run(text, cap_pauses=True)  # 回答像聊天，不拖長停頓
         finally:
             with scheduler._cond:
@@ -133,8 +134,9 @@ class SpeechScheduler:
         with self._cond:
             self._cond.wait_for(lambda: self._tickets == self._served and not self._narration_busy)
             self._narration_busy = True
-            self._apply_pending_voice()
         try:
+            with self._cond:  # 套用失敗也要走 finally，不然「忙碌中」永遠不會還原
+                self._apply_pending_voice()
             yield
         finally:
             with self._cond:

@@ -21,6 +21,7 @@ import wave
 from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NamedTuple
 
 import numpy as np
 
@@ -40,6 +41,14 @@ PHRASES: dict[int, tuple[str, str]] = {
 CANDIDATE_SEEDS = (1234, 7, 42, 2026, 99, 314, 777, 2468)
 WANTED = 3
 DEFAULT_MAX_SEEDS = 8
+
+
+class _Best(NamedTuple):
+    cer: float
+    samples: int
+    seed: int
+    audio: np.ndarray
+    hypothesis: str
 
 
 @dataclass
@@ -113,9 +122,7 @@ def auto_voice_phrases(
             continue
         spoken = "".join(prepare_sentences(text))
         threshold = pipeline.threshold_for(spoken)
-        best: tuple[float, float, int, np.ndarray, str] | None = (
-            None  # CER、取樣數、seed、音訊、轉寫
-        )
+        best: _Best | None = None
         for seed in seed_sequence(max_seeds):
             attempt, audio = pipeline.attempt(spoken, seed)
             passed = attempt.rejected is None and attempt.cer <= threshold
@@ -123,8 +130,8 @@ def auto_voice_phrases(
                 f"[{number}] seed={seed} cer={attempt.cer:.2f} "
                 f"{'OK' if passed else 'x ' + (attempt.rejected or '')}".rstrip()
             )
-            if passed and (best is None or (attempt.cer, len(audio)) < (best[0], best[1])):
-                best = (attempt.cer, len(audio), seed, audio, attempt.hypothesis)
+            if passed and (best is None or (attempt.cer, len(audio)) < (best.cer, best.samples)):
+                best = _Best(attempt.cer, len(audio), seed, audio, attempt.hypothesis)
         if best is None:
             failed.append(number)
             report(f"[{number}] 沒有任何版本通過驗收，不寫入：{text}")

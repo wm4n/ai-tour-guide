@@ -603,3 +603,22 @@ async def test_a_new_script_is_still_written_when_the_place_changed_its_fingerpr
     await switched.prepare(HERE)
 
     assert len(parts["llm"].requests) == 1
+
+
+async def test_audio_made_from_an_old_script_is_not_reused_after_the_script_is_rewritten(tmp_path):
+    """指紋變了、稿子重寫之後，別的聲音底下用舊稿合成的音檔不能再被當成命中。"""
+    preparer, parts = make(tmp_path, [osm("霞海城隍廟", 100)], limit=1, voice_key="F2@1.2")
+    await preparer.prepare(HERE)
+    preparer.voice_key = "M1@1.2"
+    await preparer.prepare(HERE)
+    (tmp_path / "buddy.md").write_text("你是小草。", encoding="utf-8")  # 個性檔改了：要重寫稿
+    parts["llm"].text = "全新的稿子。"
+    await preparer.prepare(HERE)  # M1 底下用新稿重新合成
+
+    parts["speech"].texts.clear()
+    preparer.voice_key = "F2@1.2"
+    [back] = await preparer.prepare(HERE)
+
+    assert back.script == "全新的稿子。"
+    assert parts["speech"].texts == ["全新的稿子。"]  # F2 的舊音檔作廢，用新稿重合成
+    assert len(parts["llm"].requests) == 2  # 切回 F2 沒有再寫稿

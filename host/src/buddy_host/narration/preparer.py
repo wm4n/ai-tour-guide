@@ -278,6 +278,19 @@ class AreaPreparer:
             wav_seconds(wav), meta["distance_m"], candidate.lat, candidate.lon,
         )  # fmt: skip
 
+    def _discard_audio_of_other_scripts(self, candidate: Candidate, fingerprint: str) -> None:
+        """稿子重寫了（指紋變了）：各聲音底下用舊稿合成的音檔作廢，不然切回那個聲音會播出舊稿。"""
+        meta_path = self._meta_path(candidate)
+        if not meta_path.exists():
+            return
+        if json.loads(meta_path.read_text(encoding="utf-8")).get("fingerprint") == fingerprint:
+            return
+        for voice_dir in self._out_dir.iterdir():
+            if voice_dir.is_dir():
+                stem = _safe(candidate.id)
+                for suffix in (".wav", ".log.json"):
+                    (voice_dir / f"{stem}{suffix}").unlink(missing_ok=True)
+
     def _cached_script(
         self, candidate: Candidate, fingerprint: str
     ) -> tuple[str, list[Finding]] | None:
@@ -338,6 +351,7 @@ class AreaPreparer:
             return None
 
         wav, meta_path = self._wav_path(candidate, voice_key), self._meta_path(candidate)
+        self._discard_audio_of_other_scripts(candidate, fingerprint)
         write_speech(speech, wav.parent, wav.stem)  # 音檔與合成紀錄依聲音分開
         meta = {
             "candidate_id": candidate.id,

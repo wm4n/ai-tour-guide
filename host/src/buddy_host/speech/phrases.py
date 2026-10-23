@@ -28,6 +28,7 @@ from typing import NamedTuple
 import numpy as np
 
 from buddy_host.config import default_home, load_config
+from buddy_host.speech.cer import normalize
 from buddy_host.speech.pipeline import PipelineConfig, SpeechPipeline, SpeechResult, write_outputs
 from buddy_host.speech.text_prep import prepare_sentences
 
@@ -49,6 +50,7 @@ DEFAULT_MAX_SEEDS = 8
 
 class _Best(NamedTuple):
     cer: float
+    filler_missing: bool  # 語氣詞句：辨識結果沒聽到句首語氣詞（同分時排後面）
     samples: int
     seed: int
     audio: np.ndarray
@@ -142,15 +144,18 @@ def auto_voice_phrases(
             if passed and number in LEAD_FILLERS:  # 語氣詞有沒有唸出來要人耳聽：每個通過的都留著
                 candidate = SpeechResult(audio, sample_rate, [], 0.0)
                 write_outputs(candidate, out_dir / "candidates", f"{number}_seed{seed}")
-            if passed and (best is None or (attempt.cer, len(audio)) < (best.cer, best.samples)):
-                best = _Best(attempt.cer, len(audio), seed, audio, attempt.hypothesis)
+            filler = LEAD_FILLERS.get(number, "")
+            missing = not normalize(attempt.hypothesis).startswith(normalize(filler))
+            ranking = (attempt.cer, missing, len(audio))
+            if passed and (best is None or ranking < best[:3]):
+                best = _Best(attempt.cer, missing, len(audio), seed, audio, attempt.hypothesis)
         if best is None:
             failed.append(number)
             for suffix in (".wav", ".log.json"):  # 上次的檔講的可能是舊稿：留著會被當成已準備
                 (out_dir / f"{number}{suffix}").unlink(missing_ok=True)
             report(f"[{number}] 沒有任何版本通過驗收，不寫入：{text}")
             continue
-        cer, _, seed, audio, hypothesis = best
+        cer, _, _, seed, audio, hypothesis = best
         write_outputs(SpeechResult(audio, sample_rate, [], 0.0), out_dir, str(number))
         summary[str(number)] = {
             "text": text,

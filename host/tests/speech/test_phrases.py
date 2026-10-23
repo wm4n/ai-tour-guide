@@ -280,3 +280,25 @@ def test_phrases_without_a_filler_leave_no_candidates(tmp_path):
 
     names = [p.name for p in (tmp_path / "F2@1.2" / "candidates").glob("*.wav")]
     assert all(int(name.split("_")[0]) in LEAD_FILLERS for name in names)
+
+
+class FillerHeardPipeline(ScriptedPipeline):
+    """辨識結果：只有 seed 2026 聽到句首的語氣詞，其餘的轉寫都沒有。"""
+
+    def attempt_after_lead_filler(self, text, filler, seed):
+        attempt, audio = super().attempt_after_lead_filler(text, filler, seed)
+        if seed != 2026:
+            attempt.hypothesis = text.removeprefix(filler).lstrip("，")
+        return attempt, audio
+
+
+def test_among_equal_filler_versions_the_one_where_the_filler_was_heard_wins_over_a_shorter_one(
+    tmp_path,
+):
+    scripted = {(spoken(3), seed): (0.0, 100, None) for seed in CANDIDATE_SEEDS}
+    scripted[(spoken(3), 2026)] = (0.0, 400, None)  # 聽到語氣詞的版本比較長
+    pipeline = FillerHeardPipeline(scripted)
+
+    run_auto(tmp_path, pipeline)
+
+    assert frames(tmp_path / "F2@1.2" / "3.wav") == 400

@@ -11,6 +11,8 @@ python -m buddy_host.speech.phrases --finalize 1:42 2:42 ...
 python -m buddy_host.speech.phrases --voice <聲音> --auto [--max-seeds 8]
     不必人工挑選：每句試多個 seed，在通過驗收門檻的版本裡挑 CER 最低（同分取較短）的一版
     → ~/.buddy-host/out/voice-phrases/<聲音鍵>/<編號>.wav（聲音鍵含語速，如 F2@1.2）
+    開頭是語氣詞的句子（嗯、喔）機器驗不準，通過的版本都另存在 candidates/<編號>_seed<seed>.wav，
+    聽過覺得自動挑的不好，直接把喜歡的複製成 <編號>.wav。
     上面兩條人工流程的輸出目錄不受影響。某句沒有任何版本通過就不寫那一句，列出來並以非 0 結束。
 """
 
@@ -33,7 +35,7 @@ from buddy_host.speech.text_prep import prepare_sentences
 PHRASES: dict[int, tuple[str, str]] = {
     1: ("嗯嗯，讓我想一下。", "問答開頭"),
     2: ("喔，這個有意思，我想想看。", "問答開頭替換"),
-    3: ("嗯……我整理一下該怎麼講。", "答案還沒好時補一句"),
+    3: ("嗯，我整理一下該怎麼講。", "答案還沒好時補一句"),
     4: ("這個要查一下，會稍微久一點。", "需要上網查時"),
     6: ("我這邊訊號不太好，等連上了，我再接著講。", "連不上主機"),
     7: ("好，走吧，我陪你。", "按出發時"),
@@ -137,6 +139,9 @@ def auto_voice_phrases(
                 f"[{number}] seed={seed} cer={attempt.cer:.2f} "
                 f"{'OK' if passed else 'x ' + (attempt.rejected or '')}".rstrip()
             )
+            if passed and number in LEAD_FILLERS:  # 語氣詞有沒有唸出來要人耳聽：每個通過的都留著
+                candidate = SpeechResult(audio, sample_rate, [], 0.0)
+                write_outputs(candidate, out_dir / "candidates", f"{number}_seed{seed}")
             if passed and (best is None or (attempt.cer, len(audio)) < (best.cer, best.samples)):
                 best = _Best(attempt.cer, len(audio), seed, audio, attempt.hypothesis)
         if best is None:

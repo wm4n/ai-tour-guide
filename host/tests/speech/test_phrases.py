@@ -256,3 +256,27 @@ def test_phrases_that_start_with_a_filler_are_checked_after_the_filler(tmp_path)
     for number, (text, _) in PHRASES.items():  # 語氣詞真的是句子的開頭
         if number in LEAD_FILLERS:
             assert text.startswith(LEAD_FILLERS[number])
+
+
+def test_filler_phrases_keep_every_passing_version_as_a_candidate_to_listen_to(tmp_path):
+    scripted = {(spoken(3), 7): (0.2, 100, None)}  # 這個 seed 沒通過：不留
+    pipeline = ScriptedPipeline(scripted)
+
+    run_auto(tmp_path, pipeline, max_seeds=3)
+
+    folder = tmp_path / "F2@1.2" / "candidates"
+    assert sorted(p.name for p in folder.glob("*.wav")) == sorted(
+        [
+            f"{n}_seed{seed}.wav"
+            for n in LEAD_FILLERS
+            for seed in CANDIDATE_SEEDS[:3]
+            if (n, seed) != (3, 7)
+        ]
+    )
+
+
+def test_phrases_without_a_filler_leave_no_candidates(tmp_path):
+    run_auto(tmp_path, ScriptedPipeline(), max_seeds=3)
+
+    names = [p.name for p in (tmp_path / "F2@1.2" / "candidates").glob("*.wav")]
+    assert all(int(name.split("_")[0]) in LEAD_FILLERS for name in names)

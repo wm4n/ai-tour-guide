@@ -154,12 +154,13 @@ def auto_voice_phrases(
             "hypothesis": hypothesis,
         }
         report(f"[{number}] 採用 seed={seed} cer={cer:.2f} 長度={len(audio) / sample_rate:.2f}s")
-    if summary:
+    index = out_dir / "index.json"
+    if summary or (failed and index.exists()):
         out_dir.mkdir(parents=True, exist_ok=True)
-        index = out_dir / "index.json"
         previous = json.loads(index.read_text(encoding="utf-8")) if index.exists() else {}
+        kept = {k: v for k, v in previous.items() if int(k) not in failed}  # 失敗那句的舊記錄作廢
         index.write_text(
-            json.dumps({**previous, **summary}, ensure_ascii=False, indent=1), encoding="utf-8"
+            json.dumps({**kept, **summary}, ensure_ascii=False, indent=1), encoding="utf-8"
         )
     return failed
 

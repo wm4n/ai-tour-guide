@@ -1,3 +1,4 @@
+import json
 import wave
 
 import numpy as np
@@ -190,6 +191,8 @@ def test_a_phrase_that_fails_this_time_drops_the_old_file_so_the_voice_is_not_re
     assert failed == [3]
     assert not (folder / "3.wav").exists()
     assert phrases_ready(tmp_path, "F2@1.2") is False
+    index = json.loads((folder / "index.json").read_text(encoding="utf-8"))
+    assert "3" not in index and "1" in index  # 失敗那句的舊記錄也不留
 
 
 def test_phrases_are_ready_only_when_every_phrase_exists_for_the_current_speed(tmp_path):

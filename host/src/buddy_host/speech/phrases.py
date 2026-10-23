@@ -33,7 +33,7 @@ from buddy_host.speech.text_prep import prepare_sentences
 
 # 編號沿用設計文件 9.3；5（額度用完）與 8（恢復）已取消，改成畫面提示與自動繼續
 PHRASES: dict[int, tuple[str, str]] = {
-    1: ("嗯嗯，讓我想一下。", "問答開頭"),
+    1: ("好，讓我想一下。", "問答開頭"),
     2: ("喔，這個有意思，我想想看。", "問答開頭替換"),
     3: ("嗯，我整理一下該怎麼講。", "答案還沒好時補一句"),
     4: ("這個要查一下，會稍微久一點。", "需要上網查時"),
@@ -41,7 +41,7 @@ PHRASES: dict[int, tuple[str, str]] = {
     7: ("好，走吧，我陪你。", "按出發時"),
 }
 # 開頭是語氣詞的短句：Whisper 聽不準語氣詞，--auto 只驗語氣詞後面的字，語氣詞靠人耳聽
-LEAD_FILLERS = {1: "嗯嗯", 2: "喔", 3: "嗯"}
+LEAD_FILLERS = {2: "喔", 3: "嗯"}
 CANDIDATE_SEEDS = (1234, 7, 42, 2026, 99, 314, 777, 2468)
 WANTED = 3
 DEFAULT_MAX_SEEDS = 8

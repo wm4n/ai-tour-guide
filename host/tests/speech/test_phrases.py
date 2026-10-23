@@ -250,7 +250,7 @@ def test_phrases_that_start_with_a_filler_are_checked_after_the_filler(tmp_path)
 
     run_auto(tmp_path, pipeline, max_seeds=2)
 
-    assert {n for n in LEAD_FILLERS} == {1, 2, 3}
+    assert set(LEAD_FILLERS) == {2, 3}
     fillered = {text for text, _, _ in pipeline.filler_calls}
     assert fillered == {spoken(n) for n in LEAD_FILLERS}
     for number, (text, _) in PHRASES.items():  # 語氣詞真的是句子的開頭

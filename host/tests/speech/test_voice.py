@@ -83,7 +83,7 @@ def test_bad_settings_are_a_clear_error(tmp_path: Path, settings, message):
         load_reference(root)
 
 
-def test_original_voice_key_matches_narrations_cached_before_voices_were_recorded(tmp_path: Path):
-    from buddy_host.narration.preparer import ORIGINAL_VOICE_KEY
+def test_default_voice_key_matches_the_default_voice_at_original_speed(tmp_path: Path):
+    from buddy_host.narration.preparer import DEFAULT_VOICE_KEY
 
-    assert load_reference(make_voice(tmp_path / "F2")).key == ORIGINAL_VOICE_KEY
+    assert load_reference(make_voice(tmp_path / "F2")).key == DEFAULT_VOICE_KEY

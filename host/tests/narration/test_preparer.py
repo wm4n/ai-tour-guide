@@ -1,4 +1,5 @@
 import json
+import shutil
 from pathlib import Path
 
 import numpy as np
@@ -482,7 +483,27 @@ async def test_switching_voices_resynthesises_the_cached_script_without_claude(t
     assert parts["llm"].requests == []
     assert parts["speech"].texts == [old.script]
     assert new.script == old.script
-    assert json.loads(new.meta_path.read_text(encoding="utf-8"))["voice"] == "M1@1.2"
+    assert new.wav_path != old.wav_path
+    assert new.wav_path.parent.name == "M1@1.2"
+
+
+async def test_the_script_is_stored_once_per_place_and_the_audio_once_per_voice(tmp_path):
+    [a] = await make(tmp_path, [osm("霞海城隍廟", 100)], limit=1, voice_key="F2@1.2")[0].prepare(
+        HERE
+    )
+    [b] = await make(tmp_path, [osm("霞海城隍廟", 100)], limit=1, voice_key="M1@1.2")[0].prepare(
+        HERE
+    )
+
+    out = tmp_path / "out"
+    assert a.meta_path == b.meta_path == out / "osm_node_霞海城隍廟.meta.json"
+    assert a.wav_path == out / "F2@1.2" / "osm_node_霞海城隍廟.wav"
+    assert b.wav_path == out / "M1@1.2" / "osm_node_霞海城隍廟.wav"
+    assert a.wav_path.exists() and b.wav_path.exists()  # 兩個聲音的音檔並存
+    assert a.wav_path.with_suffix(".log.json").exists()  # 合成紀錄跟著音檔
+    meta = json.loads(a.meta_path.read_text(encoding="utf-8"))
+    assert meta["script"] == "你好，這是介紹稿。"
+    assert "voice" not in meta and "audio_seconds" not in meta  # 稿子與聲音無關
 
 
 async def test_after_resynthesis_the_new_voice_is_a_plain_cache_hit(tmp_path):
@@ -490,23 +511,88 @@ async def test_after_resynthesis_the_new_voice_is_a_plain_cache_hit(tmp_path):
     await make(tmp_path, [osm("霞海城隍廟", 100)], limit=1, voice_key="M1@1.2")[0].prepare(HERE)
 
     again, parts = make(tmp_path, [osm("霞海城隍廟", 100)], limit=1, voice_key="M1@1.2")
-    await again.prepare(HERE)
+    [hit] = await again.prepare(HERE)
 
     assert parts["llm"].requests == []
     assert parts["speech"].texts == []
+    assert hit.audio_seconds == 3.0  # 秒數從音檔讀，不靠與聲音無關的 meta
 
 
-async def test_narrations_cached_before_voices_were_recorded_count_as_the_original_voice(tmp_path):
-    [old] = await make(tmp_path, [osm("霞海城隍廟", 100)], limit=1)[0].prepare(HERE)
-    meta = json.loads(old.meta_path.read_text(encoding="utf-8"))
-    del meta["voice"]
-    old.meta_path.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+async def test_switching_back_to_an_earlier_voice_hits_its_audio(tmp_path):
+    preparer, parts = make(tmp_path, [osm("霞海城隍廟", 100)], limit=1, voice_key="F2@1.2")
+    [first] = await preparer.prepare(HERE)
+    preparer.voice_key = "M1@1.2"
+    await preparer.prepare(HERE)
+    parts["speech"].texts.clear()
+
+    preparer.voice_key = "F2@1.2"
+    [back] = await preparer.prepare(HERE)
+
+    assert back.wav_path == first.wav_path
+    assert parts["speech"].texts == []
+    assert len(parts["llm"].requests) == 1  # 全程只寫過一次稿
+
+
+async def test_the_voice_key_can_change_while_running(tmp_path):
+    preparer, parts = make(tmp_path, [osm("霞海城隍廟", 100)], limit=1)
+    await preparer.prepare(HERE)
+
+    preparer.voice_key = "M1@1.2"
+    [new] = await preparer.prepare(HERE)
+
+    assert parts["llm"].requests and len(parts["llm"].requests) == 1
+    assert parts["speech"].texts == ["你好，這是介紹稿。"] * 2  # 兩個聲音各合成一次
+    assert new.wav_path.parent.name == "M1@1.2"
+
+
+async def test_a_prepare_files_its_audio_under_the_voice_it_started_with(tmp_path):
+    preparer, parts = make(tmp_path, [osm("霞海城隍廟", 100)], limit=1, voice_key="F2@1.2")
+    original_run = parts["speech"].run
+
+    def switch_during_synthesis(text):
+        preparer.voice_key = "M1@1.2"  # 合成到一半，使用者換了聲音
+        return original_run(text)
+
+    parts["speech"].run = switch_during_synthesis
+
+    [made] = await preparer.prepare(HERE)
+
+    assert made.wav_path.parent.name == "F2@1.2"
+    assert not (tmp_path / "out" / "M1@1.2").exists()
+
+
+def write_legacy_cache(out, script="舊的稿子。", fingerprint=None):
+    """聲音可設定之前的平放格式：音檔與 meta 同一層，meta 裡有 voice、audio_seconds。"""
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "osm_node_霞海城隍廟.wav").write_bytes(b"RIFF-old")
+    meta = {
+        "candidate_id": "osm:node:霞海城隍廟",
+        "name": "霞海城隍廟",
+        "lat": HERE.lat,
+        "lon": HERE.lon,
+        "distance_m": 100.0,
+        "script": script,
+        "fingerprint": fingerprint,
+        "voice": "F2@1",
+        "audio_seconds": 99.0,
+    }
+    (out / "osm_node_霞海城隍廟.meta.json").write_text(json.dumps(meta, ensure_ascii=False))
+
+
+async def test_old_flat_audio_is_not_used_but_its_script_is_resynthesised(tmp_path):
+    seeded, _ = make(tmp_path, [osm("霞海城隍廟", 100)], limit=1)
+    [made] = await seeded.prepare(HERE)  # 先取得目前的指紋
+    fingerprint = json.loads(made.meta_path.read_text(encoding="utf-8"))["fingerprint"]
+    shutil.rmtree(tmp_path / "out")
+    write_legacy_cache(tmp_path / "out", fingerprint=fingerprint)
 
     again, parts = make(tmp_path, [osm("霞海城隍廟", 100)], limit=1)
-    await again.prepare(HERE)
+    [fresh] = await again.prepare(HERE)
 
-    assert parts["llm"].requests == []
-    assert parts["speech"].texts == []
+    assert parts["llm"].requests == []  # 稿子在快取裡：不呼叫 Claude
+    assert parts["speech"].texts == ["舊的稿子。"]  # 從稿子以目前聲音重新合成
+    assert fresh.wav_path != tmp_path / "out" / "osm_node_霞海城隍廟.wav"
+    assert fresh.audio_seconds == 3.0  # 不是舊 meta 裡的 99
 
 
 async def test_a_new_script_is_still_written_when_the_place_changed_its_fingerprint(tmp_path):
@@ -517,3 +603,22 @@ async def test_a_new_script_is_still_written_when_the_place_changed_its_fingerpr
     await switched.prepare(HERE)
 
     assert len(parts["llm"].requests) == 1
+
+
+async def test_audio_made_from_an_old_script_is_not_reused_after_the_script_is_rewritten(tmp_path):
+    """指紋變了、稿子重寫之後，別的聲音底下用舊稿合成的音檔不能再被當成命中。"""
+    preparer, parts = make(tmp_path, [osm("霞海城隍廟", 100)], limit=1, voice_key="F2@1.2")
+    await preparer.prepare(HERE)
+    preparer.voice_key = "M1@1.2"
+    await preparer.prepare(HERE)
+    (tmp_path / "buddy.md").write_text("你是小草。", encoding="utf-8")  # 個性檔改了：要重寫稿
+    parts["llm"].text = "全新的稿子。"
+    await preparer.prepare(HERE)  # M1 底下用新稿重新合成
+
+    parts["speech"].texts.clear()
+    preparer.voice_key = "F2@1.2"
+    [back] = await preparer.prepare(HERE)
+
+    assert back.script == "全新的稿子。"
+    assert parts["speech"].texts == ["全新的稿子。"]  # F2 的舊音檔作廢，用新稿重合成
+    assert len(parts["llm"].requests) == 2  # 切回 F2 沒有再寫稿

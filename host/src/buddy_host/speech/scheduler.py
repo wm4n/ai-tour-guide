@@ -5,6 +5,8 @@
 - 一個問答從開始回答（`answers.begin()`）到結束（`turn.end()`）整段持有優先權，包含等 Claude
   寫下一段的空檔：介紹不會趁機開始新單位，否則下一段問答就得再等一個介紹單位。
 - 問答依先後順序一個一個來，不會同時合成；介紹與問答、兩個介紹之間，也一次只合成一個單位。
+- 換聲音（`change_voice`）只記下來，等下一個合成單位開始前才真的換：正在合成的單位用舊聲音做完；
+  回答則是「一個問答」整個用同一個聲音，下一個問答才換。
 - 兩邊都在各自的執行緒裡呼叫（`asyncio.to_thread`），排程用 Condition 協調。
 """
 
@@ -12,6 +14,7 @@ import threading
 from contextlib import contextmanager
 
 from buddy_host.speech.pipeline import SpeechPipeline, SpeechResult
+from buddy_host.speech.voice import ReferenceVoice
 
 
 class TurnEnded(RuntimeError):
@@ -27,6 +30,7 @@ class AnswerTurn:
         self._ended = False
         self._running = False
         self._released = False
+        self._started = False
 
     def run(self, text: str) -> SpeechResult:
         """輪到這個問答、且介紹正在合成的單位做完之後才開始；等待中被 `end()` 就拋 TurnEnded。"""
@@ -42,6 +46,10 @@ class AnswerTurn:
                 raise TurnEnded("問答已結束")
             self._running = True
         try:
+            if not self._started:  # 一個問答整個用同一個聲音：只在它的第一段前套用待換的聲音
+                self._started = True
+                with scheduler._cond:
+                    scheduler._apply_pending_voice()
             return scheduler._pipeline.run(text, cap_pauses=True)  # 回答像聊天，不拖長停頓
         finally:
             with scheduler._cond:
@@ -90,6 +98,7 @@ class SpeechScheduler:
         self._served = 0  # 已經輪完的問答數（號碼牌依序輪）
         self._finished: set[int] = set()  # 已經做完、但前面還有人沒輪完的號碼牌
         self._narration_busy = False  # 有一個介紹單位正在合成
+        self._pending_voice: ReferenceVoice | None = None
         self.narration = _Narration(self)  # `run(text)`：主動介紹用，單位之間讓路
         self.answers = _Answers(self)  # `begin()`／`run(text)`：問答用，優先
 
@@ -98,6 +107,18 @@ class SpeechScheduler:
         """進行中或排隊中的問答數。"""
         with self._cond:
             return self._tickets - self._served
+
+    def change_voice(self, voice: ReferenceVoice) -> None:
+        """之後的合成改用這個聲音。不打斷任何東西：下一個介紹單位、或下一個問答開始前才生效；
+        連續呼叫以最後一次為準。"""
+        with self._cond:
+            self._pending_voice = voice
+
+    def _apply_pending_voice(self) -> None:
+        """（持有 `_cond`，而且沒有任何單位在合成）"""
+        if self._pending_voice is not None:
+            voice, self._pending_voice = self._pending_voice, None
+            self._pipeline.use_voice(voice)
 
     def run_narration(self, text: str) -> SpeechResult:
         return self._pipeline.run(text, unit_guard=self._narration_unit)
@@ -114,6 +135,8 @@ class SpeechScheduler:
             self._cond.wait_for(lambda: self._tickets == self._served and not self._narration_busy)
             self._narration_busy = True
         try:
+            with self._cond:  # 套用失敗也要走 finally，不然「忙碌中」永遠不會還原
+                self._apply_pending_voice()
             yield
         finally:
             with self._cond:

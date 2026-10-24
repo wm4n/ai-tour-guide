@@ -18,8 +18,13 @@ def install_speed(codec, speed: float) -> bool:
     這是上游 CosyVoice 的語速做法；kittenml 的 s3gen 留了註解但沒接上，所以這裡換掉
     `codec.decode`，其餘照抄 `S3Codec.decode`（tests/speech/test_engines.py 會在 kittenml
     改版時提醒）。speed 是 1 時完全不動，聲音輸出與函式庫原本一模一樣。
+
+    可以重複呼叫（換聲音時依新聲音的語速重設）：換成 1 會移除我們蓋在實例上的 decode，
+    回到函式庫原本的方法；只認得自己裝的，不動別人蓋上去的。
     """
     if speed == 1.0:
+        if getattr(vars(codec).get("decode"), "is_speed_patch", False):
+            del codec.decode
         return False
     if codec.student is not None:
         raise RuntimeError("語速調整不支援量化的 student 解碼器（decoder='default' 才能用）")
@@ -47,6 +52,7 @@ def install_speed(codec, speed: float) -> bool:
             wav[:, : len(s3gen.trim_fade)] *= s3gen.trim_fade  # 函式庫的淡入：避免參考聲音溢出
         return wav.squeeze().detach().cpu().float().numpy()
 
+    decode.is_speed_patch = True
     codec.decode = decode
     return True
 
@@ -61,6 +67,12 @@ class KittenSynthesizer:
         self._voice = voice
         self.sample_rate: int = self._tts.sample_rate
         install_speed(self._tts.codec, voice.speed)
+
+    def use_voice(self, voice: ReferenceVoice) -> None:
+        """換聲音：不必重載模型，參考音檔與逐字稿本來就是每次 generate() 傳入。
+        呼叫端（`SpeechScheduler`）保證只在合成單位之間呼叫。"""
+        install_speed(self._tts.codec, voice.speed)
+        self._voice = voice
 
     def synthesize(self, text: str, seed: int) -> np.ndarray:
         wav = self._tts.generate(

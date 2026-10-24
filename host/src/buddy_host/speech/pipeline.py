@@ -8,7 +8,7 @@ import time
 import wave
 from collections.abc import Callable
 from contextlib import AbstractContextManager, nullcontext
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Literal, Protocol
 
@@ -24,6 +24,7 @@ from buddy_host.speech.text_prep import (
     prepare_paragraphs,
     split_sentences,
 )
+from buddy_host.speech.voice import ReferenceVoice
 
 _PIECE_RE = re.compile(r"[^，、；：]+[，、；：]?")
 
@@ -141,6 +142,16 @@ class SpeechPipeline:
         self._clock = clock
         self._progress = progress
 
+    def use_voice(self, voice: ReferenceVoice) -> None:
+        """換成另一個聲音：合成器換參考聲音與語速，回答的停頓上限也跟著聲音。
+        只能在合成單位之間呼叫（`SpeechScheduler` 負責），不然正在合成的單位會被換掉。"""
+        switch = getattr(self._synth, "use_voice", None)
+        if switch is not None:
+            switch(voice)
+        self._config = replace(
+            self._config, answer_max_pause_seconds=voice.answer_max_pause_seconds
+        )
+
     def run(
         self,
         text: str,
@@ -229,6 +240,35 @@ class SpeechPipeline:
         t0 = self._clock()
         audio = np.asarray(self._synth.synthesize(text, seed), dtype=np.float32)
         return self.review(text, audio, seed=seed, synth_seconds=self._clock() - t0)
+
+    def attempt_after_lead_filler(
+        self, text: str, filler: str, seed: int
+    ) -> tuple[Attempt, np.ndarray]:
+        """開頭是語氣詞（嗯、喔）的短句：Whisper 常把語氣詞聽成別的字或漏掉，句首檢查驗不了。
+
+        只驗語氣詞後面的字：辨識結果開頭多出（或少掉）語氣詞那幾個字不算錯，後面照一般門檻比對。
+        語氣詞本身有沒有唸好，要靠人耳聽（呼叫端會把音檔留給人試聽）。
+        """
+        t0 = self._clock()
+        audio = np.asarray(self._synth.synthesize(text, seed), dtype=np.float32)
+        synth_seconds = self._clock() - t0
+        t1 = self._clock()
+        hypothesis, _ = self._transcribe(audio)
+        tail = normalize(text)[len(normalize(filler)) :]
+        heard = normalize(hypothesis)
+        allowance = len(normalize(filler)) + 1  # 語氣詞可能被聽成一兩個字
+        score = min(compute_cer(tail, heard[skip:]) for skip in range(allowance + 1))
+        audio, trimmed = trim_lead(audio, self._synth.sample_rate)
+        attempt = Attempt(
+            seed=seed,
+            cer=score,
+            hypothesis=hypothesis,
+            synth_seconds=synth_seconds,
+            check_seconds=self._clock() - t1,
+            audio_seconds=len(audio) / self._synth.sample_rate,
+            trimmed_seconds=trimmed,
+        )
+        return attempt, audio
 
     def review(
         self, text: str, audio: np.ndarray, *, seed: int = 0, synth_seconds: float = 0.0

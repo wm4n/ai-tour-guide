@@ -90,7 +90,27 @@ curl -s -H "X-Buddy-Token: <token>" http://100.x.y.z:8765/v1/status
 - [ ] 有 token 時 `/v1/status` 回得出來；不帶 token 回 401。
 - [ ] 用 iPhone Safari 開 `http://100.x.y.z:8765/health`（手機的 Tailscale 開著）：能看到回應，代表手機連得到這台 Mac。
 
-## 7. 真實模式與額度
+## 7. 為每個聲音產生固定短句（`--auto`）
+
+固定短句（「連不上主機」「我想想怎麼說比較好」等）是 App 在主機沒回應時也要能播的，而且要和介紹是同一個聲音、同一個語速。
+每個要出現在 App 清單上的聲音（資料夾裡有 `voice.toml` 的）都要在**這台**主機上各跑一次，由主機自動試多個 seed、
+挑通過驗收且最好的一版；**不要從 M3 或別台機器複製**，在當地重新合成、重新驗收。
+
+```bash
+cd ai-tour-guide/host
+for voice in <聲音資料夾名稱>…; do        # 每個有 voice.toml 的聲音各跑一次
+  uv run python -m buddy_host.speech.phrases --voice "$voice" --auto
+done
+```
+
+- [ ] 每個聲音都顯示「短句都已準備」，並且在 `~/.buddy-host/out/voice-phrases/<聲音>@<語速>/` 底下有 1、2、3、4、6、7 號的 `.wav`。
+- [ ] 某句沒有任何版本通過時，指令會列出那一句並以非 0 結束，那一句不會寫入、該聲音維持「短句未準備」；
+      加大 `--max-seeds`（預設 8）並用 `--only <編號>` 只重跑那一句（實測某聲音的 7 號句試到 20 個 seed 才有版本通過）。
+- [ ] 之後改了某個聲音 `voice.toml` 的 `speed`，那個聲音的短句要重新跑一次（資料夾名稱含語速，語速一變就視為未準備）。
+- 這是在本機 GPU 上合成與驗收，不呼叫任何付費 API；每個聲音在 M3 上約 15–50 分鐘（每句 8 個 seed，每個都要合成加轉寫驗收），可以放著跑。
+- 人工挑選的舊流程（`python -m buddy_host.speech.phrases` 不帶 `--auto`、`--finalize`、`scripts/install-phrases.sh`）維持原樣，輸出在別的資料夾。
+
+## 8. 真實模式與額度
 
 ```bash
 uv run python -m buddy_host --max-llm-calls 6
@@ -101,7 +121,7 @@ uv run python -m buddy_host --max-llm-calls 6
       這是會耗額度的真實呼叫，先決定次數再做。
 - [ ] 啟動後看 `~/.buddy-host/usage.jsonl` 有沒有記錄、`~/.buddy-host/out/reports/` 有沒有用量報告。
 
-## 8. 手機端（在開發用的筆電上做）
+## 9. 手機端（在開發用的筆電上做）
 
 不需要在家裡的 Mac 上做，列在這裡是為了一次看完整條流程：
 

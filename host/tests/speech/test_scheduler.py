@@ -1,10 +1,12 @@
 import threading
 import time
+from pathlib import Path
 
 import numpy as np
 
 from buddy_host.speech.pipeline import PipelineConfig, SpeechPipeline
 from buddy_host.speech.scheduler import SpeechScheduler
+from buddy_host.speech.voice import ReferenceVoice
 
 SR = 1000
 
@@ -340,3 +342,136 @@ def test_answers_cap_pauses_but_narration_keeps_them():
 
     assert len(story.audio) == 40 + 1500 + 40
     assert len(answer.audio) < 40 + 600 + 40
+
+
+class VoicedSynth(SlowSynth):
+    """記下每次合成當下用的是哪個聲音。"""
+
+    def __init__(self, delay=0.0):
+        super().__init__(delay)
+        self.voice = "A"
+        self.used: list[tuple[str, str]] = []
+
+    def use_voice(self, voice):
+        self.voice = voice.name
+
+    def synthesize(self, text, seed):
+        self.used.append((text, self.voice))
+        return super().synthesize(text, seed)
+
+
+def voiced(delay=0.0, **config):
+    synth = VoicedSynth(delay)
+    config.setdefault("opening_extra_seeds", ())
+    pipeline = SpeechPipeline(synth, PerfectRecognizer(synth), PipelineConfig(**config))
+    return SpeechScheduler(pipeline), synth
+
+
+def voice(name, max_pause=None):
+    return ReferenceVoice(Path(f"{name}.wav"), "稿", name, 1.0, max_pause)
+
+
+def test_a_voice_change_applies_to_the_next_narration_unit():
+    scheduler, synth = voiced()
+
+    scheduler.change_voice(voice("B"))
+    scheduler.narration.run(STORY)
+
+    assert {v for _, v in synth.used} == {"B"}
+
+
+def test_a_unit_being_synthesized_finishes_with_the_old_voice():
+    scheduler, synth = voiced()
+    synth.block("介紹第一段。")
+    story, out = in_thread(scheduler.narration.run, STORY)
+    assert synth.started["介紹第一段。"].wait(5)
+
+    scheduler.change_voice(voice("B"))
+    assert synth.voice == "A"  # 還在合成的單位不受影響
+    synth.blocked["介紹第一段。"].set()
+    story.join(5)
+
+    assert dict(synth.used) == {"介紹第一段。": "A", "介紹第二段。": "B", "介紹第三段。": "B"}
+
+
+def test_an_answer_in_progress_keeps_its_voice_until_the_next_question():
+    scheduler, synth = voiced()
+    turn = scheduler.answers.begin()
+    turn.run("答案的第一段。")
+
+    scheduler.change_voice(voice("B"))
+    turn.run("答案的第二段。")
+    turn.end()
+    scheduler.answers.run("下一個問題。")
+
+    assert synth.used == [
+        ("答案的第一段。", "A"),
+        ("答案的第二段。", "A"),
+        ("下一個問題。", "B"),
+    ]
+
+
+def test_the_answer_pause_cap_follows_the_current_voice():
+    scheduler, _ = voiced(paragraph_gap_seconds=1.5)
+    text = "甲乙丙。\n\n庚辛壬。"
+
+    uncapped = scheduler.answers.run(text)
+    scheduler.change_voice(voice("B", max_pause=0.45))
+    capped = scheduler.answers.run(text)
+    scheduler.change_voice(voice("C"))
+    uncapped_again = scheduler.answers.run(text)
+
+    assert len(uncapped.audio) == 40 + 1500 + 40
+    assert len(capped.audio) < 40 + 600 + 40
+    assert len(uncapped_again.audio) == 40 + 1500 + 40
+
+
+def test_the_last_change_before_a_unit_wins():
+    scheduler, synth = voiced()
+
+    scheduler.change_voice(voice("B"))
+    scheduler.change_voice(voice("C"))
+    scheduler.narration.run("介紹第一段。")
+
+    assert synth.used == [("介紹第一段。", "C")]
+
+
+class BrokenVoiceSynth(VoicedSynth):
+    def use_voice(self, voice):
+        raise RuntimeError("語速調整不支援這個解碼器")
+
+
+def test_a_voice_that_cannot_be_applied_does_not_deadlock_narration():
+    synth = BrokenVoiceSynth()
+    pipeline = SpeechPipeline(
+        synth, PerfectRecognizer(synth), PipelineConfig(opening_extra_seeds=())
+    )
+    scheduler = SpeechScheduler(pipeline)
+    scheduler.change_voice(voice("B"))
+
+    story, out = in_thread(scheduler.narration.run, "介紹第一段。")
+    story.join(5)
+    assert isinstance(out["error"], RuntimeError)
+
+    again, out = in_thread(scheduler.narration.run, "介紹第一段。")  # 壞聲音只失敗一次，不卡住排程
+    again.join(5)
+    assert "result" in out
+
+
+def test_a_voice_that_cannot_be_applied_does_not_deadlock_answers():
+    synth = BrokenVoiceSynth()
+    pipeline = SpeechPipeline(
+        synth, PerfectRecognizer(synth), PipelineConfig(opening_extra_seeds=())
+    )
+    scheduler = SpeechScheduler(pipeline)
+    scheduler.change_voice(voice("B"))
+
+    turn = scheduler.answers.begin()
+    try:
+        turn.run(ANSWER)
+    except RuntimeError:
+        pass
+    turn.end()
+
+    assert scheduler.pending_answers == 0
+    assert scheduler.answers.run(ANSWER_2).audio_seconds > 0

@@ -1,4 +1,5 @@
 import json
+import wave
 
 from buddy_host.places.models import Location
 from buddy_host.tour.replay import ReplayPreparer
@@ -52,3 +53,28 @@ async def test_limit_caps_the_number_of_narrations(tmp_path):
 
 async def test_a_missing_directory_means_nothing_to_replay(tmp_path):
     assert await ReplayPreparer(tmp_path / "nope").prepare(HERE) == []
+
+
+async def test_replays_narrations_stored_per_voice(tmp_path):
+    """快取改成「稿子一份、音檔依聲音分開」之後，重播也要找得到音檔與秒數。"""
+    meta = {
+        "candidate_id": "wiki:新",
+        "name": "新",
+        "lat": 25.0562,
+        "lon": 121.5100,
+        "script": "新的稿子",
+        "distance_m": 0,
+    }
+    (tmp_path / "新.meta.json").write_text(json.dumps(meta, ensure_ascii=False))
+    voice_dir = tmp_path / "F2@1.2"
+    voice_dir.mkdir()
+    with wave.open(str(voice_dir / "新.wav"), "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(1000)
+        wav.writeframes(b"\0\0" * 2500)
+
+    [found] = await ReplayPreparer(tmp_path).prepare(HERE)
+
+    assert found.wav_path == voice_dir / "新.wav"
+    assert found.audio_seconds == 2.5

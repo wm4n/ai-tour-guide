@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 from buddy_host.speech.pipeline import PipelineConfig, SpeechPipeline, write_outputs
+from buddy_host.speech.voice import ReferenceVoice
 
 SR = 1000
 
@@ -600,3 +601,84 @@ def test_answers_keep_their_pauses_for_a_voice_without_a_cap():
     result = pipeline.run(TWO_PARAGRAPHS, cap_pauses=True)
 
     assert len(result.audio) == 40 + 1500 + 40
+
+
+def test_a_new_voice_changes_the_answer_pause_cap_and_reaches_the_synthesizer():
+    pipeline, synth = make(chunk_chars=4, paragraph_gap_seconds=1.5, answer_max_pause_seconds=0.45)
+    switched = []
+    synth.use_voice = switched.append
+    capped = ReferenceVoice(Path("a.wav"), "稿", "M1", 1.0, 0.45)
+    uncapped = ReferenceVoice(Path("b.wav"), "稿", "F2", 1.0, None)
+
+    pipeline.use_voice(uncapped)
+    after_uncapped = pipeline.run(TWO_PARAGRAPHS, cap_pauses=True)
+    pipeline.use_voice(capped)
+    after_capped = pipeline.run(TWO_PARAGRAPHS, cap_pauses=True)
+
+    assert switched == [uncapped, capped]
+    assert len(after_uncapped.audio) == 40 + 1500 + 40
+    assert len(after_capped.audio) == pytest.approx(40 + 450 + 40, abs=2 * 43)
+
+
+def test_a_synthesizer_that_cannot_switch_voices_still_follows_the_pause_cap():
+    pipeline, _ = make(chunk_chars=4, paragraph_gap_seconds=1.5)
+
+    pipeline.use_voice(ReferenceVoice(Path("a.wav"), "稿", "M1", 1.0, 0.45))
+
+    result = pipeline.run(TWO_PARAGRAPHS, cap_pauses=True)
+    assert len(result.audio) == pytest.approx(40 + 450 + 40, abs=2 * 43)
+
+
+# --- 開頭是語氣詞（嗯、喔）的短句：Whisper 常把它聽成別的字，只驗語氣詞後面的字 -----------
+
+
+def heard(pipeline, what):
+    """讓辨識器固定聽成 what。"""
+    pipeline._asr = type("Heard", (), {"transcribe": lambda self, audio, rate: what})()
+
+
+def test_a_lead_filler_misheard_as_another_word_does_not_fail_the_phrase():
+    pipeline, _ = make()
+    heard(pipeline, "请这个有意思我想想看")  # 「喔」被聽成「请」
+
+    attempt, audio = pipeline.attempt_after_lead_filler("喔，這個有意思，我想想看。", "喔", 1234)
+
+    assert attempt.cer == 0.0
+    assert attempt.rejected is None
+    assert len(audio) > 0
+
+
+def test_a_lead_filler_that_is_dropped_by_the_recognizer_is_fine_too():
+    pipeline, _ = make()
+    heard(pipeline, "這個有意思我想想看")
+
+    attempt, _ = pipeline.attempt_after_lead_filler("喔，這個有意思，我想想看。", "喔", 1234)
+
+    assert attempt.cer == 0.0
+
+
+def test_the_words_after_the_filler_are_still_checked():
+    pipeline, _ = make()
+    heard(pipeline, "请这个有意思我想吃饭")  # 後面的字唸錯了
+
+    attempt, _ = pipeline.attempt_after_lead_filler("喔，這個有意思，我想想看。", "喔", 1234)
+
+    assert attempt.cer > pipeline.threshold_for("喔，這個有意思，我想想看。")
+
+
+def test_only_a_filler_sized_amount_of_extra_leading_text_is_forgiven():
+    pipeline, _ = make()
+    heard(pipeline, "好的好的好的這個有意思我想想看")  # 句首多了一大串，不是語氣詞造成的
+
+    attempt, _ = pipeline.attempt_after_lead_filler("喔，這個有意思，我想想看。", "喔", 1234)
+
+    assert attempt.cer > 0.05
+
+
+def test_a_double_filler_with_an_ellipsis_in_the_middle():
+    pipeline, _ = make()
+    heard(pipeline, "嗯我整理一下該怎麼講")
+
+    attempt, _ = pipeline.attempt_after_lead_filler("嗯……我整理一下該怎麼講。", "嗯", 1234)
+
+    assert attempt.cer == 0.0

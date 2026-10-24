@@ -1,9 +1,12 @@
 import inspect
+from pathlib import Path
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
-from buddy_host.speech.engines import install_speed
+from buddy_host.speech.engines import KittenSynthesizer, install_speed
+from buddy_host.speech.voice import ReferenceVoice
 
 
 def test_original_speed_leaves_the_library_decoder_untouched():
@@ -79,3 +82,114 @@ def test_the_kittenml_internals_we_rely_on_are_still_there():
     assert {"speech_feat", "cache_source"} <= set(hift)
     assert "trim_fade" in inspect.getsource(s3gen.S3Token2Wav.__init__)
     assert vocoder.CFM_TIMESTEPS == 2
+
+
+class LibraryCodec:
+    """函式庫的 S3Codec：decode 是類別上的方法，語速調整把它蓋在實例上。"""
+
+    student = None
+
+    def __init__(self):
+        self.s3gen = None
+        self.device = "cpu"
+
+    def decode(self, ref_conditioning, audio_ids):
+        return "library"
+
+
+def test_switching_back_to_original_speed_restores_the_library_decoder():
+    codec = LibraryCodec()
+
+    assert install_speed(codec, 1.2) is True
+    assert "decode" in vars(codec)
+    assert install_speed(codec, 1.0) is False
+
+    assert "decode" not in vars(codec)
+    assert codec.decode(None, []) == "library"
+
+
+def test_speed_can_go_1_2_then_1_0_then_1_2_again():
+    codec = LibraryCodec()
+
+    install_speed(codec, 1.2)
+    first = codec.decode
+    install_speed(codec, 1.0)
+    install_speed(codec, 1.2)
+
+    assert "decode" in vars(codec)
+    assert codec.decode is not first  # 重新裝一份，不殘留舊的
+    assert codec.decode is not LibraryCodec.decode
+
+
+def test_resetting_to_original_speed_only_removes_our_own_decoder():
+    foreign = object()
+    codec = SimpleNamespace(decode=foreign, student=None)
+
+    install_speed(codec, 1.0)
+
+    assert codec.decode is foreign
+
+
+def test_changing_speed_replaces_the_previous_speed_up():
+    torch = pytest.importorskip("torch")
+    s3gen = FakeS3Gen(torch)
+    codec = SimpleNamespace(student=None, s3gen=s3gen, device="cpu")
+
+    install_speed(codec, 1.2)
+    install_speed(codec, 2.0)
+    codec.decode({}, [5] * 57)
+
+    assert s3gen.mel_frames == round((57 + 3) * 2 / 2.0)
+
+
+class FakeTts:
+    sample_rate = 24000
+
+    def __init__(self):
+        self.codec = LibraryCodec()
+        self.calls: list[dict] = []
+
+    def generate(self, text, **kwargs):
+        self.calls.append(kwargs)
+        return [0.0, 0.1]
+
+
+def make_synthesizer(voice):
+    """不載入真正的 KittenTTS：只測「換聲音」這層，所以繞過建構子。"""
+    synth = object.__new__(KittenSynthesizer)
+    synth._tts = FakeTts()
+    synth._voice = voice
+    synth.sample_rate = 24000
+    install_speed(synth._tts.codec, voice.speed)
+    return synth
+
+
+def reference(name, speed=1.0):
+    return ReferenceVoice(Path(f"/voices/{name}/ref_24k.wav"), f"{name}的參考逐字稿", name, speed)
+
+
+def test_the_next_synthesis_uses_the_new_reference_voice():
+    synth = make_synthesizer(reference("F2"))
+
+    synth.synthesize("你好。", seed=1)
+    synth.use_voice(reference("M1"))
+    audio = synth.synthesize("你好。", seed=1)
+
+    first, second = synth._tts.calls
+    assert first["reference"].endswith("F2/ref_24k.wav")
+    assert first["reference_text"] == "F2的參考逐字稿"
+    assert second["reference"].endswith("M1/ref_24k.wav")
+    assert second["reference_text"] == "M1的參考逐字稿"
+    assert audio.dtype == np.float32
+
+
+def test_switching_voice_resets_speed_to_the_new_voice():
+    synth = make_synthesizer(reference("F2", speed=1.2))
+    sped_up = synth._tts.codec.decode
+
+    synth.use_voice(reference("M1", speed=1.0))
+    assert "decode" not in vars(synth._tts.codec)  # 原速的聲音不留舊的加速
+
+    synth.use_voice(reference("F2", speed=1.2))
+    assert synth._tts.codec.decode is not sped_up
+    assert "decode" in vars(synth._tts.codec)

@@ -52,10 +52,15 @@ answer_max_pause_seconds = 0.45  # 只有回答問題時，超過這個長度的
   被問題打斷時找句子開頭的 `unit_starts` 也照舊。靜音的判斷與 `librosa.effects.split` 相同
   （以整段最大音量為準，低於 35 dB），說話的部分一個取樣都不動，開頭與結尾各留上限的一半。
 - **沒有 `voice.toml` 的聲音一切照舊**：原速（完全走 kittenml 原本的解碼）、不壓停頓。
-- **換聲音**：改 `config.toml` 的 `voice` 後重新啟動。快取的介紹稿子還能用，只是要用新聲音重新合成，
-  不會再呼叫 Claude（meta 記著聲音與語速，例如 `F2@1`、`M1@1.2`；舊 meta 沒記的視為 `F2@1`）。
-  App 內建的固定短句（`app/assets/phrases/`）不會跟著換，要用新聲音重跑 `buddy_host.speech.phrases`
-  並重新 build App。
+- **換聲音**：改 `config.toml` 的 `voice` 後重新啟動。介紹快取是「稿子與聲音無關、音檔依聲音分開」：
+  `out/narrations/<景點>.meta.json` 每個景點一份（稿子與指紋），音檔與合成紀錄放
+  `out/narrations/<聲音鍵>/`（聲音鍵＝`名稱@語速`，如 `F2@1.2`）。換聲音只重新合成、不會再呼叫 Claude；
+  切回用過的聲音直接命中。聲音可設定之前留下的平放音檔不再使用，用到時從稿子重新合成。
+- **固定短句**：App 內建的（`app/assets/phrases/`）不會跟著換。每個聲音的短句用
+  `python -m buddy_host.speech.phrases --voice <聲音> --auto` 自動產生（每句試多個 seed，
+  挑通過驗收、CER 最低且較短的一版），放在 `out/voice-phrases/<聲音鍵>/<編號>.wav`；
+  改了語速，聲音鍵就變、要重新產生。某句沒有版本通過時不寫入、列出該句並以非 0 結束
+  （`--max-seeds` 可加大）。人工挑選的舊流程（不帶 `--auto`、`--finalize`）維持原樣。
 
 ### 實測（M3／16 GB，2026-10-19）
 

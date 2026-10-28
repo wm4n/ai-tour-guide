@@ -14,6 +14,7 @@
   brew install uv git
   brew install --cask tailscale-app     # 完整的 Mac App（選單列、登入畫面）；formula 的 `tailscale` 只有命令列
   ```
+  `tailscale-app` 會跑系統安裝程式、要輸入 sudo 密碼：在自己的終端機執行，agent 沒辦法代裝。
 - [ ] Claude Code CLI（主機以 `claude -p` 呼叫它）：依官方文件安裝，確認 `claude --version` 有輸出。
 - [ ] 確認 Python 3.12 可用：`uv python install 3.12`（`uv sync` 會自己處理，但先裝可以早點發現網路問題）。
 
@@ -30,7 +31,7 @@
 ## 3. 程式碼與相依套件
 
 ```bash
-git clone git@github.com:wm4n/ai-tour-guide.git
+git clone git@github.com:wm4n/ai-tour-guide.git   # 這台沒設 SSH key 就用 https://github.com/wm4n/ai-tour-guide.git
 cd ai-tour-guide/host
 uv sync --group speech      # 含 torch、KittenTTS 2、Whisper，約數 GB，要一段時間
 uv run pytest -q            # 全綠才往下（不需要 GPU 或網路以外的東西）
@@ -38,20 +39,23 @@ uv run pytest -q            # 全綠才往下（不需要 GPU 或網路以外的
 
 - [ ] `uv sync --group speech` 成功。
 - [ ] `uv run pytest -q` 全過。
-- [ ] 第一次真正合成時會下載 KittenTTS 與 Whisper 的模型（Whisper 存在 `~/.buddy-host/cache/`），這台 Mac 需要能連外網；
-      建議先跑一次語音合成確認（見第 6 節）。
+- [ ] 第一次真正合成時會下載 KittenTTS（約 2 GB，存在 `~/.cache/huggingface/`）與 Whisper（約 460 MB，存在
+      `~/.buddy-host/cache/`）的模型，這台 Mac 需要能連外網；M6 上約 2 分鐘。第 7 節的第一個聲音會順便下載。
 
 ## 4. 機密與設定（`~/.buddy-host/`，不入 repo）
 
 ```bash
-mkdir -p ~/.buddy-host/voice/F2
+mkdir -p ~/.buddy-host/voice
 chmod 700 ~/.buddy-host
 ```
 
 - [ ] **Claude token**：在這台 Mac 上執行 `claude setup-token`（需要 Claude Pro 訂閱），把印出的 token 存成
       `~/.buddy-host/claude-token`，權限 `chmod 600`。建議在這台重新產生，不要從別台複製。
-- [ ] **參考聲音**：把 `ref_24k.wav` 與 `ref_text.txt`（逐字稿，缺了會直接報錯）放進 `~/.buddy-host/voice/F2/`。
-      這兩個檔不入 repo，用隨身碟或 AirDrop 從原本的機器搬；搬完刪掉中間的副本。
+- [ ] **參考聲音**：每個聲音一個資料夾 `~/.buddy-host/voice/<名稱>/`（名稱和原本那台完全一樣，短句目錄以它命名），
+      各放三個檔：`ref_24k.wav`、`ref_text.txt`（逐字稿，缺了會直接報錯）、`voice.toml`（語速等；有它的聲音才會出現在
+      App 清單、第 7 節才要跑）。在原本那台用 `ls ~/.buddy-host/voice/*/voice.toml` 列出要搬哪些；資料夾裡其他檔不用搬。
+      這些檔不入 repo，用隨身碟或 AirDrop 從原本的機器搬；搬完刪掉中間的副本，再 `chmod -R go-rwx ~/.buddy-host/voice`。
+      Finder 拖放會留下 `.DS_Store`，目前不影響。
 - [ ] **App 連線 token**：產生一組隨機字串並記下來，等一下要填進 App：
   ```bash
   openssl rand -hex 16
@@ -105,9 +109,25 @@ done
 
 - [ ] 每個聲音都顯示「短句都已準備」，並且在 `~/.buddy-host/out/voice-phrases/<聲音>@<語速>/` 底下有 1、2、3、4、6、7 號的 `.wav`。
 - [ ] 某句沒有任何版本通過時，指令會列出那一句並以非 0 結束，那一句不會寫入、該聲音維持「短句未準備」；
-      加大 `--max-seeds`（預設 8）並用 `--only <編號>` 只重跑那一句（實測某聲音的 7 號句試到 20 個 seed 才有版本通過）。
+      加大 `--max-seeds`（預設 8）並用 `--only <編號>` 只重跑那一句（實測某聲音的 7 號句試到 20 個 seed 才有版本通過）：
+      ```bash
+      uv run python -m buddy_host.speech.phrases --voice "$voice" --auto --only 2 6 --max-seeds 20
+      ```
+      試到 20 個還是沒過，那個聲音就維持「短句未準備」（主機照常運作，App 會警示）。
+      沒過的版本常見的樣子：短句被生成成 7–10 秒，Whisper 在多出來的雜音上寫出「請不吝點贊訂閱…」之類的幻覺字幕，
+      或只聽出開頭一個字。這是真的合成失敗，加 seed 是對的；只差一個字（例如多音字）時要先聽，分辨唸錯還是指標誤判。
+- [ ] **試聽 2、3 號句**（開頭是語氣詞「喔」「嗯」，機器驗不準）：通過的版本都在 `<聲音>@<語速>/candidates/<編號>_seed<seed>.wav`。
+      採用版本的轉寫在同資料夾的 `index.json`；語氣詞沒被聽出來（例如「喔」寫成「我」、或轉寫沒有「嗯」）的優先聽。
+      要換成別的候選，把它複製過去即可（是否已準備只看 `<編號>.wav` 在不在）：
+      ```bash
+      cd ~/.buddy-host/out/voice-phrases/<聲音>@<語速>
+      cp candidates/2_seed99.wav 2.wav && cp candidates/2_seed99.log.json 2.log.json
+      ```
+      長度明顯比別的聲音長的句子（例如 1 號超過 3 秒）也順便聽一下尾巴。
 - [ ] 之後改了某個聲音 `voice.toml` 的 `speed`，那個聲音的短句要重新跑一次（資料夾名稱含語速，語速一變就視為未準備）。
-- 這是在本機 GPU 上合成與驗收，不呼叫任何付費 API；每個聲音在 M3 上約 15–50 分鐘（每句 8 個 seed，每個都要合成加轉寫驗收），可以放著跑。
+- 這是在本機 GPU 上合成與驗收，不呼叫任何付費 API；每句 8 個 seed，每個都要合成加轉寫驗收，可以放著跑。
+  實測每個聲音：M3 約 15–50 分鐘；M6 約 3–6 分鐘（每個 seed 7–10 秒；`--max-seeds 20` 重跑每句約 2.5–3 分鐘），
+  四個聲音含重跑約 36 分鐘。
 - 人工挑選的舊流程（`python -m buddy_host.speech.phrases` 不帶 `--auto`、`--finalize`、`scripts/install-phrases.sh`）維持原樣，輸出在別的資料夾。
 
 ## 8. 真實模式與額度
@@ -137,6 +157,6 @@ uv run python -m buddy_host --max-llm-calls 6
 | App 顯示「連不上主機」 | 手機或 Mac 的 Tailscale 沒開；`listen_host` 不是這台目前的 `100.x`；主機沒在跑；Mac 睡著了 |
 | App 顯示「token 不正確」 | App 的 Token 和 `config.toml` 的 `token` 不一致（注意前後空白） |
 | 主機啟動就報 `listen_host 只能是…` | 填了 `0.0.0.0` 或區網位址；改成 Tailscale 位址 |
-| 合成報「找不到參考聲音」 | `~/.buddy-host/voice/F2/` 缺 `ref_24k.wav` 或 `ref_text.txt` |
+| 合成報「找不到參考聲音」 | `~/.buddy-host/voice/<名稱>/` 缺 `ref_24k.wav` 或 `ref_text.txt`；名稱和 `--voice`／`config.toml` 的 `voice` 不一致 |
 | Claude 呼叫報找不到 token | `~/.buddy-host/claude-token` 不存在或是空的 |
 | 防火牆詢問是否允許連入 | 允許（只有 tailnet 內的裝置連得到）|

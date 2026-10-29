@@ -137,7 +137,9 @@ class AreaPreparer:
         on_ready: Callable[[PreparedNarration], None] | None = None,
     ) -> list[PreparedNarration]:
         """on_ready：每做好一段就呼叫（合成很慢，呼叫端不必等整批）。"""
-        voice_key = self.voice_key  # 這一批從頭到尾歸在同一個聲音底下，中途換聲音不會把音檔放錯地方
+        voice_key = (
+            self.voice_key
+        )  # 這一批從頭到尾歸在同一個聲音底下；中途換了聲音，剩下的只存稿不合成
         ranked = await self._ranked(
             location, self._limit, exclude_ids=exclude_ids, recent_themes=recent_themes
         )
@@ -342,17 +344,13 @@ class AreaPreparer:
             logger.warning("%s 的稿子仍有非台灣用語：%s", candidate.name, issues)
         return script, issues
 
-    async def _synthesize(
-        self, item: Ranked, script: str, fingerprint: str, issues: list[Finding], voice_key: str
-    ) -> PreparedNarration | None:
+    def _save_script(
+        self, item: Ranked, script: str, fingerprint: str, issues: list[Finding]
+    ) -> tuple[Path, dict]:
+        """稿子與指紋（每個景點一份、與聲音無關）；稿子換了，各聲音的舊音檔一起作廢。"""
         candidate = item.candidate
-        speech = await asyncio.to_thread(self._speech.run, script)
-        if speech.audio_seconds <= 0:
-            return None
-
-        wav, meta_path = self._wav_path(candidate, voice_key), self._meta_path(candidate)
+        meta_path = self._meta_path(candidate)
         self._discard_audio_of_other_scripts(candidate, fingerprint)
-        write_speech(speech, wav.parent, wav.stem)  # 音檔與合成紀錄依聲音分開
         meta = {
             "candidate_id": candidate.id,
             "name": candidate.name,
@@ -367,7 +365,29 @@ class AreaPreparer:
             "wording_issues": [{"term": f.term, "suggestion": f.suggestion} for f in issues],
             "prepared_at": datetime.now(UTC).isoformat(),
         }
+        meta_path.parent.mkdir(parents=True, exist_ok=True)
         meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
+        return meta_path, meta
+
+    async def _synthesize(
+        self, item: Ranked, script: str, fingerprint: str, issues: list[Finding], voice_key: str
+    ) -> PreparedNarration | None:
+        candidate = item.candidate
+        if self.voice_key != voice_key:
+            # 這一批開始後換了聲音：稿子先存起來（之後用新聲音合成、不再呼叫 Claude），不合成
+            self._save_script(item, script, fingerprint, issues)
+            return None
+        speech = await asyncio.to_thread(self._speech.run, script)
+        if self.voice_key != voice_key:
+            # 合成器在單位之間換聲音：這段可能前後是不同聲音，不當任何一個聲音的快取、也不播
+            self._save_script(item, script, fingerprint, issues)
+            return None
+        if speech.audio_seconds <= 0:
+            return None
+
+        meta_path, meta = self._save_script(item, script, fingerprint, issues)
+        wav = self._wav_path(candidate, voice_key)
+        write_speech(speech, wav.parent, wav.stem)  # 音檔與合成紀錄依聲音分開
         return PreparedNarration(
             candidate.id, candidate.name, script, wav, meta_path,
             round(speech.audio_seconds, 2), meta["distance_m"], candidate.lat, candidate.lon,

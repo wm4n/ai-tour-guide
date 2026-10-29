@@ -8,6 +8,7 @@
 """
 
 import argparse
+import dataclasses
 import sys
 from pathlib import Path
 
@@ -16,6 +17,8 @@ import uvicorn
 from buddy_host.app import create_app
 from buddy_host.config import default_home, load_config
 from buddy_host.llm.claude_cli import ClaudeSettings
+from buddy_host.speech.phrases import warn_if_phrases_missing
+from buddy_host.speech.voice import read_current_voice
 
 PERSONA = Path(__file__).resolve().parents[2] / "config" / "buddy.md"
 DAY = 24 * 3600
@@ -32,7 +35,7 @@ def open_photo_store():
 
 
 def build_real_services(max_llm_calls: int, voice_name: str):
-    """回傳（介紹準備器, 問答服務的工廠）；兩邊共用同一個有上限的 Claude 客戶端。"""
+    """回傳（介紹準備器, 問答服務的工廠, 換聲音）；兩邊共用同一個有上限的 Claude 客戶端。"""
     import httpx2
     import truststore
 
@@ -88,7 +91,12 @@ def build_real_services(max_llm_calls: int, voice_name: str):
         service.clear_stored_audio()  # 上次執行留下的答案音檔
         return service
 
-    return preparer, answerer
+    def change_voice(new_voice):
+        # 合成器在下一個合成單位才換；之後準備的介紹音檔放到新聲音的快取底下
+        speech.change_voice(new_voice)
+        preparer.voice_key = new_voice.key
+
+    return preparer, answerer, change_voice
 
 
 def main() -> None:
@@ -102,8 +110,13 @@ def main() -> None:
         sys.exit("--replay-dir 與 --max-llm-calls 擇一")
 
     config = load_config()
+    home = default_home()
+    # App 最後選的聲音（voice/current）優先於 config.toml；只在這裡解析一次
+    config = dataclasses.replace(config, voice=read_current_voice(home, config.voice))
+    warn_if_phrases_missing(home, config.voice)
     preparer = None
     answerer = None
+    change_voice = None
     if args.replay_dir:
         from buddy_host.qa.replay import CannedLlm, NoNearby, ToneSpeech
         from buddy_host.qa.service import QaService
@@ -126,9 +139,8 @@ def main() -> None:
             return service
 
     elif args.max_llm_calls is not None:
-        preparer, answerer = build_real_services(args.max_llm_calls, config.voice)
+        preparer, answerer, change_voice = build_real_services(args.max_llm_calls, config.voice)
 
-    home = default_home()
     app = create_app(
         config,
         preparer,
@@ -138,6 +150,7 @@ def main() -> None:
         # 重播模式只在桌上跑通流程，不寫進真實的「講過哪些地方」
         journey_path=None if args.replay_dir else home / "journey.json",
         answerer_factory=answerer,
+        on_voice_change=change_voice,
     )
     uvicorn.run(app, host=config.listen_host, port=config.listen_port)
 

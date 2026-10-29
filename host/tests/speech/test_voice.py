@@ -2,7 +2,13 @@ from pathlib import Path
 
 import pytest
 
-from buddy_host.speech.voice import VoiceError, list_voices, load_reference
+from buddy_host.speech.voice import (
+    VoiceError,
+    list_voices,
+    load_reference,
+    read_current_voice,
+    save_current_voice,
+)
 
 
 def make_voice(root: Path, *, wav: bool = True, text: str | None = "你好，這是參考聲音。") -> Path:
@@ -137,3 +143,35 @@ def test_a_broken_voice_toml_hides_only_that_voice(tmp_path: Path):
 
 def test_no_voices_folder_lists_nothing(tmp_path: Path):
     assert list_voices(tmp_path / "voice") == []
+
+
+def test_without_a_saved_choice_the_configured_voice_is_current(tmp_path: Path):
+    assert read_current_voice(tmp_path, "F2") == "F2"
+
+
+def test_the_last_choice_survives_a_restart(tmp_path: Path):
+    make_voice(tmp_path / "voice" / "M1")
+
+    save_current_voice(tmp_path, "M1")
+
+    assert read_current_voice(tmp_path, "F2") == "M1"
+    assert (tmp_path / "voice" / "current").read_text(encoding="utf-8") == "M1\n"
+
+
+def test_saving_leaves_no_temporary_file_and_is_not_listed_as_a_voice(tmp_path: Path):
+    (make_voice(tmp_path / "voice" / "M1") / "voice.toml").write_text("")
+
+    save_current_voice(tmp_path, "M1")
+    save_current_voice(tmp_path, "M1")
+
+    assert sorted(p.name for p in (tmp_path / "voice").iterdir()) == ["M1", "current"]
+    assert [v.name for v in list_voices(tmp_path / "voice")] == ["M1"]
+
+
+@pytest.mark.parametrize("saved", ["gone\n", "\n", "../etc\n", "a/b\n"])
+def test_a_saved_choice_that_is_not_a_voice_falls_back_to_the_config(tmp_path: Path, caplog, saved):
+    (tmp_path / "voice").mkdir()
+    (tmp_path / "voice" / "current").write_text(saved, encoding="utf-8")
+
+    assert read_current_voice(tmp_path, "F2") == "F2"
+    assert "voice/current" in caplog.text

@@ -12,6 +12,7 @@ from buddy_host.speech.phrases import (
     phrases_ready,
     seed_sequence,
     voice_phrases_dir,
+    warn_if_phrases_missing,
 )
 from buddy_host.speech.pipeline import Attempt, PipelineConfig, SpeechPipeline
 from buddy_host.speech.text_prep import prepare_sentences
@@ -302,3 +303,35 @@ def test_among_equal_filler_versions_the_one_where_the_filler_was_heard_wins_ove
     run_auto(tmp_path, pipeline)
 
     assert frames(tmp_path / "F2@1.2" / "3.wav") == 400
+
+
+def _voice_with_phrases(home, name, *, speed="1.2", numbers=tuple(PHRASES)):
+    folder = home / "voice" / name
+    folder.mkdir(parents=True)
+    (folder / "voice.toml").write_text(f"speed = {speed}\n")
+    phrases = voice_phrases_dir(home, f"{name}@{speed}")
+    phrases.mkdir(parents=True)
+    for number in numbers:
+        (phrases / f"{number}.wav").write_bytes(b"RIFF")
+
+
+def test_no_warning_when_the_current_voice_has_its_phrases(tmp_path, caplog):
+    _voice_with_phrases(tmp_path, "M1")
+
+    assert warn_if_phrases_missing(tmp_path, "M1") is True
+    assert caplog.text == ""
+
+
+def test_warns_loudly_when_the_current_voice_lacks_phrases(tmp_path, caplog):
+    _voice_with_phrases(tmp_path, "M1", numbers=[1, 2])
+
+    assert warn_if_phrases_missing(tmp_path, "M1") is False
+    assert "M1" in caplog.text
+    assert "--voice M1 --auto" in caplog.text
+
+
+def test_warns_when_the_current_voice_has_no_voice_toml(tmp_path, caplog):
+    (tmp_path / "voice" / "F2").mkdir(parents=True)
+
+    assert warn_if_phrases_missing(tmp_path, "F2") is False
+    assert "voice.toml" in caplog.text

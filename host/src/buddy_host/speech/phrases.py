@@ -18,6 +18,7 @@ python -m buddy_host.speech.phrases --voice <聲音> --auto [--max-seeds 8]
 
 import argparse
 import json
+import logging
 import sys
 import wave
 from collections.abc import Callable, Collection, Mapping
@@ -31,6 +32,9 @@ from buddy_host.config import default_home, load_config
 from buddy_host.speech.cer import normalize
 from buddy_host.speech.pipeline import PipelineConfig, SpeechPipeline, SpeechResult, write_outputs
 from buddy_host.speech.text_prep import prepare_sentences
+from buddy_host.speech.voice import find_voice
+
+logger = logging.getLogger(__name__)
 
 # 編號沿用設計文件 9.3；5（額度用完）與 8（恢復）已取消，改成畫面提示與自動繼續
 PHRASES: dict[int, tuple[str, str]] = {
@@ -104,6 +108,24 @@ def phrases_ready(home: Path, voice_key: str, phrases: Mapping[int, object] = PH
     """這個聲音（目前語速）的固定短句是不是每一句都已經產生。改了語速，聲音鍵就變了。"""
     folder = voice_phrases_dir(home, voice_key)
     return all((folder / f"{number}.wav").is_file() for number in phrases)
+
+
+def warn_if_phrases_missing(home: Path, name: str) -> bool:
+    """主機啟動時檢查目前聲音的固定短句；沒準備好就大聲警告（照常運作，App 也會顯示警示）。"""
+    voice = find_voice(home / "voice", name)
+    if voice is None:
+        logger.warning("目前的聲音 %s 沒有 voice.toml：不會列在 App 上，固定短句也無法產生", name)
+        return False
+    if phrases_ready(home, voice.key):
+        return True
+    logger.warning(
+        "目前的聲音 %s（%s）固定短句還沒準備好，連不上主機時 App 只能播內建的短句；"
+        "請執行 python -m buddy_host.speech.phrases --voice %s --auto",
+        name,
+        voice.key,
+        name,
+    )
+    return False
 
 
 def auto_voice_phrases(

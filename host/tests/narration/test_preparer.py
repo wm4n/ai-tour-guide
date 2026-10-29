@@ -545,7 +545,7 @@ async def test_the_voice_key_can_change_while_running(tmp_path):
     assert new.wav_path.parent.name == "M1@1.2"
 
 
-async def test_a_prepare_files_its_audio_under_the_voice_it_started_with(tmp_path):
+async def test_audio_made_while_the_voice_changed_is_not_kept_but_the_script_is(tmp_path):
     preparer, parts = make(tmp_path, [osm("霞海城隍廟", 100)], limit=1, voice_key="F2@1.2")
     original_run = parts["speech"].run
 
@@ -555,10 +555,33 @@ async def test_a_prepare_files_its_audio_under_the_voice_it_started_with(tmp_pat
 
     parts["speech"].run = switch_during_synthesis
 
+    # 合成器在單位之間換聲音：這段可能前後是不同聲音，不能當成任何一個聲音的快取、也不能播
+    assert await preparer.prepare(HERE) == []
+    assert not list((tmp_path / "out").glob("*/*.wav"))
+
+    parts["speech"].run = original_run
+    [made] = await preparer.prepare(HERE)  # 稿子留著：用新聲音重新合成，不再呼叫 Claude
+
+    assert len(parts["llm"].requests) == 1
+    assert made.wav_path.parent.name == "M1@1.2"
+
+
+async def test_a_voice_change_before_synthesis_skips_the_old_voice(tmp_path):
+    preparer, parts = make(tmp_path, [osm("霞海城隍廟", 100)], limit=1, voice_key="F2@1.2")
+    original_run = parts["llm"].run
+
+    async def switch_while_writing(request, on_text=None):
+        preparer.voice_key = "M1@1.2"  # 寫稿時換了聲音：這一批還是舊聲音，不合成
+        return await original_run(request, on_text)
+
+    parts["llm"].run = switch_while_writing
+
+    assert await preparer.prepare(HERE) == []
+    assert parts["speech"].texts == []
     [made] = await preparer.prepare(HERE)
 
-    assert made.wav_path.parent.name == "F2@1.2"
-    assert not (tmp_path / "out" / "M1@1.2").exists()
+    assert len(parts["llm"].requests) == 1
+    assert made.wav_path.parent.name == "M1@1.2"
 
 
 def write_legacy_cache(out, script="舊的稿子。", fingerprint=None):

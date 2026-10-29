@@ -5,6 +5,7 @@ KittenTTS 2 必須同時給 reference_text。選填的 voice.toml 是這個聲�
 """
 
 import logging
+import os
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,6 +13,7 @@ from pathlib import Path
 WAV_NAME = "ref_24k.wav"
 TEXT_NAME = "ref_text.txt"
 SETTINGS_NAME = "voice.toml"
+CURRENT_NAME = "current"  # voice/current：App 最後選的聲音，重啟時優先於 config.toml
 SPEED_RANGE = (0.5, 2.0)
 
 logger = logging.getLogger(__name__)
@@ -104,6 +106,36 @@ def list_voices(voices_dir: Path) -> list[VoiceProfile]:
             )
         )
     return voices
+
+
+def find_voice(voices_dir: Path, name: str) -> VoiceProfile | None:
+    """清單上叫這個名稱的聲音；只認清單上的，所以不會拿外來的名稱拼出別的路徑。"""
+    return next((voice for voice in list_voices(voices_dir) if voice.name == name), None)
+
+
+def read_current_voice(home: Path, configured: str) -> str:
+    """目前使用中的聲音：App 最後選的（voice/current），沒有才用 config.toml 的 voice。
+
+    存的名稱不是 voice/ 底下的資料夾（被刪掉、檔案寫壞）就退回 config.toml，主機照樣起得來。
+    """
+    path = home / "voice" / CURRENT_NAME
+    if not path.is_file():
+        return configured
+    name = path.read_text(encoding="utf-8").strip()
+    if name in ("", ".", "..") or "/" in name or "\\" in name or not (path.parent / name).is_dir():
+        logger.warning(
+            "voice/current 記的 %r 不是可用的聲音，改用 config.toml 的 %s", name, configured
+        )
+        return configured
+    return name
+
+
+def save_current_voice(home: Path, name: str) -> None:
+    """原子寫入：先寫同目錄的暫存檔再換上，寫到一半斷電也不會留下半個檔。"""
+    path = home / "voice" / CURRENT_NAME
+    temporary = path.with_name(f".{CURRENT_NAME}.tmp")
+    temporary.write_text(f"{name}\n", encoding="utf-8")
+    os.replace(temporary, path)
 
 
 def _load_settings(path: Path) -> VoiceSettings:

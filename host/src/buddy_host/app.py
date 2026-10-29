@@ -3,6 +3,7 @@ import base64
 import binascii
 import contextlib
 import hmac
+import threading
 from collections.abc import Callable
 from dataclasses import asdict
 from datetime import datetime
@@ -21,7 +22,13 @@ from buddy_host.places.models import Location
 from buddy_host.qa.photos import PhotoRejected, PhotoTooLarge
 from buddy_host.qa.service import PhotosUnavailable, QaService
 from buddy_host.speech.phrases import PHRASES, phrases_ready, voice_phrases_dir
-from buddy_host.speech.voice import list_voices
+from buddy_host.speech.voice import (
+    ReferenceVoice,
+    VoiceError,
+    list_voices,
+    load_reference,
+    save_current_voice,
+)
 from buddy_host.tour.journey import JourneyMemory
 from buddy_host.tour.session import PreparerLike, TourFix, TourNotActiveError, TourSession
 from buddy_host.tour.usage_report import finish_tour
@@ -84,6 +91,10 @@ class AskPhotoBody(FixBody):
     image_base64: Annotated[str, StringConstraints(min_length=1, max_length=11_200_000)]
 
 
+class VoiceBody(BaseModel):
+    name: Annotated[str, StringConstraints(min_length=1, max_length=100)]
+
+
 AnswererFactory = Callable[[QuotaGate, JourneyMemory], QaService]
 PHOTO_PURGE_INTERVAL_S = 3600.0
 
@@ -104,8 +115,13 @@ def create_app(
     journey_path: Path | None = None,
     answerer_factory: AnswererFactory | None = None,
     photo_purge_interval_s: float = PHOTO_PURGE_INTERVAL_S,
+    on_voice_change: Callable[[ReferenceVoice], None] | None = None,
 ) -> FastAPI:
-    """`answerer_factory` 拿到與旅程共用的額度閘門和旅程記憶，回傳問答服務；沒給就不開問答。"""
+    """`answerer_factory` 拿到與旅程共用的額度閘門和旅程記憶，回傳問答服務；沒給就不開問答。
+
+    `config.voice` 是啟動時的目前聲音（已套用 voice/current）。App 換聲音時把重讀過的聲音交給
+    `on_voice_change`（讓合成器在下一個合成單位換）；沒給（重播模式）就只記下選擇。
+    """
     journey = JourneyMemory(journey_path)
     quota = QuotaGate()  # 旅程準備與問答共用：任一邊撞到額度，兩邊一起停
     session = TourSession(preparer, journey=journey, quota=quota) if preparer is not None else None
@@ -123,6 +139,9 @@ def create_app(
             if purger is not None:
                 purger.cancel()
                 await asyncio.gather(purger, return_exceptions=True)
+
+    voice_lock = threading.Lock()  # 換聲音的檢查、存檔與交給合成器一次只做一個
+    current_voice = config.voice
 
     app = FastAPI(title="Buddy Host", version=__version__, lifespan=lifespan)
     authed = Depends(_require_token(config))
@@ -149,7 +168,7 @@ def create_app(
     def voices() -> dict:
         """主機上的聲音（每次都重讀硬碟）與目前使用中的聲音。"""
         return {
-            "current": config.voice,
+            "current": current_voice,
             "voices": [
                 {**asdict(voice), "phrases_ready": phrases_ready(config.home, voice.key)}
                 for voice in list_voices(config.home / "voice")
@@ -166,6 +185,34 @@ def create_app(
         if path is None or not path.is_file():
             raise HTTPException(status_code=404, detail="找不到這句短句")
         return FileResponse(path, media_type="audio/wav")
+
+    @app.post("/v1/voice", dependencies=[authed])
+    def choose_voice(body: VoiceBody) -> dict[str, str]:
+        """換聲音並立刻回應：合成器只記下來，正在合成的單位（回答則是整個這一題）用舊聲音做完。
+
+        重啟後仍是這個聲音（存在 voice/current）。連續切換以最後一次為準。
+        """
+        nonlocal current_voice
+        with voice_lock:
+            if body.name == current_voice:
+                return {"current": current_voice}
+            listed = list_voices(config.home / "voice")
+            profile = next((v for v in listed if v.name == body.name), None)
+            if profile is None:
+                raise HTTPException(status_code=404, detail="找不到這個聲音")
+            if not phrases_ready(config.home, profile.key):
+                raise HTTPException(status_code=409, detail="這個聲音的固定短句還沒準備好")
+            try:  # 重讀 voice.toml：主機開著時改的語速與停頓上限也會套用
+                voice = load_reference(config.home / "voice" / profile.name)
+            except VoiceError:
+                raise HTTPException(
+                    status_code=409, detail="這個聲音缺少參考錄音或逐字稿"
+                ) from None
+            save_current_voice(config.home, voice.name)
+            if on_voice_change is not None:
+                on_voice_change(voice)
+            current_voice = voice.name
+            return {"current": current_voice}
 
     @app.post("/v1/tour/start", dependencies=[authed])
     async def tour_start(body: FixBody) -> dict:

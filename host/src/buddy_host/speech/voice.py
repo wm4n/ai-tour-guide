@@ -1,9 +1,10 @@
 """參考聲音：從 ~/.buddy-host/voice/<名稱>/ 讀取，不入 git。
 
-KittenTTS 2 必須同時給 reference_text。選填的 voice.toml 是這個聲音自己的語速與停頓設定；
-沒有這個檔的聲音一切照舊（原速、不壓停頓）。
+KittenTTS 2 必須同時給 reference_text。選填的 voice.toml 是這個聲音自己的語速與停頓設定，
+以及 App 上顯示的名稱與描述；沒有這個檔的聲音一切照舊（原速、不壓停頓），但不會列在 App 上。
 """
 
+import logging
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,6 +13,8 @@ WAV_NAME = "ref_24k.wav"
 TEXT_NAME = "ref_text.txt"
 SETTINGS_NAME = "voice.toml"
 SPEED_RANGE = (0.5, 2.0)
+
+logger = logging.getLogger(__name__)
 
 
 class VoiceError(RuntimeError):
@@ -31,7 +34,31 @@ class ReferenceVoice:
     @property
     def key(self) -> str:
         """聲音與語速；換了就代表同一份稿子要重新合成。"""
-        return f"{self.name}@{self.speed:g}"
+        return voice_key(self.name, self.speed)
+
+
+def voice_key(name: str, speed: float) -> str:
+    return f"{name}@{speed:g}"
+
+
+@dataclass(frozen=True)
+class VoiceSettings:
+    """voice.toml 的內容。顯示名稱沒寫就是 None（用資料夾名）。"""
+
+    speed: float = 1.0
+    answer_max_pause_seconds: float | None = None
+    display_name: str | None = None
+    description: str = ""
+
+
+@dataclass(frozen=True)
+class VoiceProfile:
+    """App 清單上的一個聲音。`name` 是資料夾名（切換用），`key` 含目前的語速。"""
+
+    name: str
+    display_name: str
+    description: str
+    key: str
 
 
 def load_reference(voice_dir: Path) -> ReferenceVoice:
@@ -44,18 +71,49 @@ def load_reference(voice_dir: Path) -> ReferenceVoice:
     text = text_path.read_text(encoding="utf-8").strip() if text_path.is_file() else ""
     if not text:
         raise VoiceError(f"參考聲音缺少 reference_text（{TEXT_NAME}），KittenTTS 2 必須提供")
-    speed, max_pause = _load_settings(voice_dir / SETTINGS_NAME)
-    return ReferenceVoice(wav_path, text, voice_dir.name, speed, max_pause)
+    settings = _load_settings(voice_dir / SETTINGS_NAME)
+    return ReferenceVoice(
+        wav_path, text, voice_dir.name, settings.speed, settings.answer_max_pause_seconds
+    )
 
 
-def _load_settings(path: Path) -> tuple[float, float | None]:
+def list_voices(voices_dir: Path) -> list[VoiceProfile]:
+    """只有放了 voice.toml 的資料夾才算正式聲音；其餘（篩選時留下的候選）不列出。
+
+    每次都重讀硬碟，改了名稱、描述、語速不必重啟。某個 voice.toml 壞了（例如改到一半就存檔）
+    只略過那一個聲音，其他照常列出。
+    """
+    if not voices_dir.is_dir():
+        return []
+    voices = []
+    for folder in sorted(voices_dir.iterdir()):
+        path = folder / SETTINGS_NAME
+        if not path.is_file():
+            continue
+        try:
+            settings = _load_settings(path)
+        except VoiceError as error:
+            logger.warning("略過聲音 %s：%s", folder.name, error)
+            continue
+        voices.append(
+            VoiceProfile(
+                name=folder.name,
+                display_name=settings.display_name or folder.name,
+                description=settings.description,
+                key=voice_key(folder.name, settings.speed),
+            )
+        )
+    return voices
+
+
+def _load_settings(path: Path) -> VoiceSettings:
     if not path.is_file():
-        return 1.0, None
+        return VoiceSettings()
     try:
         raw = tomllib.loads(path.read_text(encoding="utf-8"))
     except tomllib.TOMLDecodeError as error:
         raise VoiceError(f"{path} 格式錯誤：{error}") from error
-    unknown = set(raw) - {"speed", "answer_max_pause_seconds"}
+    unknown = set(raw) - {"speed", "answer_max_pause_seconds", "display_name", "description"}
     if unknown:
         raise VoiceError(f"{path} 有不認得的設定：{', '.join(sorted(unknown))}")
 
@@ -69,7 +127,21 @@ def _load_settings(path: Path) -> tuple[float, float | None]:
         raise VoiceError(
             f"{path} 的 answer_max_pause_seconds 要是大於 0 的秒數，收到 {max_pause!r}"
         )
-    return float(speed), None if max_pause is None else float(max_pause)
+
+    display_name = raw.get("display_name")
+    if display_name is not None and (not isinstance(display_name, str) or not display_name.strip()):
+        raise VoiceError(f"{path} 的 display_name 要是非空的文字，收到 {display_name!r}")
+
+    description = raw.get("description", "")
+    if not isinstance(description, str):
+        raise VoiceError(f"{path} 的 description 要是文字，收到 {description!r}")
+
+    return VoiceSettings(
+        float(speed),
+        None if max_pause is None else float(max_pause),
+        None if display_name is None else display_name.strip(),
+        description.strip(),
+    )
 
 
 def _is_number(value: object) -> bool:

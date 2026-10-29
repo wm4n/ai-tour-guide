@@ -28,7 +28,7 @@ void main() {
     expect(catalog.current, 'F2');
     expect(catalog.voices.map((v) => v.name), ['F2', 'M1']);
     final first = catalog.voices.first;
-    expect(first.displayName, '小晴');
+    expect(first.displayName, '示範女聲');
     expect(first.description, '女聲・溫暖');
     expect(first.key, 'F2@1.2');
     expect(first.phrasesReady, isTrue);

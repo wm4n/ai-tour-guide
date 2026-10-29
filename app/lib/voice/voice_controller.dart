@@ -44,7 +44,29 @@ class VoiceState {
   /// 正在試聽的聲音名稱。
   final String? previewing;
   final String? error;
+
+  VoiceState copyWith({
+    Object? catalog = _keep,
+    Object? current = _keep,
+    bool? loading,
+    Object? previewing = _keep,
+    Object? error = _keep,
+  }) => VoiceState(
+    catalog: identical(catalog, _keep)
+        ? this.catalog
+        : catalog as VoiceCatalog?,
+    current: identical(current, _keep)
+        ? this.current
+        : current as CurrentVoice?,
+    loading: loading ?? this.loading,
+    previewing: identical(previewing, _keep)
+        ? this.previewing
+        : previewing as String?,
+    error: identical(error, _keep) ? this.error : error as String?,
+  );
 }
+
+const Object _keep = Object();
 
 /// 設定頁的聲音區：主機上的聲音清單與試聽（這張還不能切換）。
 class VoiceController extends Notifier<VoiceState> {
@@ -66,12 +88,7 @@ class VoiceController extends Notifier<VoiceState> {
 
   Future<void> refresh() async {
     final generation = ++_refreshes;
-    state = VoiceState(
-      catalog: state.catalog,
-      current: state.current,
-      loading: true,
-      previewing: state.previewing,
-    );
+    state = state.copyWith(loading: true);
     VoiceCatalog? catalog;
     try {
       catalog = await ref
@@ -92,11 +109,7 @@ class VoiceController extends Notifier<VoiceState> {
       await prefs.setString(_displayNameKey, current.displayName);
       if (!ref.mounted || generation != _refreshes) return;
     }
-    state = VoiceState(
-      catalog: catalog,
-      current: current,
-      previewing: state.previewing,
-    );
+    state = state.copyWith(catalog: catalog, current: current, loading: false);
   }
 
   /// 試聽某個聲音的 7 號短句（直接從主機下載來播，不存進手機）。
@@ -109,7 +122,7 @@ class VoiceController extends Notifier<VoiceState> {
     // 先占住再停前一段：前一段收尾放掉它的占用時，介紹才不會在兩段試聽之間被接回去
     tour.beginQuestion();
     try {
-      _setPreview(name, null);
+      state = state.copyWith(previewing: name, error: null);
       await player.stop();
       final wav = await ref
           .read(voiceApiProvider)
@@ -123,23 +136,17 @@ class VoiceController extends Notifier<VoiceState> {
     } on TourApiException catch (error) {
       debugPrint('試聽 $name 失敗：$error');
       if (ref.mounted && generation == _previews) {
-        _setPreview(null, '試聽失敗，主機可能還沒準備好這個聲音的短句');
+        state = state.copyWith(
+          error: error.statusCode == 404
+              ? '試聽失敗：主機上這個聲音的短句還沒準備好'
+              : '試聽失敗：連不上主機',
+        );
       }
     } finally {
-      if (ref.mounted && generation == _previews && state.previewing != null) {
-        _setPreview(null, state.error);
+      if (ref.mounted && generation == _previews) {
+        state = state.copyWith(previewing: null);
       }
       tour.endQuestion();
     }
-  }
-
-  void _setPreview(String? previewing, String? error) {
-    state = VoiceState(
-      catalog: state.catalog,
-      current: state.current,
-      loading: state.loading,
-      previewing: previewing,
-      error: error,
-    );
   }
 }

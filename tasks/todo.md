@@ -443,3 +443,14 @@ PR 上的獨立整合審查（https://github.com/wm4n/ai-tour-guide/pull/26）�
 **還沒做**：使用者親耳驗收正式版（`~/.buddy-host/out/voice-final/`）；選定正式聲音；App 固定短句換聲音後要重做；字音（「廟」→「秒」等聲調錯誤，Whisper 驗收抓不到）。
 
 驗證：host 661 項、ruff 乾淨。
+
+## #33 設定頁：看到主機上的聲音並試聽（2026-10-29，分支 `feat/voice-settings-list`）
+
+- 主機：`voice.toml` 接受 `display_name`、`description`；`GET /v1/voices`（只列有 `voice.toml` 的資料夾、含 `key`、`phrases_ready`、`current`，每次重讀硬碟，壞掉的 `voice.toml` 只略過那一個）；`GET /v1/voices/{name}/phrases/{number}`（只認清單上的聲音與 `PHRASES` 編號，不拿輸入拼路徑）。`current` 這張仍是 `config.toml` 的 `voice`，狀態檔是 #34。
+- App：齒輪改開完整設定頁（聲音／家裡的主機）；聲音清單、反灰、目前聲音未準備或不在清單上的警示；離線時顯示最後一次看到的目前聲音（存在 SharedPreferences）。
+- 試聽：從主機下載 7 號短句、用自己的播放器（`buddy_preview.wav`）播；沿用 `beginQuestion`／`endQuestion`，`endQuestion` 在 `finally`，下載失敗也一定放開，旅程不會卡住。連按別的聲音：先占住再停前一段，介紹不會在兩段試聽之間被接回去。發問中不能試聽。
+- `contract/voices.json`：主機與 App 讀同一份回應。範例顯示名稱用「示範女聲／示範男聲」，真正的名稱只放主機的 `voice.toml`。
+- `/code-review` 後修：`VoiceState` 補 `copyWith`；試聽失敗區分「短句沒準備（404）」與「連不上主機」；目前聲音不在清單上要警示。
+- 沒照建議改的：設定頁測試留在 `home_screen_test.dart`（從齒輪進去的整合測試、共用同一組 provider）；`beginQuestion` 不改名（語意是「占住介紹」，試聽與發問共用）。
+
+驗證：host 721 項、ruff 乾淨；App 313 項、analyze 乾淨。試聽的音質要等 #37 實機驗收時人耳聽。

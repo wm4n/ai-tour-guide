@@ -21,8 +21,8 @@ class FakeVoiceApi implements VoiceApi {
   VoiceCatalog catalog = VoiceCatalog(
     current: 'F2',
     voices: [
-      voice('F2', displayName: '小晴', description: '女聲・溫暖'),
-      voice('M1', displayName: '阿哲', description: '男聲・沉穩'),
+      voice('F2', displayName: '示範女聲', description: '女聲・溫暖'),
+      voice('M1', displayName: '示範男聲', description: '男聲・沉穩'),
     ],
   );
   Object? listError;

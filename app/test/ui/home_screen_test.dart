@@ -195,11 +195,11 @@ void main() {
       await pumpHome(tester, ConnectionStatus.connected);
       await openSettings(tester);
 
-      expect(inTile('F2', find.text('小晴')), findsOneWidget);
+      expect(inTile('F2', find.text('示範女聲')), findsOneWidget);
       expect(inTile('F2', find.text('女聲・溫暖')), findsOneWidget);
-      expect(inTile('F2', find.text('小')), findsOneWidget); // 頭像：顯示名稱首字
+      expect(inTile('F2', find.text('示')), findsOneWidget); // 頭像：顯示名稱首字
       expect(inTile('F2', find.byIcon(Icons.check_circle)), findsOneWidget);
-      expect(inTile('M1', find.text('阿哲')), findsOneWidget);
+      expect(inTile('M1', find.text('示範男聲')), findsOneWidget);
       expect(inTile('M1', find.byIcon(Icons.check_circle)), findsNothing);
       expect(find.byKey(const Key('voice-current-not-ready')), findsNothing);
     });
@@ -239,6 +239,17 @@ void main() {
       expect(find.byKey(const Key('voice-current-not-ready')), findsOneWidget);
     });
 
+    testWidgets('warns when the current voice is missing from the list', (
+      tester,
+    ) async {
+      await pumpHome(tester, ConnectionStatus.connected);
+      voiceApi.catalog = VoiceCatalog(current: 'X9', voices: [voice('M1')]);
+      await openSettings(tester);
+
+      expect(find.byKey(const Key('voice-current-missing')), findsOneWidget);
+      expect(find.byIcon(Icons.check_circle), findsNothing);
+    });
+
     testWidgets('offline it shows only the current voice', (tester) async {
       await pumpHome(tester, ConnectionStatus.connected);
       await openSettings(tester); // 先連上一次，記住目前的聲音
@@ -249,7 +260,7 @@ void main() {
       await openSettings(tester);
 
       expect(find.byKey(const Key('voices-offline')), findsOneWidget);
-      expect(inTile('F2', find.text('小晴')), findsOneWidget);
+      expect(inTile('F2', find.text('示範女聲')), findsOneWidget);
       expect(tile('M1'), findsNothing);
       expect(find.byKey(const Key('voice-preview-F2')), findsNothing);
     });

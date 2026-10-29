@@ -3,14 +3,14 @@
   "voices": [
     {
       "name": "F2",
-      "display_name": "小晴",
+      "display_name": "示範女聲",
       "description": "女聲・溫暖",
       "key": "F2@1.2",
       "phrases_ready": true
     },
     {
       "name": "M1",
-      "display_name": "阿哲",
+      "display_name": "示範男聲",
       "description": "男聲・沉穩",
       "key": "M1@1.2",
       "phrases_ready": false

@@ -85,7 +85,7 @@ void main() {
 
       expect(h.state.catalog?.voices.map((v) => v.name), ['F2', 'M1']);
       expect(h.state.loading, isFalse);
-      expect(h.state.current, (name: 'F2', displayName: '小晴'));
+      expect(h.state.current, (name: 'F2', displayName: '示範女聲'));
     });
 
     test('offline it still knows the voice it last saw', () async {
@@ -96,7 +96,7 @@ void main() {
       await h.voices.refresh();
 
       expect(h.state.catalog, isNull);
-      expect(h.state.current, (name: 'F2', displayName: '小晴'));
+      expect(h.state.current, (name: 'F2', displayName: '示範女聲'));
     });
 
     test('the remembered voice survives a restart of the app', () async {
@@ -111,7 +111,7 @@ void main() {
       h.api.listError = TourApiException('unreachable');
       await h.voices.refresh();
 
-      expect(h.state.current, (name: 'F2', displayName: '小晴'));
+      expect(h.state.current, (name: 'F2', displayName: '示範女聲'));
     });
 
     test('never having reached the host there is no current voice', () async {
@@ -188,6 +188,38 @@ void main() {
       expect(h.state.previewing, isNull);
       expect(h.state.error, isNotNull);
       expect(h.narration.starts, [Duration.zero, at(1.5)]); // 照樣接著播
+    });
+
+    test('a phrase the host does not have says so', () async {
+      final h = await makeHarness();
+      h.api.phraseError = TourApiException('answered 404', statusCode: 404);
+
+      await h.voices.preview('M1');
+
+      expect(h.state.error, contains('短句'));
+    });
+
+    test('an unreachable host says so', () async {
+      final h = await makeHarness();
+      h.api.phraseError = TourApiException('timed out');
+
+      await h.voices.preview('M1');
+
+      expect(h.state.error, contains('連不上主機'));
+    });
+
+    test('a new preview clears the last error', () async {
+      final h = await makeHarness();
+      h.api.phraseError = TourApiException('timed out');
+      await h.voices.preview('M1');
+      h.api.phraseError = null;
+
+      final done = h.voices.preview('M1');
+      await h.settle();
+
+      expect(h.state.error, isNull);
+      h.preview.finish();
+      await done;
     });
 
     test(

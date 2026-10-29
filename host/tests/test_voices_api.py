@@ -10,6 +10,8 @@ from buddy_host.speech.phrases import PHRASES, voice_phrases_dir
 
 TOKEN = {"X-Buddy-Token": "s3cret"}
 CONTRACT = Path(__file__).parents[2] / "contract"
+F2_TOML = "speed = 1.2\ndisplay_name = '示範女聲'\ndescription = '女聲・溫暖'\n"
+M1_TOML = "speed = 1.2\ndisplay_name = '示範男聲'\ndescription = '男聲・沉穩'\n"
 
 
 def make_client(home: Path, voice: str = "F2") -> TestClient:
@@ -32,7 +34,7 @@ def add_phrases(home: Path, key: str, numbers=tuple(PHRASES)) -> Path:
 
 
 def test_lists_the_voices_with_phrases_readiness_and_the_current_voice(tmp_path):
-    add_voice(tmp_path, "F2", "speed = 1.2\ndisplay_name = '小晴'\ndescription = '女聲・溫暖'\n")
+    add_voice(tmp_path, "F2", F2_TOML)
     add_voice(tmp_path, "M1", "speed = 1.2\n")
     (tmp_path / "voice" / "candidate").mkdir()  # 沒有 voice.toml：不列出
     add_phrases(tmp_path, "F2@1.2")
@@ -46,7 +48,7 @@ def test_lists_the_voices_with_phrases_readiness_and_the_current_voice(tmp_path)
         "voices": [
             {
                 "name": "F2",
-                "display_name": "小晴",
+                "display_name": "示範女聲",
                 "description": "女聲・溫暖",
                 "key": "F2@1.2",
                 "phrases_ready": True,
@@ -68,10 +70,10 @@ def test_edits_to_voice_toml_show_up_without_a_restart(tmp_path):
     client = make_client(tmp_path)
     assert client.get("/v1/voices", headers=TOKEN).json()["voices"][0]["phrases_ready"] is True
 
-    (folder / "voice.toml").write_text("speed = 1.5\ndisplay_name = '小晴'\n", encoding="utf-8")
+    (folder / "voice.toml").write_text("speed = 1.5\ndisplay_name = '示範女聲'\n", encoding="utf-8")
     voice = client.get("/v1/voices", headers=TOKEN).json()["voices"][0]
 
-    assert voice["display_name"] == "小晴"
+    assert voice["display_name"] == "示範女聲"
     assert voice["key"] == "F2@1.5"
     assert voice["phrases_ready"] is False  # 改了語速：短句要重新產生
 
@@ -120,8 +122,8 @@ def test_voice_endpoints_require_the_token(tmp_path, path):
 
 
 def test_the_voice_list_matches_the_contract_the_app_is_tested_against(tmp_path):
-    add_voice(tmp_path, "F2", "speed = 1.2\ndisplay_name = '小晴'\ndescription = '女聲・溫暖'\n")
-    add_voice(tmp_path, "M1", "speed = 1.2\ndisplay_name = '阿哲'\ndescription = '男聲・沉穩'\n")
+    add_voice(tmp_path, "F2", F2_TOML)
+    add_voice(tmp_path, "M1", M1_TOML)
     add_phrases(tmp_path, "F2@1.2")
 
     listed = make_client(tmp_path).get("/v1/voices", headers=TOKEN).json()

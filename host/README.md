@@ -42,7 +42,7 @@ uv run python -m buddy_host.speech --text-file 稿子.txt --name demo --voice M1
 ```toml
 speed = 1.2                      # 語速倍率（0.5～2.0），主動介紹與回答問題都套用
 answer_max_pause_seconds = 0.45  # 只有回答問題時，超過這個長度的停頓縮到這個長度
-display_name = "小晴"              # App 上顯示的名稱（預設為資料夾名）
+display_name = "示範女聲"              # App 上顯示的名稱（預設為資料夾名）
 description = "女聲・溫暖"          # App 上的簡短描述
 ```
 

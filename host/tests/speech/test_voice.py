@@ -91,7 +91,7 @@ def test_default_voice_key_matches_the_default_voice_at_original_speed(tmp_path:
 
 def test_settings_file_may_name_and_describe_the_voice(tmp_path: Path):
     root = make_voice(tmp_path / "F2")
-    (root / "voice.toml").write_text("display_name = '小晴'\ndescription = '女聲・溫暖'\n")
+    (root / "voice.toml").write_text("display_name = '示範女聲'\ndescription = '女聲・溫暖'\n")
 
     assert load_reference(root).key == "F2@1"  # 名稱與描述不影響合成
 
@@ -114,7 +114,7 @@ def test_bad_name_or_description_is_a_clear_error(tmp_path: Path, settings, mess
 
 def test_only_folders_with_voice_toml_are_listed(tmp_path: Path):
     (make_voice(tmp_path / "M1") / "voice.toml").write_text(
-        "speed = 1.2\ndisplay_name = '阿哲'\ndescription = '男聲・沉穩'\n"
+        "speed = 1.2\ndisplay_name = '示範男聲'\ndescription = '男聲・沉穩'\n"
     )
     (make_voice(tmp_path / "F2") / "voice.toml").write_text("")
     make_voice(tmp_path / "candidate")  # 篩選時留下的候選：沒有 voice.toml
@@ -124,7 +124,7 @@ def test_only_folders_with_voice_toml_are_listed(tmp_path: Path):
 
     assert [(v.name, v.display_name, v.description, v.key) for v in voices] == [
         ("F2", "F2", "", "F2@1"),  # 顯示名稱預設為資料夾名
-        ("M1", "阿哲", "男聲・沉穩", "M1@1.2"),
+        ("M1", "示範男聲", "男聲・沉穩", "M1@1.2"),
     ]
 
 

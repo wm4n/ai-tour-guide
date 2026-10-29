@@ -139,7 +139,15 @@ class VoiceSection extends ConsumerWidget {
         );
       }
     } else {
-      if (catalog.currentVoice?.phrasesReady == false) {
+      if (catalog.currentVoice == null) {
+        children.add(
+          _Note(
+            '目前的聲音（${catalog.current}）不在清單上：主機上它的 voice.toml 不見了或寫壞了',
+            key: const Key('voice-current-missing'),
+            color: error,
+          ),
+        );
+      } else if (!catalog.currentVoice!.phrasesReady) {
         children.add(
           _Note(
             '目前的聲音還沒有準備好固定短句：連不上主機時可能聽不到提示，請在主機上產生',

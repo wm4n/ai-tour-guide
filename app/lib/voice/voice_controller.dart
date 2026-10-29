@@ -150,6 +150,8 @@ class VoiceController extends Notifier<VoiceState> {
       await _savePhrases(voice, () => ref.mounted);
     } on TourApiException catch (error) {
       debugPrint('下載 ${voice.name} 的短句失敗：$error');
+    } on FileSystemException catch (error) {
+      debugPrint('存 ${voice.name} 的短句失敗：$error');
     }
   }
 
@@ -177,11 +179,13 @@ class VoiceController extends Notifier<VoiceState> {
         voices: state.catalog?.voices ?? [voice],
       );
       final current = _currentOf(catalog);
+      _refreshes++; // 換之前就送出的清單回應還是舊聲音：作廢，別把剛換好的蓋回去
       await _remember(current);
       if (!ref.mounted) return;
       state = state.copyWith(
         current: current,
         catalog: state.catalog == null ? null : catalog,
+        loading: false,
       );
     } on TourApiException catch (error) {
       debugPrint('換成 ${voice.name} 失敗：$error');

@@ -468,4 +468,6 @@ PR 上的獨立整合審查（https://github.com/wm4n/ai-tour-guide/pull/26）�
 - 沒照建議改的：`voice_api.dart` 兩段雙 catch 維持（和 `tour_api.dart` 一致）；`warn_if_phrases_missing` 回傳 bool 留著給測試；`select()` 的世代計數加 tail future 留著（兩件事各有測試擋：放棄過期的下載、依序送請求）。
 - 留給後續票：「這段播完就換，下一段準備中…」的提示，以及已準備好、未播的舊聲音介紹丟掉重做，屬於 #35；`played_ids` 與停住佇列屬於 #36。
 
-驗證：host 742 項、ruff 乾淨；App 340 項、analyze 乾淨。
+- PR #42 review 後修：連上主機補下載短句時，存檔失敗只記錄、不丟出例外；切換成功時，作廢在那之前送出的清單請求，舊的回應不會把剛換好的聲音蓋回去。
+
+驗證：host 742 項、ruff 乾淨；App 342 項、analyze 乾淨。

@@ -44,11 +44,16 @@ class FakeVoiceApi implements VoiceApi {
   /// 主機依序收到的切換。
   final chosen = <String>[];
 
+  /// 清單請求卡在這裡；回應的是送出當下的 [catalog]。
+  Completer<void>? listGate;
+
   @override
   Future<VoiceCatalog> list(HostSettings settings) async {
     lists++;
+    final answer = catalog;
+    await listGate?.future;
     if (listError != null) throw listError!;
-    return catalog;
+    return answer;
   }
 
   @override

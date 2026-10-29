@@ -499,6 +499,33 @@ void main() {
       },
     );
 
+    test('phrases the phone cannot store still show the list', () async {
+      final h = await makeHarness();
+      h.store.saveError = const FileSystemException('No space left on device');
+
+      await h.voices.refresh(); // 不丟例外
+
+      expect(h.state.catalog, isNotNull);
+      expect(h.state.current?.name, 'F2');
+    });
+
+    test('a list asked for before a switch does not undo it', () async {
+      final h = await makeHarness();
+      await h.voices.refresh();
+      h.api.listGate = Completer<void>();
+      final stale = h.voices.refresh(); // 主機這時還是 F2
+      await h.settle();
+
+      await h.voices.select(voice('M1', displayName: '示範男聲'));
+      h.api.listGate!.complete();
+      await stale;
+
+      expect(h.state.current?.name, 'M1');
+      expect(h.state.catalog!.current, 'M1');
+      expect(h.state.loading, isFalse);
+      expect(h.prefs.getString('voice.current.key'), 'M1@1.2');
+    });
+
     test('a failed fetch still shows the list', () async {
       final h = await makeHarness();
       h.api.phraseError = TourApiException('timed out');

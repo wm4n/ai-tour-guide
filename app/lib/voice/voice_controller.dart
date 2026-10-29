@@ -142,6 +142,12 @@ class VoiceController extends Notifier<VoiceState> {
               : '試聽失敗：連不上主機',
         );
       }
+    } on Exception catch (error) {
+      // 例如主機回了壞掉的 wav：播放器寫檔或載入失敗
+      debugPrint('試聽 $name 無法播放：$error');
+      if (ref.mounted && generation == _previews) {
+        state = state.copyWith(error: '試聽失敗：這段聲音無法播放');
+      }
     } finally {
       if (ref.mounted && generation == _previews) {
         state = state.copyWith(previewing: null);

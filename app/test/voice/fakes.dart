@@ -4,6 +4,8 @@ import 'dart:typed_data';
 import 'package:buddy_tour/host/host_settings.dart';
 import 'package:buddy_tour/voice/voice_api.dart';
 
+import '../tour/fakes.dart';
+
 VoiceInfo voice(
   String name, {
   String? displayName,
@@ -48,5 +50,19 @@ class FakeVoiceApi implements VoiceApi {
     await phraseGate?.future;
     if (phraseError != null) throw phraseError!;
     return Uint8List.fromList('$name#$number'.codeUnits);
+  }
+}
+
+/// 播不出來的播放器（例如主機回了壞掉的 wav）。
+class BrokenPlayer extends FakePlayer {
+  @override
+  Future<bool> play(
+    Uint8List wav, {
+    required String title,
+    Duration start = Duration.zero,
+    bool releaseFocus = true,
+  }) async {
+    super.play(wav, title: title, start: start, releaseFocus: releaseFocus);
+    throw Exception('Source error');
   }
 }

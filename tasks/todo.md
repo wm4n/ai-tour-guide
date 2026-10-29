@@ -453,4 +453,6 @@ PR 上的獨立整合審查（https://github.com/wm4n/ai-tour-guide/pull/26）�
 - `/code-review` 後修：`VoiceState` 補 `copyWith`；試聽失敗區分「短句沒準備（404）」與「連不上主機」；目前聲音不在清單上要警示。
 - 沒照建議改的：設定頁測試留在 `home_screen_test.dart`（從齒輪進去的整合測試、共用同一組 provider）；`beginQuestion` 不改名（語意是「占住介紹」，試聽與發問共用）。
 
-驗證：host 721 項、ruff 乾淨；App 313 項、analyze 乾淨。試聽的音質要等 #37 實機驗收時人耳聽。
+- PR #41 review 後修：試聽播放器丟出非網路錯誤（壞掉的 wav）時顯示「無法播放」，不再成為未處理的例外。
+
+驗證：host 721 項、ruff 乾淨；App 314 項、analyze 乾淨。試聽的音質要等 #37 實機驗收時人耳聽。

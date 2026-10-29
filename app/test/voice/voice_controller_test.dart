@@ -14,11 +14,13 @@ import '../tour/fakes.dart';
 import 'fakes.dart';
 
 class Harness {
+  Harness({FakePlayer? preview}) : preview = preview ?? FakePlayer();
+
   final api = FakeVoiceApi();
   final tourApi = FakeTourApi();
   final location = FakeLocation();
   final narration = FakePlayer();
-  final preview = FakePlayer();
+  final FakePlayer preview;
   late SharedPreferences prefs;
   late ProviderContainer container;
 
@@ -29,9 +31,12 @@ class Harness {
   Future<void> settle() => pumpEventQueue();
 }
 
-Future<Harness> makeHarness({Map<String, Object> stored = const {}}) async {
+Future<Harness> makeHarness({
+  Map<String, Object> stored = const {},
+  FakePlayer? preview,
+}) async {
   SharedPreferences.setMockInitialValues({'host.url': 'http://h:1', ...stored});
-  final h = Harness();
+  final h = Harness(preview: preview);
   h.prefs = await SharedPreferences.getInstance();
   h.container = ProviderContainer(
     overrides: [
@@ -207,6 +212,22 @@ void main() {
 
       expect(h.state.error, contains('連不上主機'));
     });
+
+    test(
+      'audio that cannot be played says so and lets the tour carry on',
+      () async {
+        final h = await makeHarness(preview: BrokenPlayer());
+        await playNarration(h);
+        h.narration.positionNow = at(2.0);
+
+        await h.voices.preview('M1');
+        await h.settle();
+
+        expect(h.state.error, contains('無法播放'));
+        expect(h.state.previewing, isNull);
+        expect(h.narration.starts, [Duration.zero, at(1.5)]);
+      },
+    );
 
     test('a new preview clears the last error', () async {
       final h = await makeHarness();

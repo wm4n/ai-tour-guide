@@ -18,7 +18,7 @@ uv run python -m buddy_host --max-llm-calls N    # 真實準備與問答；兩�
 |---|---|
 | `config.toml` | `listen_host`（Tailscale 位址，不接受 `0.0.0.0`）、`listen_port`、`token`、`voice`（用哪個參考聲音，預設 `F2`） |
 | `claude-token` | `claude setup-token` 產生的 OAuth token（只用 Claude Pro 訂閱，不用 API key） |
-| `voice/<名稱>/` | 參考聲音 `ref_24k.wav` 與逐字稿 `ref_text.txt`（缺逐字稿會直接報錯）；選填的 `voice.toml` 是這個聲音的語速與停頓（見下方「聲音設定」） |
+| `voice/<名稱>/` | 參考聲音 `ref_24k.wav` 與逐字稿 `ref_text.txt`（缺逐字稿會直接報錯）；選填的 `voice.toml` 是這個聲音的語速、停頓、App 上的名稱與描述（見下方「聲音設定」），**有 `voice.toml` 的才列在 App 上** |
 | `usage.jsonl` | 每次 Claude 呼叫的用量紀錄 |
 | `journey.json` | 旅程記憶：這趟去過哪裡、永久記錄講過的景點與稿子（是位置歷史，不入 repo；壞檔會改名留存） |
 | `out/`、`cache/` | 合成產物、驗收紀錄、Overpass／Wikipedia 快取 |
@@ -42,7 +42,15 @@ uv run python -m buddy_host.speech --text-file 稿子.txt --name demo --voice M1
 ```toml
 speed = 1.2                      # 語速倍率（0.5～2.0），主動介紹與回答問題都套用
 answer_max_pause_seconds = 0.45  # 只有回答問題時，超過這個長度的停頓縮到這個長度
+display_name = "示範女聲"              # App 上顯示的名稱（預設為資料夾名）
+description = "女聲・溫暖"          # App 上的簡短描述
 ```
+
+- **App 的聲音清單**：只列出有 `voice.toml` 的資料夾（篩選時留下的候選不列）。
+  `GET /v1/voices` 回傳每個聲音的 `name`（資料夾名）、`display_name`、`description`、
+  `key`（聲音鍵）、`phrases_ready`（目前語速的固定短句是否都已產生），以及目前使用中的 `current`；
+  每次請求都重讀硬碟，改了名稱、描述、語速不必重啟。`voice.toml` 寫壞的聲音只略過那一個。
+  `GET /v1/voices/{name}/phrases/{number}` 下載某聲音目前語速的某句短句（不存在回 404）。都需要 `X-Buddy-Token`。
 
 - **語速**：在聲碼器之前把 mel 的時間軸線性插值壓短，再交給聲碼器重新生成聲音，音高與音色不變
   （上游 CosyVoice 的做法）。對成品音檔做時間伸縮（相位聲碼器）試過，聲音怪，不採用。

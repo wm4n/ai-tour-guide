@@ -20,6 +20,8 @@ from buddy_host.narration.traveler import Companions, TravelerContext, TravelMod
 from buddy_host.places.models import Location
 from buddy_host.qa.photos import PhotoRejected, PhotoTooLarge
 from buddy_host.qa.service import PhotosUnavailable, QaService
+from buddy_host.speech.phrases import PHRASES, phrases_ready, voice_phrases_dir
+from buddy_host.speech.voice import list_voices
 from buddy_host.tour.journey import JourneyMemory
 from buddy_host.tour.session import PreparerLike, TourFix, TourNotActiveError, TourSession
 from buddy_host.tour.usage_report import finish_tour
@@ -142,6 +144,28 @@ def create_app(
     @app.get("/v1/status", dependencies=[authed])
     def status() -> dict[str, str]:
         return {"status": "ok", "version": __version__}
+
+    @app.get("/v1/voices", dependencies=[authed])
+    def voices() -> dict:
+        """主機上的聲音（每次都重讀硬碟）與目前使用中的聲音。"""
+        return {
+            "current": config.voice,
+            "voices": [
+                {**asdict(voice), "phrases_ready": phrases_ready(config.home, voice.key)}
+                for voice in list_voices(config.home / "voice")
+            ],
+        }
+
+    @app.get("/v1/voices/{name}/phrases/{number}", dependencies=[authed])
+    def voice_phrase(name: str, number: int) -> FileResponse:
+        """某個聲音（目前語速）的一句固定短句；只認清單上的聲音，不拿輸入拼路徑。"""
+        voice = next((v for v in list_voices(config.home / "voice") if v.name == name), None)
+        path = None
+        if voice is not None and number in PHRASES:
+            path = voice_phrases_dir(config.home, voice.key) / f"{number}.wav"
+        if path is None or not path.is_file():
+            raise HTTPException(status_code=404, detail="找不到這句短句")
+        return FileResponse(path, media_type="audio/wav")
 
     @app.post("/v1/tour/start", dependencies=[authed])
     async def tour_start(body: FixBody) -> dict:

@@ -14,6 +14,7 @@ import 'qa/qa_controller.dart';
 import 'tour/geolocator_location_source.dart';
 import 'tour/tour_controller.dart';
 import 'ui/home_screen.dart';
+import 'voice/voice_controller.dart';
 
 /// 模擬器沒有麥克風：`--dart-define=FAKE_QUESTION=…` 讓按住說話固定「聽到」這句話。
 const _fakeQuestion = String.fromEnvironment('FAKE_QUESTION');
@@ -46,6 +47,14 @@ Future<void> main() async {
         // 答案各段另用一個播放器與暫存檔，不和主動介紹互相覆蓋
         answerPlayerProvider.overrideWith((ref) {
           final player = JustAudioNarrationPlayer(fileName: 'buddy_answer.wav');
+          ref.onDispose(player.dispose);
+          return player;
+        }),
+        // 試聽另用一個播放器與暫存檔：被打斷的介紹才接得回去
+        previewPlayerProvider.overrideWith((ref) {
+          final player = JustAudioNarrationPlayer(
+            fileName: 'buddy_preview.wav',
+          );
           ref.onDispose(player.dispose);
           return player;
         }),

@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from buddy_host.speech.voice import VoiceError, load_reference
+from buddy_host.speech.voice import VoiceError, list_voices, load_reference
 
 
 def make_voice(root: Path, *, wav: bool = True, text: str | None = "你好，這是參考聲音。") -> Path:
@@ -87,3 +87,53 @@ def test_default_voice_key_matches_the_default_voice_at_original_speed(tmp_path:
     from buddy_host.narration.preparer import DEFAULT_VOICE_KEY
 
     assert load_reference(make_voice(tmp_path / "F2")).key == DEFAULT_VOICE_KEY
+
+
+def test_settings_file_may_name_and_describe_the_voice(tmp_path: Path):
+    root = make_voice(tmp_path / "F2")
+    (root / "voice.toml").write_text("display_name = '示範女聲'\ndescription = '女聲・溫暖'\n")
+
+    assert load_reference(root).key == "F2@1"  # 名稱與描述不影響合成
+
+
+@pytest.mark.parametrize(
+    "settings, message",
+    [
+        ("display_name = ''\n", "display_name"),
+        ("display_name = 3\n", "display_name"),
+        ("description = ['a']\n", "description"),
+    ],
+)
+def test_bad_name_or_description_is_a_clear_error(tmp_path: Path, settings, message):
+    root = make_voice(tmp_path / "F2")
+    (root / "voice.toml").write_text(settings)
+
+    with pytest.raises(VoiceError, match=message):
+        load_reference(root)
+
+
+def test_only_folders_with_voice_toml_are_listed(tmp_path: Path):
+    (make_voice(tmp_path / "M1") / "voice.toml").write_text(
+        "speed = 1.2\ndisplay_name = '示範男聲'\ndescription = '男聲・沉穩'\n"
+    )
+    (make_voice(tmp_path / "F2") / "voice.toml").write_text("")
+    make_voice(tmp_path / "candidate")  # 篩選時留下的候選：沒有 voice.toml
+    (tmp_path / "notes.txt").write_text("not a voice")
+
+    voices = list_voices(tmp_path)
+
+    assert [(v.name, v.display_name, v.description, v.key) for v in voices] == [
+        ("F2", "F2", "", "F2@1"),  # 顯示名稱預設為資料夾名
+        ("M1", "示範男聲", "男聲・沉穩", "M1@1.2"),
+    ]
+
+
+def test_a_broken_voice_toml_hides_only_that_voice(tmp_path: Path):
+    (make_voice(tmp_path / "F2") / "voice.toml").write_text("speed = \n")  # 改到一半就存檔
+    (make_voice(tmp_path / "M1") / "voice.toml").write_text("")
+
+    assert [v.name for v in list_voices(tmp_path)] == ["M1"]
+
+
+def test_no_voices_folder_lists_nothing(tmp_path: Path):
+    assert list_voices(tmp_path / "voice") == []

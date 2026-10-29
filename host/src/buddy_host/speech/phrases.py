@@ -32,7 +32,7 @@ from buddy_host.config import default_home, load_config
 from buddy_host.speech.cer import normalize
 from buddy_host.speech.pipeline import PipelineConfig, SpeechPipeline, SpeechResult, write_outputs
 from buddy_host.speech.text_prep import prepare_sentences
-from buddy_host.speech.voice import list_voices
+from buddy_host.speech.voice import find_voice
 
 logger = logging.getLogger(__name__)
 
@@ -112,7 +112,7 @@ def phrases_ready(home: Path, voice_key: str, phrases: Mapping[int, object] = PH
 
 def warn_if_phrases_missing(home: Path, name: str) -> bool:
     """主機啟動時檢查目前聲音的固定短句；沒準備好就大聲警告（照常運作，App 也會顯示警示）。"""
-    voice = next((v for v in list_voices(home / "voice") if v.name == name), None)
+    voice = find_voice(home / "voice", name)
     if voice is None:
         logger.warning("目前的聲音 %s 沒有 voice.toml：不會列在 App 上，固定短句也無法產生", name)
         return False

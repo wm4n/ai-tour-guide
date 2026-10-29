@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:buddy_tour/audio/fixed_phrase.dart';
 import 'package:buddy_tour/audio/phrase_player.dart';
@@ -357,6 +358,33 @@ void main() {
       expect(h.state.catalog!.current, 'F2');
       expect(await h.store.has('M1@1.2'), isFalse);
       expect(h.state.error, isNotNull);
+      expect(h.state.switching, isNull);
+    });
+
+    test('phrases the phone cannot store do not switch', () async {
+      final h = await ready();
+      h.store.saveError = const FileSystemException('No space left on device');
+
+      await h.voices.select(of(h, 'M1'));
+
+      expect(h.api.chosen, isEmpty);
+      expect(h.state.current?.name, 'F2');
+      expect(h.state.error, contains('手機'));
+      expect(h.state.switching, isNull);
+    });
+
+    test('tapping the old voice while switching cancels the switch', () async {
+      final h = await ready();
+      h.api.phraseGates['M1'] = Completer<void>();
+
+      final first = h.voices.select(of(h, 'M1'));
+      await h.settle();
+      await h.voices.select(of(h, 'F2'));
+      h.api.phraseGates['M1']!.complete();
+      await first;
+
+      expect(h.api.chosen, ['F2']); // 主機已經是 F2：什麼都不換
+      expect(h.state.current?.name, 'F2');
       expect(h.state.switching, isNull);
     });
 

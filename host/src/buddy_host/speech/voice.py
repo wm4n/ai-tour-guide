@@ -108,6 +108,11 @@ def list_voices(voices_dir: Path) -> list[VoiceProfile]:
     return voices
 
 
+def find_voice(voices_dir: Path, name: str) -> VoiceProfile | None:
+    """清單上叫這個名稱的聲音；只認清單上的，所以不會拿外來的名稱拼出別的路徑。"""
+    return next((voice for voice in list_voices(voices_dir) if voice.name == name), None)
+
+
 def read_current_voice(home: Path, configured: str) -> str:
     """目前使用中的聲音：App 最後選的（voice/current），沒有才用 config.toml 的 voice。
 

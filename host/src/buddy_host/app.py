@@ -25,6 +25,7 @@ from buddy_host.speech.phrases import PHRASES, phrases_ready, voice_phrases_dir
 from buddy_host.speech.voice import (
     ReferenceVoice,
     VoiceError,
+    find_voice,
     list_voices,
     load_reference,
     save_current_voice,
@@ -178,7 +179,7 @@ def create_app(
     @app.get("/v1/voices/{name}/phrases/{number}", dependencies=[authed])
     def voice_phrase(name: str, number: int) -> FileResponse:
         """某個聲音（目前語速）的一句固定短句；只認清單上的聲音，不拿輸入拼路徑。"""
-        voice = next((v for v in list_voices(config.home / "voice") if v.name == name), None)
+        voice = find_voice(config.home / "voice", name)
         path = None
         if voice is not None and number in PHRASES:
             path = voice_phrases_dir(config.home, voice.key) / f"{number}.wav"
@@ -196,8 +197,7 @@ def create_app(
         with voice_lock:
             if body.name == current_voice:
                 return {"current": current_voice}
-            listed = list_voices(config.home / "voice")
-            profile = next((v for v in listed if v.name == body.name), None)
+            profile = find_voice(config.home / "voice", body.name)
             if profile is None:
                 raise HTTPException(status_code=404, detail="找不到這個聲音")
             if not phrases_ready(config.home, profile.key):

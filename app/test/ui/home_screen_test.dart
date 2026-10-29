@@ -358,6 +358,24 @@ void main() {
       expect(find.byType(CircularProgressIndicator), findsNothing);
     });
 
+    testWidgets('while switching the old voice can be tapped to go back', (
+      tester,
+    ) async {
+      await pumpHome(tester, ConnectionStatus.connected);
+      await openSettings(tester);
+      voiceApi.chooseGate = Completer<void>();
+      await tester.tap(tile('M1'));
+      await tester.pump();
+      await tester.pump();
+
+      await tester.tap(tile('F2'));
+      voiceApi.chooseGate!.complete();
+      await tester.pumpAndSettle();
+
+      expect(voiceApi.chosen, ['M1', 'F2']);
+      expect(inTile('F2', find.byIcon(Icons.check_circle)), findsOneWidget);
+    });
+
     testWidgets('a failed switch says why and keeps the old voice', (
       tester,
     ) async {

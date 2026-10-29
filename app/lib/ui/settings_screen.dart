@@ -172,8 +172,10 @@ class VoiceSection extends ConsumerWidget {
             onPreview: voice.phrasesReady && canPreview
                 ? () => ref.read(voiceProvider.notifier).preview(voice.name)
                 : null,
-            // 點一下就換；切換中還可以再點別的，以最後一次為準
-            onSelect: voice.phrasesReady && voice.name != catalog.current
+            // 點一下就換；切換中還可以再點別的（包括原本的聲音），以最後一次為準
+            onSelect:
+                voice.phrasesReady &&
+                    (voice.name != catalog.current || voices.switching != null)
                 ? () => ref.read(voiceProvider.notifier).select(voice)
                 : null,
           ),

@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
@@ -82,9 +84,9 @@ const Object _keep = Object();
 ///
 /// 目前聲音以主機為準；記在手機裡的只用在連不上主機時挑短句、顯示。
 class VoiceController extends Notifier<VoiceState> {
-  static const _nameKey = 'voice.current.name';
-  static const _displayNameKey = 'voice.current.display_name';
-  static const _voiceKeyKey = 'voice.current.key';
+  static const _namePref = 'voice.current.name';
+  static const _displayNamePref = 'voice.current.display_name';
+  static const _voiceKeyPref = 'voice.current.key';
 
   int _refreshes = 0;
   int _previews = 0;
@@ -96,23 +98,23 @@ class VoiceController extends Notifier<VoiceState> {
 
   CurrentVoice? _remembered() {
     final prefs = ref.read(sharedPreferencesProvider);
-    final name = prefs.getString(_nameKey);
+    final name = prefs.getString(_namePref);
     if (name == null) return null;
     return (
       name: name,
-      displayName: prefs.getString(_displayNameKey) ?? name,
-      key: prefs.getString(_voiceKeyKey),
+      displayName: prefs.getString(_displayNamePref) ?? name,
+      key: prefs.getString(_voiceKeyPref),
     );
   }
 
   Future<void> _remember(CurrentVoice voice) async {
     final prefs = ref.read(sharedPreferencesProvider);
-    await prefs.setString(_nameKey, voice.name);
-    await prefs.setString(_displayNameKey, voice.displayName);
+    await prefs.setString(_namePref, voice.name);
+    await prefs.setString(_displayNamePref, voice.displayName);
     final key = voice.key;
     await (key == null
-        ? prefs.remove(_voiceKeyKey)
-        : prefs.setString(_voiceKeyKey, key));
+        ? prefs.remove(_voiceKeyPref)
+        : prefs.setString(_voiceKeyPref, key));
   }
 
   static CurrentVoice _currentOf(VoiceCatalog catalog) => (
@@ -170,25 +172,23 @@ class VoiceController extends Notifier<VoiceState> {
       final chosen = await sent;
       if (chosen == null || !ref.mounted) return;
       // 主機已經換了：即使之後又點了別的，畫面也要和主機一致，直到下一個請求成功
-      final catalog = state.catalog;
-      final info =
-          catalog?.voices.where((v) => v.name == chosen).firstOrNull ?? voice;
-      final current = (
-        name: chosen,
-        displayName: info.displayName,
-        key: info.key,
+      final catalog = VoiceCatalog(
+        current: chosen,
+        voices: state.catalog?.voices ?? [voice],
       );
+      final current = _currentOf(catalog);
       await _remember(current);
       if (!ref.mounted) return;
       state = state.copyWith(
         current: current,
-        catalog: catalog == null
-            ? null
-            : VoiceCatalog(current: chosen, voices: catalog.voices),
+        catalog: state.catalog == null ? null : catalog,
       );
     } on TourApiException catch (error) {
       debugPrint('換成 ${voice.name} 失敗：$error');
       if (latest()) state = state.copyWith(error: _switchFailure(error));
+    } on FileSystemException catch (error) {
+      debugPrint('存 ${voice.name} 的短句失敗：$error');
+      if (latest()) state = state.copyWith(error: '換聲音失敗：手機存不下這個聲音的短句');
     } finally {
       if (latest()) state = state.copyWith(switching: null);
     }

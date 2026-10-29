@@ -27,12 +27,12 @@ def add_voice(home: Path, name: str, settings: str = "") -> Path:
     return folder
 
 
-def add_usable_voice(home: Path, name: str, settings: str = "speed = 1.2\n") -> Path:
-    """可以拿來合成的聲音：有參考錄音、逐字稿、voice.toml，短句也都準備好了。"""
-    folder = add_voice(home, name, settings)
+def add_usable_voice(home: Path, name: str, numbers=tuple(PHRASES)) -> Path:
+    """可以拿來合成的聲音：有參考錄音、逐字稿、voice.toml（1.2 倍），以及 [numbers] 這幾句短句。"""
+    folder = add_voice(home, name, "speed = 1.2\n")
     (folder / "ref_24k.wav").write_bytes(b"RIFF")
     (folder / "ref_text.txt").write_text("參考逐字稿。", encoding="utf-8")
-    add_phrases(home, f"{name}@1.2")
+    add_phrases(home, f"{name}@1.2", numbers=numbers)
     return folder
 
 
@@ -217,10 +217,7 @@ def test_an_unknown_voice_is_404(tmp_path):
 
 def test_a_voice_without_phrases_cannot_be_chosen(tmp_path):
     add_usable_voice(tmp_path, "F2")
-    folder = add_voice(tmp_path, "M1", "speed = 1.2\n")
-    (folder / "ref_24k.wav").write_bytes(b"RIFF")
-    (folder / "ref_text.txt").write_text("參考逐字稿。", encoding="utf-8")
-    add_phrases(tmp_path, "M1@1.2", numbers=[1, 2])
+    add_usable_voice(tmp_path, "M1", numbers=[1, 2])
     changed = []
 
     response = make_client(tmp_path, on_voice_change=changed.append).post(

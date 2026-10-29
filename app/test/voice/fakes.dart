@@ -77,12 +77,16 @@ class FakeVoiceApi implements VoiceApi {
 class FakePhraseStore implements PhraseStore {
   final saved = <String, Map<FixedPhrase, Uint8List>>{};
 
+  /// 手機空間不夠之類的存檔失敗。
+  Object? saveError;
+
   @override
   Future<bool> has(String voiceKey) async =>
       saved[voiceKey]?.length == FixedPhrase.values.length;
 
   @override
   Future<void> save(String voiceKey, Map<FixedPhrase, Uint8List> wavs) async {
+    if (saveError != null) throw saveError!;
     saved[voiceKey] = {...wavs};
   }
 

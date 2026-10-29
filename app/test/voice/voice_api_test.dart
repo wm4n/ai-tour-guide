@@ -62,6 +62,38 @@ void main() {
     expect(asked.pathSegments, ['v1', 'voices', 'M 1/x', 'phrases', '7']);
   });
 
+  test('choosing a voice posts its name (contract)', () async {
+    final body = File('../contract/voice-switch.json').readAsStringSync();
+    late http.Request sent;
+    final api = HttpVoiceApi(
+      MockClient((request) async {
+        sent = request;
+        return http.Response.bytes(utf8.encode(body), 200);
+      }),
+    );
+
+    final current = await api.choose(settings, 'M1');
+
+    expect(sent.method, 'POST');
+    expect(sent.url.path, '/v1/voice');
+    expect(sent.headers['X-Buddy-Token'], 's3cret');
+    expect(jsonDecode(sent.body), {'name': 'M1'});
+    expect(current, 'M1');
+  });
+
+  test('a voice the host refuses is an error with its status', () async {
+    final api = HttpVoiceApi(
+      MockClient((_) async => http.Response('not ready', 409)),
+    );
+
+    expect(
+      () => api.choose(settings, 'M1'),
+      throwsA(
+        isA<TourApiException>().having((e) => e.statusCode, 'status', 409),
+      ),
+    );
+  });
+
   test('a missing phrase is an error', () async {
     final api = HttpVoiceApi(
       MockClient((_) async => http.Response('not found', 404)),

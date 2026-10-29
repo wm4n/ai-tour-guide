@@ -15,11 +15,17 @@ abstract class PhrasePlayer {
   Future<void> dispose();
 }
 
-/// 音檔是被 git 忽略的本機資源；沒放進來時靜靜略過，App 其餘功能照常。
+/// 優先念手機裡「目前聲音」的短句（從主機下載的）；沒有才念 App 內建的。
+/// 內建的音檔是被 git 忽略的本機資源；沒放進來時靜靜略過，App 其餘功能照常。
 ///
 /// 只有一個播放器：短句一句一句排隊念。同時來兩句（例如剛念完「出發」就發問）若直接對同一個播放器
 /// 重新載入，前一句會被打斷（Loading interrupted）。
 class JustAudioPhrasePlayer implements PhrasePlayer {
+  JustAudioPhrasePlayer({String? Function(FixedPhrase phrase)? localFile})
+    : _localFile = localFile;
+
+  /// 念的當下才問：換了聲音，下一句就念新聲音的。
+  final String? Function(FixedPhrase phrase)? _localFile;
   final AudioPlayer _player = AudioPlayer();
   Future<void> _tail = Future.value();
   int _stops = 0; // stop() 的次數：排隊中的短句看到它變了就不念
@@ -30,12 +36,19 @@ class JustAudioPhrasePlayer implements PhrasePlayer {
     final next = _tail.then((_) async {
       if (stops != _stops) return; // 排隊的時候已經被 stop() 取消了
       try {
-        await _player.setAsset(phrase.assetPath);
+        final local = _localFile?.call(phrase);
+        if (local != null) {
+          await _player.setFilePath(local);
+        } else {
+          await _player.setAsset(phrase.assetPath);
+        }
         if (stops != _stops) return; // 載入的時候被 stop() 取消了
         await _player.play();
         if (releaseFocus) await releaseAudioFocus();
       } catch (error) {
-        debugPrint('固定短句 ${phrase.number} 無法播放（音檔沒放進 assets/phrases/？）：$error');
+        debugPrint(
+          '固定短句 ${phrase.number} 無法播放（手機裡沒有、也沒放進 assets/phrases/？）：$error',
+        );
       }
     });
     _tail = next; // 內部已經接住所有錯誤，這一列不會因為某一句失敗而斷掉

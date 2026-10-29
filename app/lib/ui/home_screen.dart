@@ -10,6 +10,7 @@ import '../qa/speech_recognizer.dart';
 import '../tour/tour_api.dart';
 import '../tour/tour_controller.dart';
 import '../tour/traveler_state.dart';
+import '../voice/voice_controller.dart';
 import 'settings_screen.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
@@ -57,6 +58,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   @override
   Widget build(BuildContext context) {
+    // 連上主機（含 App 啟動後第一次）就跟上主機的目前聲音，手機裡沒有它的短句就補下載
+    ref.listen(connectionProvider, (previous, next) {
+      if (next == ConnectionStatus.connected &&
+          previous != ConnectionStatus.connected) {
+        unawaited(ref.read(voiceProvider.notifier).refresh());
+      }
+    });
     final status = ref.watch(connectionProvider);
     final tour = ref.watch(tourProvider);
     final controller = ref.read(tourProvider.notifier);

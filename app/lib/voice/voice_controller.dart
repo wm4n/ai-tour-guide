@@ -6,6 +6,7 @@ import '../audio/fixed_phrase.dart';
 import '../audio/narration_player.dart';
 import '../host/host_connection.dart';
 import '../tour/tour_controller.dart';
+import 'phrase_store.dart';
 import 'voice_api.dart';
 
 final voiceApiProvider = Provider<VoiceApi>((ref) {
@@ -23,7 +24,8 @@ final voiceProvider = NotifierProvider<VoiceController, VoiceState>(
   VoiceController.new,
 );
 
-typedef CurrentVoice = ({String name, String displayName});
+/// [key] 是聲音鍵，用來找手機裡的短句；不知道（主機清單上沒有這個聲音）時是 null。
+typedef CurrentVoice = ({String name, String displayName, String? key});
 
 class VoiceState {
   const VoiceState({
@@ -31,6 +33,7 @@ class VoiceState {
     this.current,
     this.loading = false,
     this.previewing,
+    this.switching,
     this.error,
   });
 
@@ -43,6 +46,9 @@ class VoiceState {
 
   /// 正在試聽的聲音名稱。
   final String? previewing;
+
+  /// 正在換過去的聲音名稱（下載短句、等主機回應）。
+  final String? switching;
   final String? error;
 
   VoiceState copyWith({
@@ -50,6 +56,7 @@ class VoiceState {
     Object? current = _keep,
     bool? loading,
     Object? previewing = _keep,
+    Object? switching = _keep,
     Object? error = _keep,
   }) => VoiceState(
     catalog: identical(catalog, _keep)
@@ -62,19 +69,27 @@ class VoiceState {
     previewing: identical(previewing, _keep)
         ? this.previewing
         : previewing as String?,
+    switching: identical(switching, _keep)
+        ? this.switching
+        : switching as String?,
     error: identical(error, _keep) ? this.error : error as String?,
   );
 }
 
 const Object _keep = Object();
 
-/// 設定頁的聲音區：主機上的聲音清單與試聽（這張還不能切換）。
+/// 設定頁的聲音區：主機上的聲音清單、試聽與切換。
+///
+/// 目前聲音以主機為準；記在手機裡的只用在連不上主機時挑短句、顯示。
 class VoiceController extends Notifier<VoiceState> {
   static const _nameKey = 'voice.current.name';
   static const _displayNameKey = 'voice.current.display_name';
+  static const _voiceKeyKey = 'voice.current.key';
 
   int _refreshes = 0;
   int _previews = 0;
+  int _selections = 0;
+  Future<void> _choosing = Future.value(); // 換聲音的請求照點選的順序一個一個送
 
   @override
   VoiceState build() => VoiceState(current: _remembered());
@@ -83,8 +98,28 @@ class VoiceController extends Notifier<VoiceState> {
     final prefs = ref.read(sharedPreferencesProvider);
     final name = prefs.getString(_nameKey);
     if (name == null) return null;
-    return (name: name, displayName: prefs.getString(_displayNameKey) ?? name);
+    return (
+      name: name,
+      displayName: prefs.getString(_displayNameKey) ?? name,
+      key: prefs.getString(_voiceKeyKey),
+    );
   }
+
+  Future<void> _remember(CurrentVoice voice) async {
+    final prefs = ref.read(sharedPreferencesProvider);
+    await prefs.setString(_nameKey, voice.name);
+    await prefs.setString(_displayNameKey, voice.displayName);
+    final key = voice.key;
+    await (key == null
+        ? prefs.remove(_voiceKeyKey)
+        : prefs.setString(_voiceKeyKey, key));
+  }
+
+  static CurrentVoice _currentOf(VoiceCatalog catalog) => (
+    name: catalog.current,
+    displayName: catalog.currentVoice?.displayName ?? catalog.current,
+    key: catalog.currentVoice?.key,
+  );
 
   Future<void> refresh() async {
     final generation = ++_refreshes;
@@ -98,18 +133,90 @@ class VoiceController extends Notifier<VoiceState> {
       debugPrint('讀取聲音清單失敗：$error');
     }
     if (!ref.mounted || generation != _refreshes) return;
-    var current = state.current;
-    if (catalog != null) {
-      current = (
-        name: catalog.current,
-        displayName: catalog.currentVoice?.displayName ?? catalog.current,
-      );
-      final prefs = ref.read(sharedPreferencesProvider);
-      await prefs.setString(_nameKey, current.name);
-      await prefs.setString(_displayNameKey, current.displayName);
-      if (!ref.mounted || generation != _refreshes) return;
+    if (catalog == null) {
+      state = state.copyWith(catalog: null, loading: false);
+      return;
     }
+    final current = _currentOf(catalog);
+    await _remember(current);
+    if (!ref.mounted || generation != _refreshes) return;
     state = state.copyWith(catalog: catalog, current: current, loading: false);
+    // 跟上主機：手機裡沒有目前聲音的短句就補下載（連不上主機時才念得出新聲音）
+    final voice = catalog.currentVoice;
+    if (voice == null || !voice.phrasesReady) return;
+    try {
+      await _savePhrases(voice, () => ref.mounted);
+    } on TourApiException catch (error) {
+      debugPrint('下載 ${voice.name} 的短句失敗：$error');
+    }
+  }
+
+  /// 換成這個聲音：先把它的固定短句全部存進手機，再請主機換；任何一步失敗就不換。
+  ///
+  /// 換的過程中可以再點別的聲音，以最後一次為準。
+  Future<void> select(VoiceInfo voice) async {
+    final generation = ++_selections;
+    bool latest() => ref.mounted && generation == _selections;
+    state = state.copyWith(switching: voice.name, error: null);
+    try {
+      if (!await _savePhrases(voice, latest) || !latest()) return;
+      final settings = ref.read(settingsProvider);
+      final api = ref.read(voiceApiProvider);
+      // 照點選的順序送：先點的請求晚到，主機就會停在先點的那個聲音
+      final sent = _choosing.then<String?>(
+        (_) => latest() ? api.choose(settings, voice.name) : null,
+      );
+      _choosing = sent.then((_) {}, onError: (_) {});
+      final chosen = await sent;
+      if (chosen == null || !ref.mounted) return;
+      // 主機已經換了：即使之後又點了別的，畫面也要和主機一致，直到下一個請求成功
+      final catalog = state.catalog;
+      final info =
+          catalog?.voices.where((v) => v.name == chosen).firstOrNull ?? voice;
+      final current = (
+        name: chosen,
+        displayName: info.displayName,
+        key: info.key,
+      );
+      await _remember(current);
+      if (!ref.mounted) return;
+      state = state.copyWith(
+        current: current,
+        catalog: catalog == null
+            ? null
+            : VoiceCatalog(current: chosen, voices: catalog.voices),
+      );
+    } on TourApiException catch (error) {
+      debugPrint('換成 ${voice.name} 失敗：$error');
+      if (latest()) state = state.copyWith(error: _switchFailure(error));
+    } finally {
+      if (latest()) state = state.copyWith(switching: null);
+    }
+  }
+
+  static String _switchFailure(TourApiException error) =>
+      switch (error.statusCode) {
+        404 => '換聲音失敗：主機上找不到這個聲音或它的短句',
+        409 => '換聲音失敗：主機上這個聲音的短句還沒準備好',
+        _ => '換聲音失敗：連不上主機',
+      };
+
+  /// 手機裡沒有這個聲音的短句就全部下載、一次存起來。[stillWanted] 變成 false 就放棄（回傳 false）。
+  Future<bool> _savePhrases(
+    VoiceInfo voice,
+    bool Function() stillWanted,
+  ) async {
+    final store = ref.read(phraseStoreProvider);
+    if (await store.has(voice.key)) return true;
+    final settings = ref.read(settingsProvider);
+    final api = ref.read(voiceApiProvider);
+    final wavs = <FixedPhrase, Uint8List>{};
+    for (final phrase in FixedPhrase.values) {
+      wavs[phrase] = await api.phrase(settings, voice.name, phrase.number);
+      if (!stillWanted()) return false;
+    }
+    await store.save(voice.key, wavs);
+    return true;
   }
 
   /// 試聽某個聲音的 7 號短句（直接從主機下載來播，不存進手機）。

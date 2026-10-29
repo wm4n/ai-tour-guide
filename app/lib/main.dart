@@ -1,11 +1,15 @@
+import 'dart:io';
+
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'audio/audio_focus.dart';
 import 'audio/audio_service_remote_controls.dart';
 import 'audio/just_audio_narration_player.dart';
+import 'audio/phrase_player.dart';
 import 'host/host_connection.dart';
 import 'qa/compass_source.dart';
 import 'qa/fixed_question_recognizer.dart';
@@ -14,6 +18,7 @@ import 'qa/qa_controller.dart';
 import 'tour/geolocator_location_source.dart';
 import 'tour/tour_controller.dart';
 import 'ui/home_screen.dart';
+import 'voice/phrase_store.dart';
 import 'voice/voice_controller.dart';
 
 /// 模擬器沒有麥克風：`--dart-define=FAKE_QUESTION=…` 讓按住說話固定「聽到」這句話。
@@ -25,6 +30,9 @@ const _fakePhoto = bool.fromEnvironment('FAKE_PHOTO');
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final prefs = await SharedPreferences.getInstance();
+  // 從主機下載的各聲音固定短句；放在文件目錄，連不上主機時也念得出來
+  final documents = await getApplicationDocumentsDirectory();
+  final phraseStore = FilePhraseStore(Directory('${documents.path}/phrases'));
   await configureAudioSession();
   final remote = await AudioService.init(
     builder: TourAudioHandler.new,
@@ -37,6 +45,18 @@ Future<void> main() async {
     ProviderScope(
       overrides: [
         sharedPreferencesProvider.overrideWithValue(prefs),
+        phraseStoreProvider.overrideWithValue(phraseStore),
+        // 念的當下才查目前聲音（不 watch：試聽、切換時重建播放器會把正在念的短句切掉）
+        phrasePlayerProvider.overrideWith((ref) {
+          final player = JustAudioPhrasePlayer(
+            localFile: (phrase) => phraseStore.pathFor(
+              ref.read(voiceProvider).current?.key,
+              phrase,
+            ),
+          );
+          ref.onDispose(player.dispose);
+          return player;
+        }),
         remoteControlsProvider.overrideWithValue(remote),
         locationSourceProvider.overrideWithValue(GeolocatorLocationSource()),
         narrationPlayerProvider.overrideWith((ref) {

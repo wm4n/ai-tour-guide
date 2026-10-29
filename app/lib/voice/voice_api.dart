@@ -63,6 +63,9 @@ abstract class VoiceApi {
 
   /// 某個聲音（目前語速）的第 [number] 句固定短句。
   Future<Uint8List> phrase(HostSettings settings, String name, int number);
+
+  /// 請主機改用這個聲音；回傳主機的目前聲音。不存在是 404、短句沒準備好是 409。
+  Future<String> choose(HostSettings settings, String name);
 }
 
 class HttpVoiceApi implements VoiceApi {
@@ -81,6 +84,23 @@ class HttpVoiceApi implements VoiceApi {
       throw TourApiException('/v1/voices answered unexpected JSON: $error');
     } on TypeError catch (error) {
       throw TourApiException('/v1/voices answered unexpected JSON: $error');
+    }
+  }
+
+  @override
+  Future<String> choose(HostSettings settings, String name) async {
+    final response = await _host.post(
+      settings,
+      '/v1/voice',
+      body: {'name': name},
+    );
+    try {
+      final json = jsonDecode(utf8.decode(response.bodyBytes));
+      return (json as Map<String, dynamic>)['current'] as String;
+    } on FormatException catch (error) {
+      throw TourApiException('/v1/voice answered unexpected JSON: $error');
+    } on TypeError catch (error) {
+      throw TourApiException('/v1/voice answered unexpected JSON: $error');
     }
   }
 

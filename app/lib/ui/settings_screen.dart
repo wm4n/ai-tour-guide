@@ -168,8 +168,13 @@ class VoiceSection extends ConsumerWidget {
             enabled: voice.phrasesReady,
             previewable: true,
             previewing: voices.previewing == voice.name,
+            switching: voices.switching == voice.name,
             onPreview: voice.phrasesReady && canPreview
                 ? () => ref.read(voiceProvider.notifier).preview(voice.name)
+                : null,
+            // 點一下就換；切換中還可以再點別的，以最後一次為準
+            onSelect: voice.phrasesReady && voice.name != catalog.current
+                ? () => ref.read(voiceProvider.notifier).select(voice)
                 : null,
           ),
         );
@@ -199,7 +204,9 @@ class _VoiceTile extends StatelessWidget {
     this.enabled = true,
     this.previewable = false,
     this.previewing = false,
+    this.switching = false,
     this.onPreview,
+    this.onSelect,
   });
 
   final String name;
@@ -211,7 +218,9 @@ class _VoiceTile extends StatelessWidget {
   /// 離線時沒有試聽按鈕；有按鈕但 [onPreview] 是 null 時顯示為不能按。
   final bool previewable;
   final bool previewing;
+  final bool switching;
   final VoidCallback? onPreview;
+  final VoidCallback? onSelect;
 
   @override
   Widget build(BuildContext context) {
@@ -221,9 +230,15 @@ class _VoiceTile extends StatelessWidget {
       leading: CircleAvatar(child: Text(displayName.characters.first)),
       title: Text(displayName),
       subtitle: description.isEmpty ? null : Text(description),
+      onTap: onSelect,
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (switching)
+            const SizedBox.square(
+              dimension: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
           if (previewable)
             IconButton(
               key: Key('voice-preview-$name'),

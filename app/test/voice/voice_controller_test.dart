@@ -1,9 +1,11 @@
 import 'dart:async';
 
+import 'package:buddy_tour/audio/fixed_phrase.dart';
 import 'package:buddy_tour/audio/phrase_player.dart';
 import 'package:buddy_tour/host/host_connection.dart';
 import 'package:buddy_tour/tour/playback_policy.dart';
 import 'package:buddy_tour/tour/tour_controller.dart';
+import 'package:buddy_tour/voice/phrase_store.dart';
 import 'package:buddy_tour/voice/voice_api.dart';
 import 'package:buddy_tour/voice/voice_controller.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -17,6 +19,7 @@ class Harness {
   Harness({FakePlayer? preview}) : preview = preview ?? FakePlayer();
 
   final api = FakeVoiceApi();
+  final store = FakePhraseStore();
   final tourApi = FakeTourApi();
   final location = FakeLocation();
   final narration = FakePlayer();
@@ -42,6 +45,7 @@ Future<Harness> makeHarness({
     overrides: [
       sharedPreferencesProvider.overrideWithValue(h.prefs),
       voiceApiProvider.overrideWithValue(h.api),
+      phraseStoreProvider.overrideWithValue(h.store),
       previewPlayerProvider.overrideWithValue(h.preview),
       tourApiProvider.overrideWithValue(h.tourApi),
       locationSourceProvider.overrideWithValue(h.location),
@@ -90,7 +94,7 @@ void main() {
 
       expect(h.state.catalog?.voices.map((v) => v.name), ['F2', 'M1']);
       expect(h.state.loading, isFalse);
-      expect(h.state.current, (name: 'F2', displayName: '示範女聲'));
+      expect(h.state.current, (name: 'F2', displayName: '示範女聲', key: 'F2@1.2'));
     });
 
     test('offline it still knows the voice it last saw', () async {
@@ -101,7 +105,7 @@ void main() {
       await h.voices.refresh();
 
       expect(h.state.catalog, isNull);
-      expect(h.state.current, (name: 'F2', displayName: '示範女聲'));
+      expect(h.state.current, (name: 'F2', displayName: '示範女聲', key: 'F2@1.2'));
     });
 
     test('the remembered voice survives a restart of the app', () async {
@@ -116,7 +120,7 @@ void main() {
       h.api.listError = TourApiException('unreachable');
       await h.voices.refresh();
 
-      expect(h.state.current, (name: 'F2', displayName: '示範女聲'));
+      expect(h.state.current, (name: 'F2', displayName: '示範女聲', key: 'F2@1.2'));
     });
 
     test('never having reached the host there is no current voice', () async {
@@ -137,7 +141,7 @@ void main() {
 
         await h.voices.refresh();
 
-        expect(h.state.current, (name: 'X9', displayName: 'X9'));
+        expect(h.state.current, (name: 'X9', displayName: 'X9', key: null));
       },
     );
   });
@@ -283,6 +287,198 @@ void main() {
       expect(h.preview.played, ['M1#7']);
       h.preview.finish();
       await Future.wait([first, second]);
+    });
+  });
+
+  group('switching voice', () {
+    final everyPhrase = [
+      for (final phrase in FixedPhrase.values) phrase.number,
+    ];
+
+    Future<Harness> ready() async {
+      final h = await makeHarness();
+      h.api.catalog = VoiceCatalog(
+        current: 'F2',
+        voices: [
+          voice('F2', displayName: '示範女聲'),
+          voice('M1', displayName: '示範男聲'),
+          voice('M2'),
+        ],
+      );
+      await h.voices.refresh();
+      h.api.phrases.clear(); // 連上主機時已經補下載了目前聲音的短句
+      return h;
+    }
+
+    VoiceInfo of(Harness h, String name) =>
+        h.state.catalog!.voices.firstWhere((v) => v.name == name);
+
+    test(
+      'downloads every phrase of the new voice, asks the host, then remembers it',
+      () async {
+        final h = await ready();
+
+        await h.voices.select(of(h, 'M1'));
+
+        expect(h.api.phrases, [for (final n in everyPhrase) ('M1', n)]);
+        expect(await h.store.has('M1@1.2'), isTrue);
+        expect(h.api.chosen, ['M1']);
+        expect(h.state.current, (
+          name: 'M1',
+          displayName: '示範男聲',
+          key: 'M1@1.2',
+        ));
+        expect(h.state.catalog!.current, 'M1');
+        expect(h.state.switching, isNull);
+        expect(h.prefs.getString('voice.current.key'), 'M1@1.2');
+      },
+    );
+
+    test('phrases already on the phone are not downloaded again', () async {
+      final h = await ready();
+      await h.voices.select(of(h, 'M1'));
+      await h.voices.select(of(h, 'F2'));
+      h.api.phrases.clear();
+
+      await h.voices.select(of(h, 'M1'));
+
+      expect(h.api.phrases, isEmpty);
+      expect(h.api.chosen, ['M1', 'F2', 'M1']);
+    });
+
+    test('a failed download does not switch', () async {
+      final h = await ready();
+      h.api.phraseError = TourApiException('timed out');
+
+      await h.voices.select(of(h, 'M1'));
+
+      expect(h.api.chosen, isEmpty);
+      expect(h.state.current?.name, 'F2');
+      expect(h.state.catalog!.current, 'F2');
+      expect(await h.store.has('M1@1.2'), isFalse);
+      expect(h.state.error, isNotNull);
+      expect(h.state.switching, isNull);
+    });
+
+    test('a switch the host refuses keeps the old voice', () async {
+      final h = await ready();
+      h.api.chooseError = TourApiException('answered 409', statusCode: 409);
+
+      await h.voices.select(of(h, 'M1'));
+
+      expect(h.state.current?.name, 'F2');
+      expect(h.state.error, contains('短句'));
+    });
+
+    test('shows which voice it is switching to', () async {
+      final h = await ready();
+      h.api.chooseGate = Completer<void>();
+
+      final done = h.voices.select(of(h, 'M1'));
+      await h.settle();
+      expect(h.state.switching, 'M1');
+      expect(h.state.current?.name, 'F2');
+
+      h.api.chooseGate!.complete();
+      await done;
+      expect(h.state.switching, isNull);
+      expect(h.state.current?.name, 'M1');
+    });
+
+    test('the last tap wins even when the first download is slower', () async {
+      final h = await ready();
+      h.api.phraseGates['M1'] = Completer<void>();
+
+      final first = h.voices.select(of(h, 'M1'));
+      await h.settle();
+      final second = h.voices.select(of(h, 'M2'));
+      await second;
+      h.api.phraseGates['M1']!.complete();
+      await first;
+
+      expect(h.api.chosen, ['M2']);
+      expect(h.state.current?.name, 'M2');
+      expect(h.state.switching, isNull);
+    });
+
+    test('switches reach the host in the order they were tapped', () async {
+      final h = await ready();
+      h.api.chooseGate = Completer<void>();
+
+      final first = h.voices.select(of(h, 'M1'));
+      await h.settle();
+      expect(h.api.chosen, ['M1']); // 第一個切換已送出，主機還沒回
+      final second = h.voices.select(of(h, 'M2'));
+      await h.settle();
+      expect(h.api.chosen, ['M1']); // 第二個要等第一個回來才送
+
+      h.api.chooseGate!.complete();
+      await Future.wait([first, second]);
+
+      expect(h.api.chosen, ['M1', 'M2']);
+      expect(h.state.current?.name, 'M2');
+    });
+  });
+
+  group('following the host', () {
+    test(
+      'the host\'s current voice is followed and its phrases fetched',
+      () async {
+        final h = await makeHarness();
+        h.api.catalog = VoiceCatalog(
+          current: 'M1',
+          voices: [
+            voice('F2'),
+            voice('M1', displayName: '示範男聲'),
+          ],
+        );
+
+        await h.voices.refresh();
+
+        expect(h.state.current, (
+          name: 'M1',
+          displayName: '示範男聲',
+          key: 'M1@1.2',
+        ));
+        expect(await h.store.has('M1@1.2'), isTrue);
+        expect(h.api.chosen, isEmpty); // 只是跟上主機，不是切換
+      },
+    );
+
+    test('phrases already on the phone are not fetched again', () async {
+      final h = await makeHarness();
+      await h.voices.refresh();
+      h.api.phrases.clear();
+
+      await h.voices.refresh();
+
+      expect(h.api.phrases, isEmpty);
+    });
+
+    test(
+      'a current voice whose phrases the host lacks is not fetched',
+      () async {
+        final h = await makeHarness();
+        h.api.catalog = VoiceCatalog(
+          current: 'M1',
+          voices: [voice('M1', phrasesReady: false)],
+        );
+
+        await h.voices.refresh();
+
+        expect(h.api.phrases, isEmpty);
+        expect(await h.store.has('M1@1.2'), isFalse);
+      },
+    );
+
+    test('a failed fetch still shows the list', () async {
+      final h = await makeHarness();
+      h.api.phraseError = TourApiException('timed out');
+
+      await h.voices.refresh();
+
+      expect(h.state.catalog, isNotNull);
+      expect(h.state.current?.name, 'F2');
     });
   });
 }

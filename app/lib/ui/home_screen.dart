@@ -5,12 +5,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../host/host_client.dart';
 import '../host/host_connection.dart';
-import '../host/host_settings.dart';
 import '../qa/qa_controller.dart';
 import '../qa/speech_recognizer.dart';
 import '../tour/tour_api.dart';
 import '../tour/tour_controller.dart';
 import '../tour/traveler_state.dart';
+import 'settings_screen.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -69,10 +69,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           IconButton(
             key: const Key('open-settings'),
             icon: const Icon(Icons.settings),
-            tooltip: '主機設定',
-            onPressed: () => showDialog<void>(
-              context: context,
-              builder: (_) => const SettingsDialog(),
+            tooltip: '設定',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const SettingsScreen()),
             ),
           ),
         ],
@@ -175,76 +174,6 @@ class _StatusChip extends StatelessWidget {
         color: connected ? Colors.green : Colors.grey,
       ),
       label: Text(HomeScreen.statusLabel(status)),
-    );
-  }
-}
-
-class SettingsDialog extends ConsumerStatefulWidget {
-  const SettingsDialog({super.key});
-
-  @override
-  ConsumerState<SettingsDialog> createState() => _SettingsDialogState();
-}
-
-class _SettingsDialogState extends ConsumerState<SettingsDialog> {
-  late final TextEditingController _url;
-  late final TextEditingController _token;
-
-  @override
-  void initState() {
-    super.initState();
-    final current = ref.read(settingsProvider);
-    _url = TextEditingController(text: current.url);
-    _token = TextEditingController(text: current.token);
-  }
-
-  @override
-  void dispose() {
-    _url.dispose();
-    _token.dispose();
-    super.dispose();
-  }
-
-  Future<void> _save() async {
-    await ref
-        .read(settingsProvider.notifier)
-        .save(HostSettings(url: _url.text.trim(), token: _token.text.trim()));
-    if (mounted) Navigator.of(context).pop();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('主機設定'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TextField(
-            key: const Key('setting-url'),
-            controller: _url,
-            keyboardType: TextInputType.url,
-            autocorrect: false,
-            decoration: const InputDecoration(
-              labelText: '主機位址',
-              hintText: 'http://100.x.y.z:8765',
-            ),
-          ),
-          TextField(
-            key: const Key('setting-token'),
-            controller: _token,
-            autocorrect: false,
-            obscureText: true,
-            decoration: const InputDecoration(labelText: 'Token（可留空）'),
-          ),
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('取消'),
-        ),
-        FilledButton(onPressed: _save, child: const Text('儲存')),
-      ],
     );
   }
 }

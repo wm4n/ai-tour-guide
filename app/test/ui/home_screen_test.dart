@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:buddy_tour/audio/fixed_phrase.dart';
 import 'package:buddy_tour/audio/phrase_player.dart';
 import 'package:buddy_tour/qa/photo_source.dart';
@@ -11,6 +13,8 @@ import 'package:buddy_tour/host/host_client.dart';
 import 'package:buddy_tour/host/host_connection.dart';
 import 'package:buddy_tour/host/host_settings.dart';
 import 'package:buddy_tour/ui/home_screen.dart';
+import 'package:buddy_tour/voice/voice_api.dart';
+import 'package:buddy_tour/voice/voice_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -18,6 +22,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../qa/fakes.dart';
 import '../tour/fakes.dart';
+import '../voice/fakes.dart';
 
 class _FixedClient implements HostClient {
   _FixedClient(this.status);
@@ -35,6 +40,8 @@ late FakePlayer answerPlayer;
 late FakePhotoSource photoSource;
 late FakeCompass compass;
 late FakeLocation location;
+late FakeVoiceApi voiceApi;
+late FakePlayer previewPlayer;
 
 Future<void> pumpHome(
   WidgetTester tester,
@@ -54,6 +61,8 @@ Future<void> pumpHome(
   photoSource = FakePhotoSource();
   compass = FakeCompass();
   location = FakeLocation();
+  voiceApi = FakeVoiceApi();
+  previewPlayer = FakePlayer();
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
@@ -72,6 +81,8 @@ Future<void> pumpHome(
         speechRecognizerProvider.overrideWithValue(recognizer),
         answerPlayerProvider.overrideWithValue(answerPlayer),
         qaPollIntervalProvider.overrideWithValue(const Duration(seconds: 1)),
+        voiceApiProvider.overrideWithValue(voiceApi),
+        previewPlayerProvider.overrideWithValue(previewPlayer),
       ],
       child: const MaterialApp(home: HomeScreen()),
     ),
@@ -126,23 +137,185 @@ void main() {
     expect(find.text('出發'), findsOneWidget);
   });
 
-  testWidgets('settings dialog saves url and token', (tester) async {
-    await pumpHome(tester, ConnectionStatus.connected, configured: false);
+  group('settings page', () {
+    Future<void> openSettings(WidgetTester tester) async {
+      await tester.tap(find.byKey(const Key('open-settings')));
+      await tester.pumpAndSettle();
+    }
 
-    await tester.tap(find.byKey(const Key('open-settings')));
-    await tester.pumpAndSettle();
-    await tester.enterText(
-      find.byKey(const Key('setting-url')),
-      'http://100.64.0.1:8765',
+    Finder tile(String name) => find.byKey(Key('voice-$name'));
+
+    Finder inTile(String name, Finder finder) =>
+        find.descendant(of: tile(name), matching: finder);
+
+    testWidgets('saves url and token', (tester) async {
+      await pumpHome(tester, ConnectionStatus.connected, configured: false);
+      await openSettings(tester);
+
+      await tester.enterText(
+        find.byKey(const Key('setting-url')),
+        'http://100.64.0.1:8765',
+      );
+      await tester.enterText(find.byKey(const Key('setting-token')), 'tok');
+      await tester.ensureVisible(find.byKey(const Key('setting-save')));
+      await tester.tap(find.byKey(const Key('setting-save')));
+      await tester.pumpAndSettle();
+
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString('host.url'), 'http://100.64.0.1:8765');
+      expect(prefs.getString('host.token'), 'tok');
+      expect(voiceApi.lists, 2); // 換了主機就重讀聲音清單
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(find.text('主機已連線'), findsOneWidget);
+    });
+
+    testWidgets('is a full page with a voice and a host section', (
+      tester,
+    ) async {
+      await pumpHome(tester, ConnectionStatus.connected);
+      await openSettings(tester);
+
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.text('聲音'), findsOneWidget);
+      expect(find.text('家裡的主機'), findsOneWidget);
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const Key('setting-url')))
+            .controller!
+            .text,
+        'http://h:1',
+      );
+    });
+
+    testWidgets('lists the host\'s voices with the current one ticked', (
+      tester,
+    ) async {
+      await pumpHome(tester, ConnectionStatus.connected);
+      await openSettings(tester);
+
+      expect(inTile('F2', find.text('小晴')), findsOneWidget);
+      expect(inTile('F2', find.text('女聲・溫暖')), findsOneWidget);
+      expect(inTile('F2', find.text('小')), findsOneWidget); // 頭像：顯示名稱首字
+      expect(inTile('F2', find.byIcon(Icons.check_circle)), findsOneWidget);
+      expect(inTile('M1', find.text('阿哲')), findsOneWidget);
+      expect(inTile('M1', find.byIcon(Icons.check_circle)), findsNothing);
+      expect(find.byKey(const Key('voice-current-not-ready')), findsNothing);
+    });
+
+    testWidgets(
+      'a voice without phrases is greyed out and cannot be previewed',
+      (tester) async {
+        await pumpHome(tester, ConnectionStatus.connected);
+        voiceApi.catalog = VoiceCatalog(
+          current: 'F2',
+          voices: [voice('F2'), voice('M1', phrasesReady: false)],
+        );
+        await openSettings(tester);
+
+        expect(tester.widget<ListTile>(tile('M1')).enabled, isFalse);
+        expect(inTile('M1', find.text('短句尚未準備')), findsOneWidget);
+        expect(
+          tester
+              .widget<IconButton>(find.byKey(const Key('voice-preview-M1')))
+              .onPressed,
+          isNull,
+        );
+        expect(tester.widget<ListTile>(tile('F2')).enabled, isTrue);
+      },
     );
-    await tester.enterText(find.byKey(const Key('setting-token')), 'tok');
-    await tester.tap(find.text('儲存'));
-    await tester.pumpAndSettle();
 
-    final prefs = await SharedPreferences.getInstance();
-    expect(prefs.getString('host.url'), 'http://100.64.0.1:8765');
-    expect(prefs.getString('host.token'), 'tok');
-    expect(find.text('主機已連線'), findsOneWidget);
+    testWidgets('warns when the current voice has no phrases yet', (
+      tester,
+    ) async {
+      await pumpHome(tester, ConnectionStatus.connected);
+      voiceApi.catalog = VoiceCatalog(
+        current: 'M1',
+        voices: [voice('F2'), voice('M1', phrasesReady: false)],
+      );
+      await openSettings(tester);
+
+      expect(find.byKey(const Key('voice-current-not-ready')), findsOneWidget);
+    });
+
+    testWidgets('offline it shows only the current voice', (tester) async {
+      await pumpHome(tester, ConnectionStatus.connected);
+      await openSettings(tester); // 先連上一次，記住目前的聲音
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      voiceApi.listError = TourApiException('unreachable');
+
+      await openSettings(tester);
+
+      expect(find.byKey(const Key('voices-offline')), findsOneWidget);
+      expect(inTile('F2', find.text('小晴')), findsOneWidget);
+      expect(tile('M1'), findsNothing);
+      expect(find.byKey(const Key('voice-preview-F2')), findsNothing);
+    });
+
+    testWidgets('offline without ever reaching the host says so', (
+      tester,
+    ) async {
+      await pumpHome(tester, ConnectionStatus.unreachable);
+      voiceApi.listError = TourApiException('unreachable');
+      await openSettings(tester);
+
+      expect(find.byKey(const Key('voices-offline')), findsOneWidget);
+      expect(find.text('連不上主機，還不知道目前用的是哪個聲音'), findsOneWidget);
+    });
+
+    testWidgets('the play button previews phrase 7 of that voice', (
+      tester,
+    ) async {
+      await pumpHome(tester, ConnectionStatus.connected);
+      await openSettings(tester);
+
+      await tester.tap(find.byKey(const Key('voice-preview-M1')));
+      await tester.pump();
+      await tester.pump();
+
+      expect(voiceApi.phrases, [('M1', 7)]);
+      expect(previewPlayer.played, ['M1#7']);
+      previewPlayer.finish();
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('a failed preview says so', (tester) async {
+      await pumpHome(tester, ConnectionStatus.connected);
+      voiceApi.phraseError = TourApiException('answered 404');
+      await openSettings(tester);
+
+      await tester.tap(find.byKey(const Key('voice-preview-M1')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('voice-error')), findsOneWidget);
+    });
+
+    testWidgets('previews are disabled while a question is in progress', (
+      tester,
+    ) async {
+      await pumpHome(tester, ConnectionStatus.connected);
+      await tester.tap(find.byKey(const Key('tour-toggle')));
+      await tester.pumpAndSettle();
+      await openSettings(tester);
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(Scaffold).last),
+      );
+
+      unawaited(container.read(qaProvider.notifier).press());
+      await tester.pump();
+      await tester.pump();
+
+      expect(
+        tester
+            .widget<IconButton>(find.byKey(const Key('voice-preview-M1')))
+            .onPressed,
+        isNull,
+      );
+      await container.read(qaProvider.notifier).cancel();
+      await tester.pumpAndSettle();
+    });
   });
 
   testWidgets('按「出發」播放短句 7，按「結束」不播', (tester) async {

@@ -512,6 +512,27 @@ void main() {
     expect(find.text('出發'), findsOneWidget);
   });
 
+  testWidgets('a voice switched during a tour says the next one is coming', (
+    tester,
+  ) async {
+    await pumpHome(tester, ConnectionStatus.connected);
+    await tester.tap(find.byKey(const Key('tour-toggle')));
+    await tester.pumpAndSettle();
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(HomeScreen)),
+    );
+    final tour = container.read(tourProvider.notifier);
+    api.queue([], voice: 'F2@1.2'); // 主機目前的聲音
+    await tour.tick();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('voice-changing')), findsNothing);
+
+    tour.useVoice('M1@1.2');
+    await tester.pumpAndSettle();
+
+    expect(find.text('這段播完就換，下一段準備中…'), findsOneWidget);
+  });
+
   testWidgets('quota exhaustion is shown on screen', (tester) async {
     await pumpHome(tester, ConnectionStatus.connected);
     await tester.tap(find.byKey(const Key('tour-toggle')));

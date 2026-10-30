@@ -78,3 +78,18 @@ async def test_replays_narrations_stored_per_voice(tmp_path):
 
     assert found.wav_path == voice_dir / "新.wav"
     assert found.audio_seconds == 2.5
+
+
+async def test_replayed_narrations_are_labelled_with_the_current_voice(tmp_path):
+    write_fixture(tmp_path, "近", 25.0562, 121.5100)
+    preparer = ReplayPreparer(tmp_path, voice_key="F2@1.2")
+
+    [first] = await preparer.prepare(HERE)
+    preparer.voice_key = "M1@1.2"
+    seen = []
+    [again] = await preparer.revoice([first], on_ready=seen.append)
+
+    # 重播不合成：同一個音檔換上新的聲音鍵，桌上也跑得通換聲音的流程
+    assert first.voice == "F2@1.2"
+    assert (again.voice, again.wav_path) == ("M1@1.2", first.wav_path)
+    assert seen == [again]

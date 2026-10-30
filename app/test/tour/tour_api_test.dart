@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:buddy_tour/host/host_settings.dart';
 import 'package:buddy_tour/tour/playback_policy.dart';
@@ -196,6 +197,22 @@ void main() {
     expect(poll.stoppedReason, 'quota');
     expect(poll.narrations.single.id, 'wiki:霞海城隍廟');
     expect(poll.narrations.single.audioSeconds, 34.7);
+    // 舊主機沒有聲音鍵：不知道是哪個聲音
+    expect(poll.voice, isNull);
+    expect(poll.narrations.single.voice, isNull);
+  });
+
+  test('the host\'s narrations poll is understood (contract)', () async {
+    final body = File('../contract/tour-narrations.json').readAsStringSync();
+    final api = apiWith(
+      (request) async => http.Response.bytes(utf8.encode(body), 200),
+    );
+
+    final poll = await api.poll(settings, after: 0);
+
+    expect(poll.voice, 'F2@1.2');
+    expect(poll.narrations.single.voice, 'F2@1.2');
+    expect(poll.narrations.single.id, 'wiki:霞海城隍廟');
   });
 
   test(

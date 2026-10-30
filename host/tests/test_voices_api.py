@@ -1,4 +1,6 @@
+import dataclasses
 import json
+import time
 from pathlib import Path
 
 import pytest
@@ -6,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from buddy_host.app import create_app
 from buddy_host.config import HostConfig
+from buddy_host.narration.preparer import PreparedNarration
 from buddy_host.speech.phrases import PHRASES, voice_phrases_dir
 from buddy_host.speech.voice import read_current_voice
 
@@ -15,9 +18,9 @@ F2_TOML = "speed = 1.2\ndisplay_name = '示範女聲'\ndescription = '女聲・�
 M1_TOML = "speed = 1.2\ndisplay_name = '示範男聲'\ndescription = '男聲・沉穩'\n"
 
 
-def make_client(home: Path, voice: str = "F2", on_voice_change=None) -> TestClient:
+def make_client(home: Path, voice: str = "F2", on_voice_change=None, preparer=None) -> TestClient:
     config = HostConfig(home=home, token="s3cret", voice=voice)
-    return TestClient(create_app(config, on_voice_change=on_voice_change))
+    return TestClient(create_app(config, preparer, on_voice_change=on_voice_change))
 
 
 def add_voice(home: Path, name: str, settings: str = "") -> Path:
@@ -253,3 +256,84 @@ def test_the_switch_response_matches_the_contract_the_app_is_tested_against(tmp_
     response = make_client(tmp_path).post("/v1/voice", json={"name": "M1"}, headers=TOKEN)
 
     assert response.json() == json.loads((CONTRACT / "voice-switch.json").read_text("utf-8"))
+
+
+class TwoPlacesPreparer:
+    """出發就準備好 A、B 兩段；重做時換成目前的聲音。"""
+
+    def __init__(self, wav: Path):
+        self.wav = wav
+        self.voice_key = "F2@1.2"
+        self.revoiced: list[list[str]] = []
+
+    def _item(self, name: str) -> PreparedNarration:
+        return PreparedNarration(
+            f"wiki:{name}", name, "稿", self.wav, self.wav, 30.0, 50.0, 25.05, 121.51,
+            self.voice_key,
+        )  # fmt: skip
+
+    async def prepare(self, location, **_):
+        return [self._item("A"), self._item("B")]
+
+    async def revoice(self, narrations, *, on_ready=None):
+        self.revoiced.append([item.candidate_id for item in narrations])
+        redone = [dataclasses.replace(item, voice=self.voice_key) for item in narrations]
+        for item in redone:
+            if on_ready:
+                on_ready(item)
+        return redone
+
+
+def narrations_once(client: TestClient, count: int) -> dict:
+    for _ in range(100):
+        body = client.get("/v1/tour/narrations", headers=TOKEN).json()
+        if len(body["narrations"]) >= count:
+            return body
+        time.sleep(0.02)
+    raise AssertionError(f"沒有等到 {count} 段介紹：{body}")
+
+
+def test_switching_during_a_tour_redoes_what_has_not_played_in_the_new_voice(tmp_path):
+    add_usable_voice(tmp_path, "F2")
+    add_usable_voice(tmp_path, "M1")
+    wav = tmp_path / "a.wav"
+    wav.write_bytes(b"RIFF")
+    preparer = TwoPlacesPreparer(wav)
+    changed = []
+    with make_client(tmp_path, on_voice_change=changed.append, preparer=preparer) as client:
+        client.post("/v1/tour/start", json={"lat": 25.05, "lon": 121.51}, headers=TOKEN)
+        narrations_once(client, 2)
+
+        response = client.post(
+            "/v1/voice", json={"name": "M1", "playing_id": "wiki:A"}, headers=TOKEN
+        )
+        body = narrations_once(client, 2)
+
+    assert response.json() == {"current": "M1"}
+    assert [voice.name for voice in changed] == ["M1"]
+    assert preparer.revoiced == [["wiki:B"]]  # A 正在播、會播完：不丟
+    assert body["voice"] == "M1@1.2"
+    assert [(n["seq"], n["id"], n["voice"]) for n in body["narrations"]] == [
+        (1, "wiki:A", "F2@1.2"),
+        (3, "wiki:B", "M1@1.2"),
+    ]
+
+
+def test_switching_without_a_tour_changes_the_voice_of_the_next_narrations(tmp_path):
+    add_usable_voice(tmp_path, "F2")
+    add_usable_voice(tmp_path, "M1")
+    preparer = TwoPlacesPreparer(tmp_path / "a.wav")
+    with make_client(tmp_path, preparer=preparer) as client:
+        client.post("/v1/voice", json={"name": "M1"}, headers=TOKEN)
+
+        assert client.get("/v1/tour/narrations", headers=TOKEN).json()["voice"] == "M1@1.2"
+    assert preparer.revoiced == []
+
+
+def test_the_narrations_start_in_the_voice_the_host_started_with(tmp_path):
+    add_usable_voice(tmp_path, "F2")
+    preparer = TwoPlacesPreparer(tmp_path / "a.wav")
+    preparer.voice_key = "F2@1.2"  # 主機啟動時用目前聲音建好準備器
+
+    with make_client(tmp_path, preparer=preparer) as client:
+        assert client.get("/v1/tour/narrations", headers=TOKEN).json()["voice"] == "F2@1.2"

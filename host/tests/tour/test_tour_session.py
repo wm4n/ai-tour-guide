@@ -1,4 +1,5 @@
 import asyncio
+import dataclasses
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -32,21 +33,28 @@ def fix(location=START, **traveler) -> TourFix:
     return TourFix(location, context)
 
 
-def narration(name: str, tmp_path: Path) -> PreparedNarration:
+def narration(name: str, tmp_path: Path, voice: str = "F2@1.2") -> PreparedNarration:
     wav = tmp_path / f"{name}.wav"
     wav.write_bytes(b"RIFF")
     return PreparedNarration(
         f"wiki:{name}", name, f"{name}的稿子", wav, tmp_path / f"{name}.json", 31.5, 80.0,
-        25.05, 121.51,
+        25.05, 121.51, voice,
     )  # fmt: skip
 
 
 class FakePreparer:
-    """每次 prepare 依序回傳預先排好的結果；gate 讓測試卡住一次準備。"""
+    """每次 prepare 依序回傳預先排好的結果；gate 讓測試卡住一次準備。
+
+    結果裡的名稱做成目前聲音的介紹；`revoice` 把稿子換成目前的聲音（記下被重做的）。
+    """
 
     def __init__(self, tmp_path: Path, results=None):
         self.tmp_path = tmp_path
         self.results = list(results or [])
+        self.voice_key = "F2@1.2"
+        self.revoiced: list[list[str]] = []
+        self.revoice_gate: asyncio.Event | None = None
+        self.revoice_error: Exception | None = None
         self.calls: list[dict] = []
         self.gate: asyncio.Event | None = None
         self.running = 0
@@ -82,15 +90,33 @@ class FakePreparer:
             result = self.results.pop(0) if self.results else []
             if isinstance(result, Exception):
                 raise result
-            items = [narration(n, self.tmp_path) if isinstance(n, str) else n for n in result]
+
+            def made(n):  # 和真的準備器一樣：每段都是做好當下的聲音
+                return narration(n, self.tmp_path, self.voice_key) if isinstance(n, str) else n
+
             if on_ready and self.report_progressively:
-                for item in items:
-                    on_ready(item)
+                items = []
+                for n in result:
+                    items.append(made(n))
+                    on_ready(items[-1])
                     if self.gate_after_first:
                         await self.gate_after_first.wait()
-            return items
+                return items
+            return [made(n) for n in result]
         finally:
             self.running -= 1
+
+    async def revoice(self, narrations, *, on_ready=None):
+        self.revoiced.append([item.candidate_id for item in narrations])
+        if self.revoice_gate:
+            await self.revoice_gate.wait()
+        if self.revoice_error:
+            raise self.revoice_error
+        redone = [dataclasses.replace(item, voice=self.voice_key) for item in narrations]
+        for item in redone:
+            if on_ready:
+                on_ready(item)
+        return redone
 
 
 async def test_start_prepares_the_area_around_the_start_point_with_the_traveler_state(tmp_path):
@@ -685,3 +711,196 @@ async def test_a_question_probing_the_quota_first_does_not_lose_the_blocked_prep
     await session.wait_idle()
 
     assert [e.name for e in session.narrations_after(0)] == ["A"]
+
+
+async def tour_with(tmp_path, names, **kwargs):
+    preparer = FakePreparer(tmp_path, [names, *kwargs.pop("later", [])])
+    session = TourSession(preparer, journey=JourneyMemory(None), **kwargs)
+    session.start(fix())
+    await session.wait_idle()
+    return preparer, session
+
+
+def voices_of(session, after=0):
+    return [(e.name, e.voice) for e in session.narrations_after(after)]
+
+
+async def test_each_narration_and_the_session_say_which_voice_they_are(tmp_path):
+    _, session = await tour_with(tmp_path, ["A"])
+
+    assert session.voice_key == "F2@1.2"
+    assert voices_of(session) == [("A", "F2@1.2")]
+
+
+async def test_switching_withdraws_unplayed_narrations_and_redoes_them_in_the_new_voice(tmp_path):
+    preparer, session = await tour_with(tmp_path, ["A", "B", "C"])
+    session.mark_played("wiki:A")
+
+    session.change_voice("M1@1.2", playing_id="wiki:B")  # B 正在播、會播完
+    await session.wait_idle()
+
+    assert preparer.revoiced == [["wiki:C"]]
+    assert len(preparer.calls) == 1  # 沒有重新準備（不會找 Claude 寫稿）
+    assert [(e.seq, e.name, e.voice) for e in session.narrations_after(0)] == [
+        (1, "A", "F2@1.2"),
+        (2, "B", "F2@1.2"),
+        (4, "C", "M1@1.2"),  # 同一個景點 id，以新的 seq 發布
+    ]
+    assert session.voice_key == "M1@1.2"
+
+
+async def test_a_withdrawn_narration_is_gone_until_it_is_redone(tmp_path):
+    preparer, session = await tour_with(tmp_path, ["A"])
+    preparer.revoice_gate = asyncio.Event()
+
+    session.change_voice("M1@1.2")
+    await asyncio.sleep(0)
+
+    assert session.narrations_after(0) == []
+    assert session.audio_path("wiki:A") is None
+    assert session.preparing is True
+    preparer.revoice_gate.set()
+    await session.wait_idle()
+    assert voices_of(session) == [("A", "M1@1.2")]
+
+
+async def test_switching_without_a_tour_only_changes_the_voice(tmp_path):
+    preparer = FakePreparer(tmp_path)
+    session = TourSession(preparer)
+
+    session.change_voice("M1@1.2")
+
+    assert preparer.voice_key == "M1@1.2"
+    assert preparer.revoiced == []
+    assert session.preparing is False
+
+
+async def test_switching_to_the_same_voice_withdraws_nothing(tmp_path):
+    preparer, session = await tour_with(tmp_path, ["A"])
+
+    session.change_voice("F2@1.2")
+    await session.wait_idle()
+
+    assert preparer.revoiced == []
+    assert voices_of(session) == [("A", "F2@1.2")]
+
+
+async def test_withdrawn_places_stay_excluded_even_if_redoing_them_fails(tmp_path):
+    preparer, session = await tour_with(tmp_path, ["A"], later=[["B"]], reprepare_distance_m=100)
+    preparer.revoice_error = RuntimeError("合成失敗")
+
+    session.change_voice("M1@1.2")
+    await session.wait_idle()
+    session.report(fix(north_of(START, 200)))
+    await session.wait_idle()
+
+    # 重新排序會讓指紋對不上而重寫稿：撤下的地方這趟不再準備，不多耗 Claude
+    assert "wiki:A" in preparer.calls[1]["exclude_ids"]
+    assert voices_of(session) == [("B", "M1@1.2")]
+
+
+async def test_narrations_of_a_running_preparation_follow_the_switch(tmp_path):
+    preparer = FakePreparer(tmp_path, [["A", "B"]])
+    preparer.report_progressively = True
+    preparer.gate_after_first = asyncio.Event()
+    session = TourSession(preparer, journey=JourneyMemory(None))
+    session.start(fix())
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    assert voices_of(session) == [("A", "F2@1.2")]
+
+    session.change_voice("M1@1.2")
+    preparer.gate_after_first.set()  # 這一批做完：B 用新聲音，最後回傳的整批裡還有舊聲音的 A
+    await session.wait_idle()
+
+    # 舊聲音的 A 不會因為整批回傳又被發布；這一批做完後 A 重做成新聲音
+    assert voices_of(session) == [("B", "M1@1.2"), ("A", "M1@1.2")]
+    assert preparer.revoiced == [["wiki:A"]]
+
+
+async def test_a_new_voice_narration_from_the_running_preparation_is_published(tmp_path):
+    preparer = FakePreparer(tmp_path, [["A"]])
+    preparer.gate = asyncio.Event()
+    session = TourSession(preparer, journey=JourneyMemory(None))
+    session.start(fix())
+    await asyncio.sleep(0)
+
+    session.change_voice("M1@1.2")  # 寫稿中換聲音：寫完直接用新聲音合成
+    preparer.gate.set()
+    await session.wait_idle()
+
+    assert voices_of(session) == [("A", "M1@1.2")]
+    assert preparer.revoiced == []
+
+
+async def test_the_last_of_several_quick_switches_wins(tmp_path):
+    preparer, session = await tour_with(tmp_path, ["A"])
+    preparer.revoice_gate = asyncio.Event()
+
+    session.change_voice("M1@1.2")
+    await asyncio.sleep(0)  # 開始用 M1 重做
+    session.change_voice("M2@1.2")
+    preparer.revoice_gate.set()
+    await session.wait_idle()
+
+    # 重做途中又換了：以最後一次為準
+    assert voices_of(session) == [("A", "M2@1.2")]
+
+
+async def test_switching_away_and_back_does_not_get_the_place_stuck(tmp_path):
+    preparer, session = await tour_with(tmp_path, ["A"])
+
+    session.change_voice("M1@1.2")
+    await session.wait_idle()
+    session.change_voice("F2@1.2")
+    await session.wait_idle()
+
+    assert voices_of(session) == [("A", "F2@1.2")]
+    assert preparer.revoiced == [["wiki:A"], ["wiki:A"]]
+
+
+async def test_what_was_played_before_a_switch_is_still_told_once(tmp_path):
+    preparer, session = await tour_with(
+        tmp_path, ["A", "B"], later=[["C"]], reprepare_distance_m=100
+    )
+    session.mark_played("wiki:A")
+
+    session.change_voice("M1@1.2")
+    await session.wait_idle()
+    session.mark_played("wiki:B")  # 新聲音的 B 播完
+    session.report(fix(north_of(START, 200)))
+    await session.wait_idle()
+
+    assert preparer.calls[1]["recent_topics"] == ("A", "B")
+    assert voices_of(session, after=0) == [("A", "F2@1.2"), ("B", "M1@1.2"), ("C", "M1@1.2")]
+
+
+async def test_ending_the_tour_drops_pending_redos(tmp_path):
+    preparer, session = await tour_with(tmp_path, ["A"])
+    preparer.revoice_gate = asyncio.Event()
+    session.change_voice("M1@1.2")
+    await asyncio.sleep(0)
+
+    session.end()
+    preparer.revoice_gate.set()
+    await session.wait_idle()
+    session.start(fix())
+    await session.wait_idle()
+
+    assert session.narrations_after(0) == []
+
+
+async def test_a_preparation_that_stops_the_tour_still_lets_the_redo_run(tmp_path):
+    preparer, session = await tour_with(
+        tmp_path, ["A"], later=[LlmBudgetExhaustedError("budget")], reprepare_distance_m=100
+    )
+    preparer.gate = asyncio.Event()
+    session.report(fix(north_of(START, 200)))
+    await asyncio.sleep(0)
+
+    session.change_voice("M1@1.2")  # 準備進行中換聲音，這次準備隨後用完 Claude 次數
+    preparer.gate.set()
+    await session.wait_idle()
+
+    assert session.stopped_reason == "llm_budget"
+    assert voices_of(session) == [("A", "M1@1.2")]  # 重做不呼叫 Claude：照樣做

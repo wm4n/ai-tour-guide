@@ -53,6 +53,10 @@ Future<Harness> makeHarness({
       narrationPlayerProvider.overrideWithValue(h.narration),
       remoteControlsProvider.overrideWithValue(FakeRemote()),
       phrasePlayerProvider.overrideWithValue(FakePhrases()),
+      // 不必等兩段之間的間隔：播完就能接下一段
+      playbackPolicyProvider.overrideWithValue(
+        const PlaybackPolicy(minGap: Duration.zero),
+      ),
       tourTickIntervalProvider.overrideWithValue(const Duration(hours: 1)),
       locationReportIntervalProvider.overrideWithValue(Duration.zero),
     ],
@@ -534,6 +538,308 @@ void main() {
 
       expect(h.state.catalog, isNotNull);
       expect(h.state.current?.name, 'F2');
+    });
+  });
+
+  group('switching during a tour', () {
+    const f2 = 'F2@1.2';
+    const m1 = 'M1@1.2';
+
+    NarrationInfo inVoice(String key, String id, {required int seq}) =>
+        NarrationInfo(
+          seq: seq,
+          id: id,
+          name: '景點$id',
+          lat: placeLat,
+          lon: placeLon,
+          audioSeconds: 30,
+          voice: key,
+        );
+
+    TourState tourState(Harness h) => h.container.read(tourProvider);
+
+    Future<void> tick(Harness h) async {
+      await h.tour.tick();
+      await h.settle();
+    }
+
+    Future<void> finishPlaying(Harness h) async {
+      h.narration.finish();
+      await h.settle();
+      await tick(h);
+    }
+
+    /// 主機與 App 都是 F2：出發，收到 F2 的 A、B；A 開始播，B 在佇列裡。
+    Future<Harness> touring() async {
+      final h = await makeHarness();
+      await h.voices.refresh();
+      await h.tour.start();
+      h.tourApi.queue([
+        inVoice(f2, 'A', seq: 1),
+        inVoice(f2, 'B', seq: 2),
+      ], voice: f2);
+      h.location.controller.add(nearFix());
+      await h.settle();
+      await tick(h);
+      expect(h.narration.played, ['A']);
+      return h;
+    }
+
+    test(
+      'the narration playing finishes; the rest of the old voice is dropped',
+      () async {
+        final h = await touring();
+
+        await h.voices.select(voice('M1'));
+        await finishPlaying(h);
+
+        expect(h.api.playingIds, ['A']); // 主機不必重做 A
+        expect(h.narration.events, isNot(contains('stop')));
+        expect(h.narration.played, ['A']); // 舊聲音的 B 不播
+        expect(h.tourApi.played, ['A']);
+      },
+    );
+
+    test('the redo in the new voice comes back in and plays', () async {
+      final h = await touring();
+      await h.voices.select(voice('M1'));
+
+      h.tourApi.queue([inVoice(m1, 'B', seq: 3)], voice: m1);
+      await finishPlaying(h);
+
+      expect(h.narration.played, ['A', 'B']);
+      // 舊聲音那份的下載作廢，重做的另外下載
+      expect(h.tourApi.downloads.where((id) => id == 'B'), hasLength(2));
+    });
+
+    test('a poll sent before the switch is not trusted', () async {
+      final h = await touring();
+      h.tourApi.pollGate = Completer<void>();
+      h.tourApi.queue([inVoice(f2, 'C', seq: 3)], voice: f2);
+      final inFlight = h.tour.tick();
+      await h.settle();
+
+      await h.voices.select(voice('M1'));
+      h.tourApi.pollGate!.complete();
+      await inFlight;
+      await h.settle();
+      h.tourApi.pollGate = null;
+      await finishPlaying(h);
+
+      expect(h.narration.played, ['A']); // 舊聲音的 C 沒有進佇列
+      expect(h.tourApi.polls, [0, 2, 2]); // 游標不動，下一輪重抓
+      expect(h.state.current?.key, m1); // 沒有被舊回應拉回 F2
+      expect(h.api.lists, 1);
+    });
+
+    test(
+      'narrations in another voice than the host\'s are not queued',
+      () async {
+        final h = await touring();
+        await h.voices.select(voice('M1'));
+
+        h.tourApi.queue([
+          inVoice(f2, 'X', seq: 3),
+          inVoice(m1, 'Y', seq: 4),
+        ], voice: m1);
+        await finishPlaying(h);
+
+        expect(h.narration.played, ['A', 'Y']);
+        expect(h.tourApi.downloads, isNot(contains('X')));
+      },
+    );
+
+    test('a voice changed on the host is followed during a tour', () async {
+      final h = await touring();
+      h.api.catalog = VoiceCatalog(current: 'M1', voices: h.api.catalog.voices);
+
+      h.tourApi.queue([inVoice(m1, 'B', seq: 3)], voice: m1);
+      await tick(h);
+      await finishPlaying(h);
+
+      expect(h.state.current?.key, m1);
+      expect(await h.store.has(m1), isTrue); // 補下載新聲音的短句
+      expect(h.narration.played, ['A', 'B']);
+      expect(h.tourApi.downloads.where((id) => id == 'B'), hasLength(2));
+    });
+
+    test(
+      'a first tour with no remembered voice keeps what the host sends',
+      () async {
+        final h = await makeHarness(); // 從沒連上過：不知道目前聲音
+        await h.tour.start();
+        h.tourApi.queue([inVoice(f2, 'A', seq: 1)], voice: f2);
+        h.location.controller.add(nearFix());
+        await h.settle();
+        await tick(h);
+
+        expect(h.narration.played, ['A']);
+        expect(h.state.current?.key, f2);
+      },
+    );
+
+    test(
+      'a narration waiting for its audio when the voice changes is not played, its redo is',
+      () async {
+        final h = await makeHarness();
+        await h.voices.refresh();
+        await h.tour.start();
+        h.tourApi.downloadGate = Completer<void>();
+        h.tourApi.queue([inVoice(f2, 'A', seq: 1)], voice: f2);
+        h.location.controller.add(nearFix());
+        await h.settle();
+        await tick(h); // A 開始等音檔
+
+        await h.voices.select(voice('M1'));
+        h.tourApi.downloadGate!.complete();
+        h.tourApi.downloadGate = null;
+        await h.settle();
+        expect(h.narration.played, isEmpty);
+
+        h.tourApi.queue([inVoice(m1, 'A', seq: 2)], voice: m1);
+        await tick(h);
+
+        expect(h.api.playingIds, [null]); // 還沒開始播：主機要重做
+        expect(h.narration.played, ['A']);
+      },
+    );
+
+    test(
+      'a late "gone" for the dropped version does not drop its redo',
+      () async {
+        final h = await makeHarness();
+        await h.voices.refresh();
+        await h.tour.start();
+        h.tourApi.downloadGate = Completer<void>();
+        h.tourApi.queue([inVoice(f2, 'A', seq: 1)], voice: f2);
+        h.location.controller.add(nearFix());
+        await h.settle();
+        await tick(h); // 舊聲音的 A 開始等音檔
+
+        await h.voices.select(voice('M1'));
+        h.tourApi.queue([inVoice(m1, 'A', seq: 2)], voice: m1);
+        await tick(h); // 重做的 A 先進佇列，也在等音檔
+        // 主機已經撤下舊聲音的 A：舊的那份下載這時才回來，是 404
+        h.tourApi.downloadErrorOnce = TourApiException('gone', statusCode: 404);
+        h.tourApi.downloadGate!.complete();
+        h.tourApi.downloadGate = null;
+        await h.settle();
+        await tick(h);
+
+        expect(h.narration.played, ['A']);
+      },
+    );
+
+    test(
+      'a narration already gone before the switch still lets its redo in',
+      () async {
+        final h = await makeHarness();
+        await h.voices.refresh();
+        await h.tour.start();
+        h.tourApi.downloadGate = Completer<void>();
+        h.tourApi.queue([inVoice(f2, 'A', seq: 1)], voice: f2);
+        h.location.controller.add(nearFix());
+        await h.settle();
+        await tick(h); // A 開始等音檔
+        // 主機一收到切換就撤下 A：App 還沒收到切換的回應，下載就先回 404
+        h.tourApi.downloadErrorOnce = TourApiException('gone', statusCode: 404);
+        h.tourApi.downloadGate!.complete();
+        h.tourApi.downloadGate = null;
+        await h.settle();
+
+        await h.voices.select(voice('M1'));
+        h.tourApi.queue([inVoice(m1, 'A', seq: 2)], voice: m1);
+        await tick(h);
+
+        expect(h.narration.played, ['A']);
+      },
+    );
+
+    test(
+      'a narration waiting for its audio across away-and-back is heard once',
+      () async {
+        final h = await makeHarness();
+        await h.voices.refresh();
+        await h.tour.start();
+        h.tourApi.downloadGate = Completer<void>();
+        h.tourApi.queue([inVoice(f2, 'A', seq: 1)], voice: f2);
+        h.location.controller.add(nearFix());
+        await h.settle();
+        await tick(h); // A 開始等音檔
+
+        await h.voices.select(voice('M1'));
+        await h.voices.select(voice('F2')); // 主機兩次都撤下 A，最後用 F2 重做
+        h.tourApi.downloadGate!.complete();
+        h.tourApi.downloadGate = null;
+        await h.settle();
+        h.tourApi.queue([inVoice(f2, 'A', seq: 3)], voice: f2);
+        await tick(h);
+        await finishPlaying(h);
+
+        expect(h.narration.played, ['A']);
+      },
+    );
+
+    test('following the host does not claim a switch is coming', () async {
+      final h = await touring();
+      h.api.catalog = VoiceCatalog(current: 'M1', voices: h.api.catalog.voices);
+
+      h.tourApi.queue([], voice: m1);
+      await tick(h);
+
+      expect(h.state.current?.key, m1);
+      expect(tourState(h).voiceChanging, isFalse);
+    });
+
+    test('switching away and back does not get a place stuck', () async {
+      final h = await touring();
+      await h.voices.select(voice('M1'));
+      h.tourApi.queue([inVoice(m1, 'B', seq: 3)], voice: m1);
+      await tick(h);
+
+      await h.voices.select(voice('F2'));
+      h.tourApi.queue([inVoice(f2, 'B', seq: 4)], voice: f2);
+      await tick(h);
+      await finishPlaying(h);
+
+      expect(h.api.playingIds, ['A', 'A']);
+      expect(h.narration.played, ['A', 'B']);
+    });
+
+    test('a failed switch keeps the narrations of the old voice', () async {
+      final h = await touring();
+      h.api.chooseError = TourApiException('refused', statusCode: 409);
+
+      await h.voices.select(voice('M1'));
+      await finishPlaying(h);
+
+      expect(h.narration.played, ['A', 'B']);
+    });
+
+    test('says the next one is being prepared until it starts', () async {
+      final h = await touring();
+      expect(tourState(h).voiceChanging, isFalse);
+
+      await h.voices.select(voice('M1'));
+      expect(tourState(h).voiceChanging, isTrue);
+
+      await finishPlaying(h); // 舊聲音的 A 播完，新聲音的還沒來
+      expect(tourState(h).voiceChanging, isTrue);
+
+      h.tourApi.queue([inVoice(m1, 'B', seq: 3)], voice: m1);
+      await tick(h);
+      expect(h.narration.played, ['A', 'B']);
+      expect(tourState(h).voiceChanging, isFalse);
+    });
+
+    test('switching outside a tour says nothing about narrations', () async {
+      final h = await makeHarness();
+      await h.voices.refresh();
+
+      await h.voices.select(voice('M1'));
+
+      expect(tourState(h).voiceChanging, isFalse);
+      expect(h.api.playingIds, [null]);
     });
   });
 }

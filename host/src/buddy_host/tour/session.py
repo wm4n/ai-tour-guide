@@ -3,6 +3,9 @@
 準備很慢（寫稿＋合成＋驗收，一段可能數分鐘）而且只有一顆 GPU，所以：
 - 同一時間只跑一次準備；
 - 準備期間進來的位置只保留最新一筆，跑完再看要不要接著準備。
+
+換聲音時，已發布但 App 還沒播完的介紹撤下，把同一份稿子用新聲音重新合成後再發布（先於下一次
+準備）。不是在最後的位置重新準備：「這趟剛講過什麼」變了，快取的指紋就對不上，會重寫稿。
 """
 
 import asyncio
@@ -36,6 +39,8 @@ class TourNotActiveError(RuntimeError):
 
 
 class PreparerLike(Protocol):
+    voice_key: str  # 之後做的介紹用的聲音；換聲音時由旅程改
+
     async def prepare(
         self,
         location: Location,
@@ -44,6 +49,13 @@ class PreparerLike(Protocol):
         traveler: TravelerContext | None = None,
         recent_topics: tuple[str, ...] = (),
         told_before: Mapping[str, tuple[str, ...]] | None = None,
+        on_ready: Callable[[PreparedNarration], None] | None = None,
+    ) -> list[PreparedNarration]: ...
+
+    async def revoice(
+        self,
+        narrations: Collection[PreparedNarration],
+        *,
         on_ready: Callable[[PreparedNarration], None] | None = None,
     ) -> list[PreparedNarration]: ...
 
@@ -80,6 +92,7 @@ class NarrationEvent:
     lat: float
     lon: float
     audio_seconds: float
+    voice: str  # 聲音鍵：App 只收目前聲音的介紹
     # 各個合成單位（句）開始播放的秒數：被問題打斷時，App 回到被打斷那一句的開頭
     unit_starts: tuple[float, ...] = ()
 
@@ -114,6 +127,10 @@ class TourSession:
         self._events: list[NarrationEvent] = []
         self._audio: dict[str, Path] = {}
         self._published: dict[str, PreparedNarration] = {}
+        self._played: set[str] = set()  # App 回報播完的
+        self._redo: dict[str, PreparedNarration] = {}  # 換聲音撤下、等著用新聲音重做的
+        # 換聲音撤下過的地方：這趟不再重新準備（指紋對不上會重寫稿），重做失敗也一樣
+        self._withdrawn: set[str] = set()
         self.active = False
         self._stopped_reason: str | None = None  # 額度以外的停止原因；額度看共用閘門
 
@@ -122,6 +139,10 @@ class TourSession:
         if self.active and self._quota.tripped:
             return "quota"
         return self._stopped_reason
+
+    @property
+    def voice_key(self) -> str:
+        return self._preparer.voice_key
 
     @property
     def preparing(self) -> bool:
@@ -173,8 +194,34 @@ class TourSession:
         item = self._published.get(narration_id)
         if item is None:
             return False
+        self._played.add(narration_id)
         self._journey.record_told(self._wall_clock(), item.candidate_id, item.name, item.script)
         return True
+
+    def change_voice(self, voice_key: str, *, playing_id: str | None = None) -> None:
+        """之後的介紹改用這個聲音；連續切換以最後一次為準。
+
+        旅程中：已發布但 App 還沒回報播完的介紹撤下（`playing_id` 是正在播、會播完的那段，留著），
+        用新聲音重新合成同一份稿子後再發布，不呼叫 Claude。進行中的準備不中斷：寫好的稿子
+        直接用新聲音合成。
+        """
+        if voice_key == self.voice_key:
+            return
+        self._preparer.voice_key = voice_key
+        if not self.active:
+            return
+        withdrawn = {
+            narration_id: item
+            for narration_id, item in self._published.items()
+            if narration_id not in self._played and narration_id != playing_id
+        }
+        for narration_id in withdrawn:
+            del self._published[narration_id]
+            del self._audio[narration_id]
+        self._events = [event for event in self._events if event.id not in withdrawn]
+        self._withdrawn |= withdrawn.keys()
+        self._redo.update(withdrawn)
+        self._ensure_worker()
 
     def narrations_after(self, seq: int) -> list[NarrationEvent]:
         return [event for event in self._events if event.seq > seq]
@@ -198,6 +245,9 @@ class TourSession:
         self._events = []
         self._audio = {}
         self._published = {}
+        self._played = set()
+        self._redo = {}
+        self._withdrawn = set()
         self.active = False
         self._stopped_reason = None
 
@@ -224,11 +274,17 @@ class TourSession:
     def _schedule(self, fix: TourFix) -> None:
         self._pending = fix
         self._anchor = fix
+        self._ensure_worker()
+
+    def _ensure_worker(self) -> None:
         if self._worker is None or self._worker.done():
             self._worker = asyncio.create_task(self._run(self._generation))
 
     async def _run(self, generation: int) -> None:
-        while self._pending is not None and generation == self._generation:
+        while (self._redo or self._pending is not None) and generation == self._generation:
+            if self._redo:  # 重做不呼叫 Claude：不看額度，先於下一次準備
+                await self._revoice(generation)
+                continue
             if not self._quota.admit():  # 問答先撞到額度了：不再呼叫 Claude，等恢復
                 self._pending = None
                 # 這次沒準備成：忘掉錨點，之後不論誰先把閘門打開，下一次回報都會補做，
@@ -239,22 +295,23 @@ class TourSession:
             try:
                 prepared = await self._preparer.prepare(
                     fix.location,
-                    exclude_ids=set(self._audio) | self._journey.stop_ids(),
+                    exclude_ids=set(self._audio) | self._withdrawn | self._journey.stop_ids(),
                     traveler=fix.traveler,
                     recent_topics=self._journey.recent_topics(),
                     told_before=self._journey.told_before(),
                     # 準備一段要數分鐘：做好一段就通知一段，不等整批
                     on_ready=lambda item: self._publish_if_current(generation, item),
                 )
+            # 停止準備（清掉 _pending）之後仍回到迴圈：準備途中換了聲音的重做不呼叫 Claude，照樣做
             except LlmBudgetExhaustedError:
                 self._stop(generation, "llm_budget")
-                return
+                continue
             except QuotaExceededError as error:
                 self._stop(generation, "quota", error.resets_at)
-                return
+                continue
             except ForbiddenModelError:
                 self._stop(generation, "forbidden_model")
-                return
+                continue
             except Exception:  # 一次準備失敗（網路、逾時…）不結束整趟，等下次移動再試
                 logger.exception("為 %s 準備介紹失敗", fix.location)
                 self._failed_at = self._monotonic()
@@ -264,6 +321,18 @@ class TourSession:
             self._failed_at = None
             for item in prepared:
                 self._publish_if_current(generation, item)
+
+    async def _revoice(self, generation: int) -> None:
+        items, self._redo = list(self._redo.values()), {}
+        try:
+            redone = await self._preparer.revoice(
+                items, on_ready=lambda item: self._publish_if_current(generation, item)
+            )
+        except Exception:
+            logger.exception("用新聲音重做介紹失敗")
+            return
+        for item in redone:
+            self._publish_if_current(generation, item)
 
     def _stop(self, generation: int, reason: str, resets_at: float | None = None) -> None:
         if generation != self._generation:
@@ -279,7 +348,12 @@ class TourSession:
         logger.warning("停止準備介紹：%s", reason)
 
     def _publish_if_current(self, generation: int, item: PreparedNarration) -> None:
-        if generation == self._generation and item.candidate_id not in self._audio:
+        # 聲音不對的是換聲音之前做好、已經撤下等重做的（例如準備做完時整批回傳的那幾段）
+        if (
+            generation == self._generation
+            and item.voice == self.voice_key
+            and item.candidate_id not in self._audio
+        ):
             self._publish(item)
 
     def _publish(self, item: PreparedNarration) -> None:
@@ -294,6 +368,7 @@ class TourSession:
                 item.lat,
                 item.lon,
                 item.audio_seconds,
+                item.voice,
                 unit_starts(item.wav_path),  # 從 wav 偵測：快取命中的舊介紹也有
             )
         )

@@ -29,6 +29,7 @@ class NarrationInfo {
     required this.lon,
     required this.audioSeconds,
     this.unitStarts = const [],
+    this.voice,
   });
 
   factory NarrationInfo.fromJson(Map<String, dynamic> json) => NarrationInfo(
@@ -42,6 +43,7 @@ class NarrationInfo {
       for (final value in json['unit_starts'] as List? ?? const [])
         (value as num).toDouble(),
     ],
+    voice: json['voice'] as String?,
   );
 
   final int seq;
@@ -53,6 +55,9 @@ class NarrationInfo {
 
   /// 各句（合成單位）開始播放的秒數；被問題打斷時回到那一句的開頭。舊主機沒給就是空的。
   final List<double> unitStarts;
+
+  /// 這段是哪個聲音（聲音鍵）；舊主機沒給就是 null。
+  final String? voice;
 }
 
 class QueuedNarration {

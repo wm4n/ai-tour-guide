@@ -3,7 +3,6 @@ import base64
 import binascii
 import contextlib
 import hmac
-import threading
 from collections.abc import Callable
 from dataclasses import asdict
 from datetime import datetime
@@ -94,6 +93,7 @@ class AskPhotoBody(FixBody):
 
 class VoiceBody(BaseModel):
     name: Annotated[str, StringConstraints(min_length=1, max_length=100)]
+    playing_id: str | None = None  # App 正在播、會播完的介紹：不撤下重做
 
 
 AnswererFactory = Callable[[QuotaGate, JourneyMemory], QaService]
@@ -121,7 +121,8 @@ def create_app(
     """`answerer_factory` 拿到與旅程共用的額度閘門和旅程記憶，回傳問答服務；沒給就不開問答。
 
     `config.voice` 是啟動時的目前聲音（已套用 voice/current）。App 換聲音時把重讀過的聲音交給
-    `on_voice_change`（讓合成器在下一個合成單位換）；沒給（重播模式）就只記下選擇。
+    `on_voice_change`（讓合成器在下一個合成單位換）；沒給（重播模式）就只記下選擇。介紹的聲音
+    （`preparer.voice_key`）由旅程跟著換。
     """
     journey = JourneyMemory(journey_path)
     quota = QuotaGate()  # 旅程準備與問答共用：任一邊撞到額度，兩邊一起停
@@ -141,7 +142,6 @@ def create_app(
                 purger.cancel()
                 await asyncio.gather(purger, return_exceptions=True)
 
-    voice_lock = threading.Lock()  # 換聲音的檢查、存檔與交給合成器一次只做一個
     current_voice = config.voice
 
     app = FastAPI(title="Buddy Host", version=__version__, lifespan=lifespan)
@@ -188,31 +188,33 @@ def create_app(
         return FileResponse(path, media_type="audio/wav")
 
     @app.post("/v1/voice", dependencies=[authed])
-    def choose_voice(body: VoiceBody) -> dict[str, str]:
-        """換聲音並立刻回應：合成器只記下來，正在合成的單位（回答則是整個這一題）用舊聲音做完。
+    async def choose_voice(body: VoiceBody) -> dict[str, str]:
+        """換聲音並立刻回應：合成器只記下來，正在合成的單位（回答則是整個這一題）用舊聲音做完；
+        旅程中還沒播的介紹在背景用新聲音重做。
 
-        重啟後仍是這個聲音（存在 voice/current）。連續切換以最後一次為準。
+        重啟後仍是這個聲音（存在 voice/current）。連續切換以最後一次為準。整段在事件迴圈上做完、
+        中間沒有 await（只讀寫幾個小檔）：兩次切換不會交錯，合成器與介紹也一起換，不會有一段
+        準備夾在中間。
         """
         nonlocal current_voice
-        with voice_lock:
-            if body.name == current_voice:
-                return {"current": current_voice}
-            profile = find_voice(config.home / "voice", body.name)
-            if profile is None:
-                raise HTTPException(status_code=404, detail="找不到這個聲音")
-            if not phrases_ready(config.home, profile.key):
-                raise HTTPException(status_code=409, detail="這個聲音的固定短句還沒準備好")
-            try:  # 重讀 voice.toml：主機開著時改的語速與停頓上限也會套用
-                voice = load_reference(config.home / "voice" / profile.name)
-            except VoiceError:
-                raise HTTPException(
-                    status_code=409, detail="這個聲音缺少參考錄音或逐字稿"
-                ) from None
-            save_current_voice(config.home, voice.name)
-            if on_voice_change is not None:
-                on_voice_change(voice)
-            current_voice = voice.name
+        if body.name == current_voice:
             return {"current": current_voice}
+        profile = find_voice(config.home / "voice", body.name)
+        if profile is None:
+            raise HTTPException(status_code=404, detail="找不到這個聲音")
+        if not phrases_ready(config.home, profile.key):
+            raise HTTPException(status_code=409, detail="這個聲音的固定短句還沒準備好")
+        try:  # 重讀 voice.toml：主機開著時改的語速與停頓上限也會套用
+            voice = load_reference(config.home / "voice" / profile.name)
+        except VoiceError:
+            raise HTTPException(status_code=409, detail="這個聲音缺少參考錄音或逐字稿") from None
+        save_current_voice(config.home, voice.name)
+        if on_voice_change is not None:
+            on_voice_change(voice)
+        if session is not None:
+            session.change_voice(voice.key, playing_id=body.playing_id)
+        current_voice = voice.name
+        return {"current": current_voice}
 
     @app.post("/v1/tour/start", dependencies=[authed])
     async def tour_start(body: FixBody) -> dict:
@@ -254,6 +256,7 @@ def create_app(
             "active": current.active,
             "preparing": current.preparing,
             "stopped_reason": current.stopped_reason,
+            "voice": current.voice_key,  # 目前的聲音：App 只收這個聲音的介紹，也藉此跟上主機
             "narrations": [asdict(event) for event in current.narrations_after(after)],
         }
 

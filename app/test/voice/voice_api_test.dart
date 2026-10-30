@@ -81,6 +81,23 @@ void main() {
     expect(current, 'M1');
   });
 
+  test(
+    'choosing a voice during a narration says which one will finish',
+    () async {
+      late http.Request sent;
+      final api = HttpVoiceApi(
+        MockClient((request) async {
+          sent = request;
+          return http.Response('{"current": "M1"}', 200);
+        }),
+      );
+
+      await api.choose(settings, 'M1', playingId: 'wiki:A');
+
+      expect(jsonDecode(sent.body), {'name': 'M1', 'playing_id': 'wiki:A'});
+    },
+  );
+
   test('a voice the host refuses is an error with its status', () async {
     final api = HttpVoiceApi(
       MockClient((_) async => http.Response('not ready', 409)),

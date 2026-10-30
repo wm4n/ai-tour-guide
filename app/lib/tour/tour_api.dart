@@ -17,10 +17,14 @@ class NarrationPoll {
     required this.preparing,
     required this.stoppedReason,
     required this.narrations,
+    this.voice,
   });
 
   final bool active;
   final bool preparing;
+
+  /// 主機目前的聲音（聲音鍵）；舊主機沒給就是 null。
+  final String? voice;
 
   /// 主機停止準備的原因：`quota`（Claude 額度用完）、`llm_budget`（呼叫上限）、`forbidden_model`。
   final String? stoppedReason;
@@ -162,6 +166,7 @@ class HttpTourApi implements TourApi {
       active: json['active'] as bool,
       preparing: json['preparing'] as bool,
       stoppedReason: json['stopped_reason'] as String?,
+      voice: json['voice'] as String?,
       narrations: [
         for (final item in json['narrations'] as List)
           NarrationInfo.fromJson(item as Map<String, dynamic>),

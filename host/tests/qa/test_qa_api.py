@@ -12,7 +12,7 @@ from buddy_host.app import create_app
 from buddy_host.config import HostConfig
 from buddy_host.llm.claude_cli import QuotaExceededError
 from buddy_host.llm.models import LlmResult
-from buddy_host.narration.preparer import PreparedNarration
+from buddy_host.narration.preparer import DEFAULT_VOICE_KEY, PreparedNarration
 from buddy_host.qa.photos import PhotoStore
 from buddy_host.qa.service import QaService
 
@@ -55,6 +55,7 @@ class FakePreparer:
     def __init__(self, wav, results=()):
         self.wav = wav
         self.results = list(results)
+        self.voice_key = DEFAULT_VOICE_KEY  # 介紹是預設聲音（PreparedNarration 的預設）
 
     async def prepare(self, location, **_):
         result = self.results.pop(0) if self.results else None

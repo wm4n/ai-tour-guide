@@ -33,16 +33,22 @@ class FakeTourApi implements TourApi {
   Object? endError;
   TourSummary? summary;
   Object? downloadError;
+  Object? downloadErrorOnce; // 下一次下載丟這個（只丟一次）
   Completer<void>? downloadGate;
   Completer<void>? pollGate;
 
-  void queue(List<NarrationInfo> narrations, {String? stoppedReason}) {
+  void queue(
+    List<NarrationInfo> narrations, {
+    String? stoppedReason,
+    String? voice,
+  }) {
     polled.add(
       NarrationPoll(
         active: true,
         preparing: false,
         stoppedReason: stoppedReason,
         narrations: narrations,
+        voice: voice,
       ),
     );
   }
@@ -110,6 +116,11 @@ class FakeTourApi implements TourApi {
   Future<Uint8List> downloadAudio(s, String id) async {
     downloads.add(id);
     await downloadGate?.future;
+    final once = downloadErrorOnce;
+    if (once != null) {
+      downloadErrorOnce = null;
+      throw once;
+    }
     if (downloadError != null) throw downloadError!;
     return Uint8List.fromList(id.codeUnits);
   }

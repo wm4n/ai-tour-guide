@@ -18,7 +18,7 @@ from buddy_host.app import create_app
 from buddy_host.config import default_home, load_config
 from buddy_host.llm.claude_cli import ClaudeSettings
 from buddy_host.speech.phrases import warn_if_phrases_missing
-from buddy_host.speech.voice import read_current_voice
+from buddy_host.speech.voice import find_voice, read_current_voice, voice_key
 
 PERSONA = Path(__file__).resolve().parents[2] / "config" / "buddy.md"
 DAY = 24 * 3600
@@ -91,12 +91,8 @@ def build_real_services(max_llm_calls: int, voice_name: str):
         service.clear_stored_audio()  # 上次執行留下的答案音檔
         return service
 
-    def change_voice(new_voice):
-        # 合成器在下一個合成單位才換；之後準備的介紹音檔放到新聲音的快取底下
-        speech.change_voice(new_voice)
-        preparer.voice_key = new_voice.key
-
-    return preparer, answerer, change_voice
+    # 合成器在下一個合成單位才換；介紹的聲音鍵（音檔放哪個聲音底下）由旅程跟著換
+    return preparer, answerer, speech.change_voice
 
 
 def main() -> None:
@@ -122,7 +118,11 @@ def main() -> None:
         from buddy_host.qa.service import QaService
         from buddy_host.tour.replay import ReplayPreparer
 
-        preparer = ReplayPreparer(args.replay_dir)
+        profile = find_voice(home / "voice", config.voice)
+        preparer = ReplayPreparer(
+            args.replay_dir,
+            voice_key=profile.key if profile else voice_key(config.voice, 1.0),
+        )
 
         def answerer(quota, journey):
             service = QaService(

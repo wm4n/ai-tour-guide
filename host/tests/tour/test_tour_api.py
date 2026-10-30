@@ -2,6 +2,7 @@ import json
 import threading
 import time
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -25,6 +26,7 @@ class FakePreparer:
     def __init__(self, wav):
         self.wav = wav
         self.calls = []
+        self.voice_key = "F2@1.2"
 
     async def prepare(self, location, *, exclude_ids=(), traveler=None, **_):
         self.calls.append((location, set(exclude_ids), traveler))
@@ -39,8 +41,12 @@ class FakePreparer:
                 50.0,
                 25.0556,
                 121.5103,
+                self.voice_key,
             )
         ]
+
+    async def revoice(self, narrations, *, on_ready=None):
+        return []
 
 
 @pytest.fixture
@@ -88,6 +94,7 @@ def test_start_prepares_the_start_area_and_publishes_the_narration(client, prepa
     body = wait_for(client, 1)
 
     assert body["active"] is True
+    assert body["voice"] == "F2@1.2"
     assert body["narrations"] == [
         {
             "seq": 1,
@@ -96,6 +103,7 @@ def test_start_prepares_the_start_area_and_publishes_the_narration(client, prepa
             "lat": 25.0556,
             "lon": 121.5103,
             "audio_seconds": 34.7,
+            "voice": "F2@1.2",
             "unit_starts": [],  # 測試用的假 wav 讀不出來：沒有各句的起點
         }
     ]
@@ -142,6 +150,20 @@ def test_narrations_after_the_cursor_only(client):
     assert client.get("/v1/tour/narrations", params={"after": 1}).json()["narrations"] == []
 
 
+def test_the_narrations_response_matches_the_contract_the_app_is_tested_against(client):
+    client.post("/v1/tour/start", json=BODY)
+
+    wait_for(client, 1)
+    for _ in range(100):  # 發布完、準備結束之後的樣子
+        body = client.get("/v1/tour/narrations").json()
+        if not body["preparing"]:
+            break
+        time.sleep(0.02)
+
+    contract = Path(__file__).parents[3] / "contract" / "tour-narrations.json"
+    assert body == json.loads(contract.read_text(encoding="utf-8"))
+
+
 def test_audio_is_served_for_a_published_narration(client):
     client.post("/v1/tour/start", json=BODY)
     wait_for(client, 1)
@@ -174,6 +196,8 @@ def test_stopped_reason_is_visible_to_the_app(tmp_path, wav):
     from buddy_host.llm.claude_cli import QuotaExceededError
 
     class Exhausted:
+        voice_key = "F2@1.2"
+
         async def prepare(self, *args, **kwargs):
             raise QuotaExceededError("You've hit your limit")
 

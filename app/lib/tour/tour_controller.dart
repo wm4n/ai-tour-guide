@@ -167,7 +167,8 @@ class TourController extends Notifier<TourState> {
   final _gone = <String>{}; // 主機已經沒有的介紹（下載回 404）：丟掉，不重試
   int _questionHolds = 0; // 使用者正在發問、等答案或聽答案：不開始新的主動介紹
   // 使用者點了新聲音、還沒換好或失敗：不開始任何介紹（正在播的照常播完）。
-  // 跟著換聲音的請求走、不跟旅程走，所以出發／結束時不歸零
+  // 跟著換聲音的請求走、不跟旅程走，所以出發／結束時不歸零：切換途中重新出發，
+  // 新的這趟在換好之前也不會開播，換好時就不會有這趟的回報被當成已隨切換送出
   int _voiceHolds = 0;
   _Playing? _playing; // 正在播（含使用者暫停中、或被問題打斷等著接續）的介紹
   _Interrupted? _interrupted; // 被問題打斷、等答完從那一句的開頭接著播
@@ -277,10 +278,7 @@ class TourController extends Notifier<TourState> {
     _interrupted = null;
     final playing = interrupted.playing;
     final id = playing.item.info.id;
-    if (!reported.contains(id)) {
-      _unreportedPlayed.add(id);
-      unawaited(_reportPlayed(_session));
-    }
+    if (!reported.contains(id)) _notePlayed(id, _session);
     // 被打斷時 _playBytes 刻意沒收尾（還在「講」這一段）：替它收尾，下一段才開得了
     _finishPlaying(playing);
   }
@@ -633,12 +631,8 @@ class TourController extends Notifier<TourState> {
         playing.finished = true;
         // 剛好在播完的同一刻被問：已經講完了，答完不用再接
         if (_interrupted?.playing == playing) _interrupted = null;
-        // 播到最後才算講過（被打斷、結束時被停掉的不算）；主機一直不收就只留最近的，不無限累積
-        _unreportedPlayed.add(item.info.id);
-        if (_unreportedPlayed.length > _maxUnreportedPlayed) {
-          _unreportedPlayed.removeAt(0);
-        }
-        unawaited(_reportPlayed(session));
+        // 播到最後才算講過（被打斷、結束時被停掉的不算）
+        _notePlayed(item.info.id, session);
       }
     } on Exception catch (error) {
       debugPrint('播放 ${item.info.id} 失敗：$error');
@@ -693,6 +687,15 @@ class TourController extends Notifier<TourState> {
       interrupted.playing.bytes,
       interrupted.resumeAt,
     );
+  }
+
+  /// 告訴主機這段講過了；主機一直不收就只留最近的，不無限累積。
+  void _notePlayed(String id, int session) {
+    _unreportedPlayed.add(id);
+    if (_unreportedPlayed.length > _maxUnreportedPlayed) {
+      _unreportedPlayed.removeAt(0);
+    }
+    unawaited(_reportPlayed(session));
   }
 
   /// 一次一個、照順序送；送不出去就留著，下次輪詢連上時再送。不算斷線（輪詢才是心跳）。

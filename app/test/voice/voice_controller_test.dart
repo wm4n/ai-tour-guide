@@ -908,6 +908,47 @@ void main() {
       },
     );
 
+    test(
+      'a narration finished in the gap and not yet reported is sent along',
+      () async {
+        final h = await touring();
+        h.tourApi.playedError = TourApiException('unreachable');
+        h.api.phraseGate = Completer<void>();
+
+        final switching = h.voices.select(voice('M1'));
+        await h.settle();
+        await finishPlaying(h); // A 在空檔播完，回報送不出去
+        h.api.phraseGate!.complete();
+        await switching;
+
+        expect(h.api.playingIds, [null]);
+        expect(h.api.playedIds, [
+          ['A'],
+        ]);
+      },
+    );
+
+    test('a tour restarted during a switch waits for it too', () async {
+      final h = await touring();
+      h.api.chooseGate = Completer<void>();
+      final switching = h.voices.select(voice('M1'));
+      await h.settle();
+
+      await h.tour.end();
+      await h.tour.start();
+      h.tourApi.queue([inVoice(f2, 'C', seq: 1)], voice: f2);
+      h.location.controller.add(nearFix());
+      await h.settle();
+      await tick(h);
+      expect(h.narration.played, ['A']); // 舊聲音的 C 不趁空檔開播
+
+      h.api.chooseGate!.complete();
+      await switching;
+      h.tourApi.queue([inVoice(m1, 'C', seq: 2)], voice: m1);
+      await tick(h);
+      expect(h.narration.played, ['A', 'C']);
+    });
+
     test('a narration whose audio arrives during the switch waits', () async {
       final h = await makeHarness();
       await h.voices.refresh();

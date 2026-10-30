@@ -157,7 +157,8 @@ class VoiceController extends Notifier<VoiceState> {
 
   /// 換成這個聲音：先把它的固定短句全部存進手機，再請主機換；任何一步失敗就不換。
   ///
-  /// 換的過程中可以再點別的聲音，以最後一次為準。
+  /// 換的過程中可以再點別的聲音，以最後一次為準。旅程中：正在播的介紹用舊聲音播完，
+  /// 其餘舊聲音的介紹丟掉，等主機用新聲音重做。
   Future<void> select(VoiceInfo voice) async {
     final generation = ++_selections;
     bool latest() => ref.mounted && generation == _selections;
@@ -166,9 +167,12 @@ class VoiceController extends Notifier<VoiceState> {
       if (!await _savePhrases(voice, latest) || !latest()) return;
       final settings = ref.read(settingsProvider);
       final api = ref.read(voiceApiProvider);
+      final tour = ref.read(tourProvider.notifier);
       // 照點選的順序送：先點的請求晚到，主機就會停在先點的那個聲音
       final sent = _choosing.then<String?>(
-        (_) => latest() ? api.choose(settings, voice.name) : null,
+        (_) => latest()
+            ? api.choose(settings, voice.name, playingId: tour.playingId)
+            : null,
       );
       _choosing = sent.then((_) {}, onError: (_) {});
       final chosen = await sent;
@@ -179,6 +183,8 @@ class VoiceController extends Notifier<VoiceState> {
         voices: state.catalog?.voices ?? [voice],
       );
       final current = _currentOf(catalog);
+      final key = current.key;
+      if (key != null) tour.useVoice(key); // 馬上丟掉舊聲音的介紹，不讓它們趁空檔開播
       _refreshes++; // 換之前就送出的清單回應還是舊聲音：作廢，別把剛換好的蓋回去
       await _remember(current);
       if (!ref.mounted) return;

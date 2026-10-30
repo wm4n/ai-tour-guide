@@ -146,6 +146,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                               : '陪你走，有好內容再開口'),
                     key: const Key('tour-status'),
                   ),
+                  if (tour.voiceChanging) ...[
+                    const SizedBox(height: 8),
+                    const Text('這段播完就換，下一段準備中…', key: Key('voice-changing')),
+                  ],
                   const SizedBox(height: 24),
                   const AskButton(),
                 ],

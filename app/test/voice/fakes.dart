@@ -44,6 +44,9 @@ class FakeVoiceApi implements VoiceApi {
   /// 主機依序收到的切換。
   final chosen = <String>[];
 
+  /// 每次切換帶的 `playing_id`。
+  final playingIds = <String?>[];
+
   /// 清單請求卡在這裡；回應的是送出當下的 [catalog]。
   Completer<void>? listGate;
 
@@ -70,8 +73,13 @@ class FakeVoiceApi implements VoiceApi {
   }
 
   @override
-  Future<String> choose(HostSettings settings, String name) async {
+  Future<String> choose(
+    HostSettings settings,
+    String name, {
+    String? playingId,
+  }) async {
     chosen.add(name);
+    playingIds.add(playingId);
     await chooseGate?.future;
     if (chooseError != null) throw chooseError!;
     return name;

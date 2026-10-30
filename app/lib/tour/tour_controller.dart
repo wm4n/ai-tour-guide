@@ -9,6 +9,7 @@ import '../audio/narration_player.dart';
 import '../audio/phrase_player.dart';
 import '../audio/remote_controls.dart';
 import '../host/host_connection.dart';
+import '../voice/voice_controller.dart';
 import 'geo.dart';
 import 'host_reachability.dart';
 import 'location_permission.dart';
@@ -85,6 +86,7 @@ class TourState {
     this.error,
     this.summary,
     this.locationAccess = LocationAccess.always,
+    this.voiceChanging = false,
   });
 
   final bool active;
@@ -103,6 +105,9 @@ class TourState {
   /// 這一趟拿到的定位權限程度；不是「永遠」時畫面會提醒鎖定螢幕可能收不到位置。
   final LocationAccess locationAccess;
 
+  /// 旅程中換了聲音、新聲音的介紹還沒開始：畫面提示「這段播完就換，下一段準備中…」。
+  final bool voiceChanging;
+
   TourState copyWith({
     bool? active,
     bool? paused,
@@ -111,6 +116,7 @@ class TourState {
     Object? error = _keep,
     Object? summary = _keep,
     LocationAccess? locationAccess,
+    bool? voiceChanging,
   }) => TourState(
     active: active ?? this.active,
     paused: paused ?? this.paused,
@@ -123,6 +129,7 @@ class TourState {
     error: identical(error, _keep) ? this.error : error as String?,
     summary: identical(summary, _keep) ? this.summary : summary as TourSummary?,
     locationAccess: locationAccess ?? this.locationAccess,
+    voiceChanging: voiceChanging ?? this.voiceChanging,
   );
 }
 
@@ -158,6 +165,11 @@ class TourController extends Notifier<TourState> {
   int _questionHolds = 0; // 使用者正在發問、等答案或聽答案：不開始新的主動介紹
   _Playing? _playing; // 正在播（含使用者暫停中、或被問題打斷等著接續）的介紹
   _Interrupted? _interrupted; // 被問題打斷、等答完從那一句的開頭接著播
+  QueuedNarration? _starting; // 輪到它播、正在等音檔（已不在佇列裡）
+
+  /// 佇列裡的介紹該是哪個聲音（聲音鍵）；舊主機沒有聲音鍵時是 null（什麼都收）。
+  String? _voiceKey;
+  int _voiceSwitches = 0; // 每換一次聲音加一，讓換之前送出的請求自己作廢
 
   @override
   TourState build() {
@@ -202,6 +214,43 @@ class TourController extends Notifier<TourState> {
   /// 問答連上了主機：結束斷線，安靜恢復。
   void noteHostReached() => _onHostReached();
 
+  /// 正在播（含暫停中、被問題打斷等著接續）的介紹；換聲音時它用舊聲音播完，主機不必重做。
+  String? get playingId {
+    final playing = _playing;
+    return playing == null || playing.finished ? null : playing.item.info.id;
+  }
+
+  /// 主機換成這個聲音（聲音鍵）了。旅程中：佇列裡別的聲音的介紹丟掉（正在播的那段照常播完），
+  /// 也不再算「看過」，主機用新聲音重做的同一個景點（同一個 id）才進得來。
+  void useVoice(String key) {
+    if (key == _voiceKey) return;
+    final previous = _voiceKey;
+    _voiceKey = key;
+    _voiceSwitches++;
+    if (!state.active) return;
+    for (final item in _queue.where((q) => !_inCurrentVoice(q.info)).toList()) {
+      _queue.remove(item);
+      _audio.remove(item.info.id);
+      _seen.remove(item.info.id);
+    }
+    final starting = _starting;
+    if (starting != null && !_inCurrentVoice(starting.info)) {
+      _seen.remove(starting.info.id); // 音檔回來時不播（見 _playNarration）
+    }
+    if (previous != null) state = state.copyWith(voiceChanging: true);
+  }
+
+  bool _inCurrentVoice(NarrationInfo info) =>
+      info.voice == null || _voiceKey == null || info.voice == _voiceKey;
+
+  /// 旅程中主機的聲音和 App 記的不同（例如換聲音的回應沒收到）：跟上主機，補下載它的短句。
+  void _followHost(String key) {
+    useVoice(key);
+    if (ref.read(voiceProvider).current?.key != key) {
+      unawaited(ref.read(voiceProvider.notifier).refresh());
+    }
+  }
+
   Future<void> start() async {
     if (state.active) return;
     final settings = ref.read(settingsProvider);
@@ -222,6 +271,7 @@ class TourController extends Notifier<TourState> {
 
     final session = ++_session;
     _resetTour();
+    _voiceKey = ref.read(voiceProvider).current?.key;
     final fix = _fixFrom(first);
     try {
       await ref
@@ -303,6 +353,7 @@ class TourController extends Notifier<TourState> {
   /// 回傳 false 代表這一輪已處理完畢（例如主機重新開始），不必再評估播放。
   Future<bool> _poll(int session) async {
     final settings = ref.read(settingsProvider);
+    final switches = _voiceSwitches;
     try {
       final poll = await ref
           .read(tourApiProvider)
@@ -310,14 +361,21 @@ class TourController extends Notifier<TourState> {
       if (session != _session) return false;
       _onHostReached();
       unawaited(_reportPlayed(session)); // 連得上了：把之前送不出去的補送
+      // 換聲音之前送出的：裡面可能有舊聲音的介紹、或把聲音拉回去。不採用，游標不動，下一輪重抓
+      if (switches != _voiceSwitches) return true;
       state = state.copyWith(stoppedReason: poll.stoppedReason);
       if (!poll.active) {
         await _restartOnHost(session);
         return false;
       }
+      final voice = poll.voice;
+      if (voice != null && voice != _voiceKey) _followHost(voice);
       for (final info in poll.narrations) {
         if (info.seq > _cursor) _cursor = info.seq;
+        // 換聲音之前做好的：主機會用新聲音重做（同一個 id、新的 seq）
+        if (!_inCurrentVoice(info)) continue;
         if (_seen.add(info.id)) {
+          _gone.remove(info.id); // 主機重新發布了：之前的「不存在」作廢
           _queue.add(QueuedNarration(info, _now));
           _audio[info.id] = _download(info.id, session);
         }
@@ -368,6 +426,7 @@ class TourController extends Notifier<TourState> {
   /// 失敗回傳 null：算一次斷線，介紹留在佇列裡，主機回來後再抓。
   /// 例外是 404：主機還在、只是這段已經不存在（例如主機重啟過），不算斷線，直接丟掉。
   Future<Uint8List?> _download(String id, int session) async {
+    final switches = _voiceSwitches;
     try {
       final bytes = await ref
           .read(tourApiProvider)
@@ -377,7 +436,8 @@ class TourController extends Notifier<TourState> {
     } on TourApiException catch (error) {
       debugPrint('下載 $id 失敗：$error');
       if (error.statusCode == 404) {
-        if (session == _session) _gone.add(id);
+        // 換聲音之後才回來的 404 是撤下的舊版：同一個 id 可能正要用新聲音重做，不記成不存在
+        if (session == _session && switches == _voiceSwitches) _gone.add(id);
         return null;
       }
       _onHostFailed(session);
@@ -474,8 +534,15 @@ class TourController extends Notifier<TourState> {
   Future<void> _playNarration(QueuedNarration item) async {
     _busy = true; // 同步設定，下一次評估就不會再開始別段
     final session = _session;
+    _starting = item;
     final bytes = await _audio.remove(item.info.id);
     if (session != _session) return;
+    _starting = null;
+    if (!_inCurrentVoice(item.info)) {
+      // 等音檔的時候換了聲音：不播也不放回去，主機會用新聲音重做
+      _busy = false;
+      return;
+    }
     if (bytes == null) {
       // 下載失敗：放回去，主機回來後 _evaluate 會再抓（已經不存在的就不放回去）
       if (!_gone.contains(item.info.id)) _queue.insert(0, item);
@@ -499,7 +566,11 @@ class TourController extends Notifier<TourState> {
     Uint8List bytes,
     Duration start,
   ) async {
-    state = state.copyWith(nowPlaying: item.info.name);
+    state = state.copyWith(
+      nowPlaying: item.info.name,
+      // 新聲音的介紹開始了：不必再提示「下一段準備中」
+      voiceChanging: state.voiceChanging && item.info.voice != _voiceKey,
+    );
     _syncRemote(title: item.info.name);
     final playing = _Playing(item, bytes);
     _playing = playing;
@@ -625,6 +696,7 @@ class TourController extends Notifier<TourState> {
     _questionHolds = 0;
     _playing = null;
     _interrupted = null;
+    _starting = null;
   }
 }
 

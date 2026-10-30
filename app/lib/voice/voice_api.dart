@@ -65,7 +65,13 @@ abstract class VoiceApi {
   Future<Uint8List> phrase(HostSettings settings, String name, int number);
 
   /// 請主機改用這個聲音；回傳主機的目前聲音。不存在是 404、短句沒準備好是 409。
-  Future<String> choose(HostSettings settings, String name);
+  ///
+  /// [playingId] 是正在播的介紹：它會用舊聲音播完，主機不必用新聲音重做。
+  Future<String> choose(
+    HostSettings settings,
+    String name, {
+    String? playingId,
+  });
 }
 
 class HttpVoiceApi implements VoiceApi {
@@ -88,11 +94,15 @@ class HttpVoiceApi implements VoiceApi {
   }
 
   @override
-  Future<String> choose(HostSettings settings, String name) async {
+  Future<String> choose(
+    HostSettings settings,
+    String name, {
+    String? playingId,
+  }) async {
     final response = await _host.post(
       settings,
       '/v1/voice',
-      body: {'name': name},
+      body: {'name': name, 'playing_id': ?playingId},
     );
     try {
       final json = jsonDecode(utf8.decode(response.bodyBytes));

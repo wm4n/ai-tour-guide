@@ -1,6 +1,7 @@
 """為一個位置準備介紹：找景點 → 排序 → 抓摘要 → Claude 寫稿 → 合成驗收 → 存進快取。"""
 
 import asyncio
+import dataclasses
 import hashlib
 import json
 import logging
@@ -46,6 +47,10 @@ class SpeechLike(Protocol):
     def run(self, text: str) -> SpeechResult: ...
 
 
+# 沒指定聲音時用的聲音鍵（`名稱@語速`，同 `ReferenceVoice.key`）
+DEFAULT_VOICE_KEY = "F2@1"
+
+
 @dataclass(frozen=True)
 class PreparedNarration:
     candidate_id: str
@@ -57,6 +62,7 @@ class PreparedNarration:
     distance_m: float
     lat: float
     lon: float
+    voice: str = DEFAULT_VOICE_KEY  # 音檔是哪個聲音（聲音鍵）
 
 
 def _safe(candidate_id: str) -> str:
@@ -67,9 +73,6 @@ def wav_seconds(path: Path) -> float:
     with wave.open(str(path)) as wav:
         return round(wav.getnframes() / wav.getframerate(), 2)
 
-
-# 沒指定聲音時用的聲音鍵（`名稱@語速`，同 `ReferenceVoice.key`）
-DEFAULT_VOICE_KEY = "F2@1"
 
 SNAP_DECIMALS = 3  # 約 110 公尺；相近的位置共用同一份 Overpass／Wikipedia 查詢與快取
 SNAP_MARGIN_M = 150.0  # 吸附造成的位移上限（約 80 公尺）再留餘裕
@@ -112,8 +115,7 @@ class AreaPreparer:
         voice_key: str = DEFAULT_VOICE_KEY,
     ):
         self._overpass = overpass
-        # 可在執行中改變（換聲音）：快取的稿子與聲音無關，音檔依聲音鍵分開存放，
-        # 換了聲音只重新合成（不必再找 Claude 寫）；每次 `prepare` 開始時取用當下的聲音鍵
+        self._voice_epoch = 0
         self.voice_key = voice_key
         self._wiki = wiki
         self._llm = llm
@@ -124,6 +126,17 @@ class AreaPreparer:
         self._limit = limit
         self._max_rewrites = max_rewrites  # 每次重寫都是一次額外的 Claude 呼叫
         self._terms = load_terms(terms_path)
+
+    @property
+    def voice_key(self) -> str:
+        return self._voice_key
+
+    @voice_key.setter
+    def voice_key(self, key: str) -> None:
+        """執行中可以換（換聲音）：快取的稿子與聲音無關，音檔依聲音鍵分開存放，換了聲音只重新
+        合成、不必再找 Claude 寫。每換一次都記一筆，連「換走又換回」也認得出來。"""
+        self._voice_key = key
+        self._voice_epoch += 1
 
     async def prepare(
         self,
@@ -136,10 +149,11 @@ class AreaPreparer:
         traveler: TravelerContext | None = None,
         on_ready: Callable[[PreparedNarration], None] | None = None,
     ) -> list[PreparedNarration]:
-        """on_ready：每做好一段就呼叫（合成很慢，呼叫端不必等整批）。"""
-        voice_key = (
-            self.voice_key
-        )  # 這一批從頭到尾歸在同一個聲音底下；中途換了聲音，剩下的只存稿不合成
+        """on_ready：每做好一段就呼叫（合成很慢，呼叫端不必等整批）。
+
+        每一段都用做好當下的聲音：中途換了聲音，還沒做好的直接用新聲音合成，已寫好或寫到一半的
+        稿子都不浪費。
+        """
         ranked = await self._ranked(
             location, self._limit, exclude_ids=exclude_ids, recent_themes=recent_themes
         )
@@ -159,7 +173,7 @@ class AreaPreparer:
         # 合成（只有一個模型）再依序進行
         cached = {
             item.candidate.id: self._load_cached(
-                item.candidate, prints[item.candidate.id], voice_key
+                item.candidate, prints[item.candidate.id], self.voice_key
             )
             for item in ranked
         }
@@ -185,25 +199,41 @@ class AreaPreparer:
         prepared: list[PreparedNarration] = []
         try:
             for item in ranked:
-                hit = cached[item.candidate.id]
+                fingerprint = prints[item.candidate.id]
+                # 輪到它時才看快取：這一批開始後換了聲音，就看新聲音的音檔
+                hit = self._load_cached(item.candidate, fingerprint, self.voice_key)
                 if hit:
                     prepared.append(hit)
                     if on_ready:
                         on_ready(hit)
                     continue
                 try:
-                    script, issues = reusable[item.candidate.id] or await scripts[item.candidate.id]
+                    script, issues = (
+                        self._cached_script(item.candidate, fingerprint)
+                        or await scripts[item.candidate.id]
+                    )
                 except (ForbiddenModelError, QuotaExceededError):
                     raise  # 政策違規與額度用盡不是單段失敗，要讓呼叫端知道
                 except Exception:  # 一段寫稿失敗（逾時、格式…）不要拖垮其他段
                     logger.exception("寫稿失敗：%s", item.candidate.name)
                     continue
-                made = (
-                    await self._synthesize(
-                        item, script, prints[item.candidate.id], issues, voice_key
+                if not script:
+                    continue
+                # 先存稿再合成：合成失敗或換了聲音，之後都只要重新合成、不必再找 Claude
+                meta_path, meta = self._save_script(item, script, fingerprint, issues)
+                candidate = item.candidate
+                made = await self._synthesize(
+                    PreparedNarration(  # 音檔與秒數由合成填上
+                        candidate.id,
+                        candidate.name,
+                        script,
+                        Path(),
+                        meta_path,
+                        0.0,
+                        meta["distance_m"],
+                        candidate.lat,
+                        candidate.lon,
                     )
-                    if script
-                    else None
                 )
                 if made:
                     prepared.append(made)
@@ -213,6 +243,29 @@ class AreaPreparer:
             for task in scripts.values():
                 task.cancel()
         return prepared
+
+    async def revoice(
+        self,
+        narrations: Collection[PreparedNarration],
+        *,
+        on_ready: Callable[[PreparedNarration], None] | None = None,
+    ) -> list[PreparedNarration]:
+        """換了聲音：把這幾段已經寫好的稿子用目前的聲音重新合成（不呼叫 Claude、不動稿子）。
+
+        這個聲音已經有同一份稿子的音檔就直接用。一段失敗不影響其他段。
+        """
+        redone: list[PreparedNarration] = []
+        for item in narrations:
+            try:
+                made = self._cached_audio(item) or await self._synthesize(item)
+            except Exception:
+                logger.exception("用新聲音重做 %s 失敗", item.name)
+                continue
+            if made:
+                redone.append(made)
+                if on_ready:
+                    on_ready(made)
+        return redone
 
     async def nearby(self, location: Location, *, limit: int = 5) -> list[ScriptContext]:
         """附近值得一提的地方與它們的維基摘要，給問答用：只查資料，不寫稿也不合成。
@@ -257,8 +310,8 @@ class AreaPreparer:
     def _meta_path(self, candidate: Candidate) -> Path:
         return self._out_dir / f"{_safe(candidate.id)}.meta.json"
 
-    def _wav_path(self, candidate: Candidate, voice_key: str) -> Path:
-        return self._out_dir / voice_key / f"{_safe(candidate.id)}.wav"
+    def _wav_path(self, candidate_id: str, voice_key: str) -> Path:
+        return self._out_dir / voice_key / f"{_safe(candidate_id)}.wav"
 
     def _cached_meta(self, candidate: Candidate, fingerprint: str) -> dict | None:
         """稿子還能用的快取（指紋相同）；與聲音無關，音檔是否存在另外判斷。"""
@@ -272,13 +325,24 @@ class AreaPreparer:
         self, candidate: Candidate, fingerprint: str, voice_key: str
     ) -> PreparedNarration | None:
         meta = self._cached_meta(candidate, fingerprint)
-        wav = self._wav_path(candidate, voice_key)
+        wav = self._wav_path(candidate.id, voice_key)
         if meta is None or not wav.exists():
             return None
         return PreparedNarration(
             candidate.id, meta["name"], meta["script"], wav, self._meta_path(candidate),
-            wav_seconds(wav), meta["distance_m"], candidate.lat, candidate.lon,
+            wav_seconds(wav), meta["distance_m"], candidate.lat, candidate.lon, voice_key,
         )  # fmt: skip
+
+    def _cached_audio(self, item: PreparedNarration) -> PreparedNarration | None:
+        """目前的聲音已經有這份稿子的音檔（稿子重寫時各聲音的舊音檔會作廢，所以比對稿子就夠）。"""
+        wav = self._wav_path(item.candidate_id, self.voice_key)
+        if not wav.exists() or not item.meta_path.exists():
+            return None
+        if json.loads(item.meta_path.read_text(encoding="utf-8")).get("script") != item.script:
+            return None
+        return dataclasses.replace(
+            item, wav_path=wav, audio_seconds=wav_seconds(wav), voice=self.voice_key
+        )
 
     def _discard_audio_of_other_scripts(self, candidate: Candidate, fingerprint: str) -> None:
         """稿子重寫了（指紋變了）：各聲音底下用舊稿合成的音檔作廢，不然切回那個聲音會播出舊稿。"""
@@ -369,26 +433,21 @@ class AreaPreparer:
         meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
         return meta_path, meta
 
-    async def _synthesize(
-        self, item: Ranked, script: str, fingerprint: str, issues: list[Finding], voice_key: str
-    ) -> PreparedNarration | None:
-        candidate = item.candidate
-        if self.voice_key != voice_key:
-            # 這一批開始後換了聲音：稿子先存起來（之後用新聲音合成、不再呼叫 Claude），不合成
-            self._save_script(item, script, fingerprint, issues)
-            return None
-        speech = await asyncio.to_thread(self._speech.run, script)
-        if self.voice_key != voice_key:
-            # 合成器在單位之間換聲音：這段可能前後是不同聲音，不當任何一個聲音的快取、也不播
-            self._save_script(item, script, fingerprint, issues)
-            return None
+    async def _synthesize(self, base: PreparedNarration) -> PreparedNarration | None:
+        """用目前的聲音合成 `base` 的稿子，音檔放在那個聲音底下；回傳換上新音檔的 `base`。
+
+        合成器在單位之間換聲音：合成途中換過聲音，那一版可能前後是不同聲音，不能當任何一個聲音的
+        快取，丟掉用最新的聲音重做。
+        """
+        while True:
+            epoch, voice_key = self._voice_epoch, self.voice_key
+            speech = await asyncio.to_thread(self._speech.run, base.script)
+            if epoch == self._voice_epoch:
+                break
         if speech.audio_seconds <= 0:
             return None
-
-        meta_path, meta = self._save_script(item, script, fingerprint, issues)
-        wav = self._wav_path(candidate, voice_key)
+        wav = self._wav_path(base.candidate_id, voice_key)
         write_speech(speech, wav.parent, wav.stem)  # 音檔與合成紀錄依聲音分開
-        return PreparedNarration(
-            candidate.id, candidate.name, script, wav, meta_path,
-            round(speech.audio_seconds, 2), meta["distance_m"], candidate.lat, candidate.lon,
-        )  # fmt: skip
+        return dataclasses.replace(
+            base, wav_path=wav, audio_seconds=round(speech.audio_seconds, 2), voice=voice_key
+        )

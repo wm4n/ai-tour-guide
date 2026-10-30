@@ -1,0 +1,18 @@
+{
+  "active": true,
+  "preparing": false,
+  "stopped_reason": null,
+  "voice": "F2@1.2",
+  "narrations": [
+    {
+      "seq": 1,
+      "id": "wiki:霞海城隍廟",
+      "name": "霞海城隍廟",
+      "lat": 25.0556,
+      "lon": 121.5103,
+      "audio_seconds": 34.7,
+      "voice": "F2@1.2",
+      "unit_starts": []
+    }
+  ]
+}

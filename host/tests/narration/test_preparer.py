@@ -545,43 +545,175 @@ async def test_the_voice_key_can_change_while_running(tmp_path):
     assert new.wav_path.parent.name == "M1@1.2"
 
 
-async def test_audio_made_while_the_voice_changed_is_not_kept_but_the_script_is(tmp_path):
+async def test_audio_made_while_the_voice_changed_is_redone_in_the_new_voice(tmp_path):
     preparer, parts = make(tmp_path, [osm("霞海城隍廟", 100)], limit=1, voice_key="F2@1.2")
     original_run = parts["speech"].run
 
-    def switch_during_synthesis(text):
-        preparer.voice_key = "M1@1.2"  # 合成到一半，使用者換了聲音
+    def switch_during_first_synthesis(text):
+        if len(parts["speech"].texts) == 0:
+            preparer.voice_key = "M1@1.2"  # 合成到一半，使用者換了聲音
         return original_run(text)
 
-    parts["speech"].run = switch_during_synthesis
+    parts["speech"].run = switch_during_first_synthesis
 
-    # 合成器在單位之間換聲音：這段可能前後是不同聲音，不能當成任何一個聲音的快取、也不能播
-    assert await preparer.prepare(HERE) == []
-    assert not list((tmp_path / "out").glob("*/*.wav"))
+    [made] = await preparer.prepare(HERE)
 
-    parts["speech"].run = original_run
-    [made] = await preparer.prepare(HERE)  # 稿子留著：用新聲音重新合成，不再呼叫 Claude
-
+    # 合成器在單位之間換聲音：那一版可能前後是不同聲音，丟掉，用新聲音重做；稿子不重寫
+    assert len(parts["speech"].texts) == 2
     assert len(parts["llm"].requests) == 1
-    assert made.wav_path.parent.name == "M1@1.2"
+    assert (made.voice, made.wav_path.parent.name) == ("M1@1.2", "M1@1.2")
+    assert [path.parent.name for path in (tmp_path / "out").glob("*/*.wav")] == ["M1@1.2"]
 
 
-async def test_a_voice_change_before_synthesis_skips_the_old_voice(tmp_path):
+async def test_switching_away_and_back_during_synthesis_still_redoes_the_mixed_audio(tmp_path):
+    preparer, parts = make(tmp_path, [osm("霞海城隍廟", 100)], limit=1, voice_key="F2@1.2")
+    original_run = parts["speech"].run
+
+    def away_and_back_during_first_synthesis(text):
+        if len(parts["speech"].texts) == 0:
+            preparer.voice_key = "M1@1.2"  # 中間幾個單位可能是 M1
+            preparer.voice_key = "F2@1.2"
+        return original_run(text)
+
+    parts["speech"].run = away_and_back_during_first_synthesis
+
+    [made] = await preparer.prepare(HERE)
+
+    assert len(parts["speech"].texts) == 2  # 聲音鍵一樣，但混過別的聲音：不能當 F2 的快取
+    assert made.voice == "F2@1.2"
+
+
+async def test_a_script_finished_after_a_voice_change_is_synthesised_in_the_new_voice(tmp_path):
     preparer, parts = make(tmp_path, [osm("霞海城隍廟", 100)], limit=1, voice_key="F2@1.2")
     original_run = parts["llm"].run
 
     async def switch_while_writing(request, on_text=None):
-        preparer.voice_key = "M1@1.2"  # 寫稿時換了聲音：這一批還是舊聲音，不合成
+        preparer.voice_key = "M1@1.2"  # 寫稿時換了聲音：稿子照寫完，直接用新聲音合成
         return await original_run(request, on_text)
 
     parts["llm"].run = switch_while_writing
 
-    assert await preparer.prepare(HERE) == []
-    assert parts["speech"].texts == []
     [made] = await preparer.prepare(HERE)
 
     assert len(parts["llm"].requests) == 1
-    assert made.wav_path.parent.name == "M1@1.2"
+    assert parts["speech"].texts == ["你好，這是介紹稿。"]
+    assert made.voice == "M1@1.2"
+    assert not (tmp_path / "out" / "F2@1.2").exists()
+
+
+async def test_a_cached_place_after_a_voice_change_in_the_same_batch_uses_the_new_voice(tmp_path):
+    preparer, parts = make(tmp_path, [osm("A", 100), osm("B", 150)], voice_key="F2@1.2")
+    await preparer.prepare(HERE, exclude_ids={"osm:node:A"})  # B 在 F2 有快取
+    original_run = parts["llm"].run
+
+    async def switch_while_writing_a(request, on_text=None):
+        preparer.voice_key = "M1@1.2"
+        return await original_run(request, on_text)
+
+    parts["llm"].run = switch_while_writing_a
+    parts["speech"].texts.clear()
+
+    made = await preparer.prepare(HERE)
+
+    assert [(p.name, p.voice) for p in made] == [("A", "M1@1.2"), ("B", "M1@1.2")]
+    assert len(parts["llm"].requests) == 2  # B 寫過一次、A 一次；B 換聲音不重寫
+    assert len(parts["speech"].texts) == 2
+
+
+async def test_the_script_is_kept_even_when_synthesis_fails(tmp_path):
+    preparer, parts = make(tmp_path, [osm("霞海城隍廟", 100)], limit=1)
+
+    def broken(text):
+        raise RuntimeError("GPU 掛了")
+
+    parts["speech"].run = broken
+    try:
+        await preparer.prepare(HERE)
+    except RuntimeError:
+        pass
+    del parts["speech"].run
+
+    [made] = await preparer.prepare(HERE)
+
+    assert len(parts["llm"].requests) == 1  # 稿子在合成前就存了：不必再找 Claude
+    assert made.script == "你好，這是介紹稿。"
+
+
+async def test_revoicing_resynthesises_published_scripts_without_claude(tmp_path):
+    preparer, parts = make(tmp_path, [osm("A", 100), osm("B", 150)], voice_key="F2@1.2")
+    published = await preparer.prepare(HERE)
+    meta_before = [p.meta_path.read_text(encoding="utf-8") for p in published]
+    parts["speech"].texts.clear()
+    preparer.voice_key = "M1@1.2"
+    seen = []
+
+    redone = await preparer.revoice(published, on_ready=seen.append)
+
+    assert parts["llm"].requests and len(parts["llm"].requests) == 2  # 只有最早寫稿的兩次
+    assert parts["speech"].texts == [p.script for p in published]
+    assert [(p.candidate_id, p.voice) for p in redone] == [
+        ("osm:node:A", "M1@1.2"),
+        ("osm:node:B", "M1@1.2"),
+    ]
+    assert seen == redone
+    assert all(p.wav_path.parent.name == "M1@1.2" and p.wav_path.exists() for p in redone)
+    assert [p.meta_path.read_text(encoding="utf-8") for p in redone] == meta_before  # 稿子不動
+    assert (tmp_path / "out" / "F2@1.2" / "osm_node_A.wav").exists()  # 舊聲音的快取留著
+
+
+async def test_revoicing_back_to_an_earlier_voice_hits_its_audio(tmp_path):
+    preparer, parts = make(tmp_path, [osm("A", 100)], limit=1, voice_key="F2@1.2")
+    [first] = await preparer.prepare(HERE)
+    preparer.voice_key = "M1@1.2"
+    [in_m1] = await preparer.revoice([first])
+    parts["speech"].texts.clear()
+
+    preparer.voice_key = "F2@1.2"
+    [back] = await preparer.revoice([in_m1])
+
+    assert parts["speech"].texts == []
+    assert (back.wav_path, back.voice) == (first.wav_path, "F2@1.2")
+
+
+async def test_revoicing_redoes_audio_mixed_by_another_switch(tmp_path):
+    preparer, parts = make(tmp_path, [osm("A", 100)], limit=1, voice_key="F2@1.2")
+    [first] = await preparer.prepare(HERE)
+    preparer.voice_key = "M1@1.2"
+    parts["speech"].texts.clear()
+    original_run = parts["speech"].run
+
+    def switch_again_during_first_synthesis(text):
+        if len(parts["speech"].texts) == 0:
+            preparer.voice_key = "M2@1.2"  # 連續切換：以最後一次為準
+        return original_run(text)
+
+    parts["speech"].run = switch_again_during_first_synthesis
+
+    [redone] = await preparer.revoice([first])
+
+    assert len(parts["speech"].texts) == 2
+    assert redone.voice == "M2@1.2"
+    assert not (tmp_path / "out" / "M1@1.2").exists()
+
+
+async def test_one_failed_revoice_does_not_lose_the_others(tmp_path):
+    preparer, parts = make(tmp_path, [osm("A", 100), osm("B", 150)], voice_key="F2@1.2")
+    published = await preparer.prepare(HERE)
+    preparer.voice_key = "M1@1.2"
+    original_run = parts["speech"].run
+    calls = []
+
+    def fail_first(text):
+        calls.append(text)
+        if len(calls) == 1:
+            raise RuntimeError("合成失敗")
+        return original_run(text)
+
+    parts["speech"].run = fail_first
+
+    redone = await preparer.revoice(published)
+
+    assert [p.candidate_id for p in redone] == ["osm:node:B"]
 
 
 def write_legacy_cache(out, script="舊的稿子。", fingerprint=None):

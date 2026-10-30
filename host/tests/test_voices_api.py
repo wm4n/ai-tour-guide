@@ -319,6 +319,59 @@ def test_switching_during_a_tour_redoes_what_has_not_played_in_the_new_voice(tmp
     ]
 
 
+def test_what_the_app_already_played_is_told_before_the_rest_is_withdrawn(tmp_path):
+    add_usable_voice(tmp_path, "F2")
+    add_usable_voice(tmp_path, "M1")
+    wav = tmp_path / "a.wav"
+    wav.write_bytes(b"RIFF")
+    preparer = TwoPlacesPreparer(wav)
+    with make_client(tmp_path, preparer=preparer) as client:
+        client.post("/v1/tour/start", json={"lat": 25.05, "lon": 121.51}, headers=TOKEN)
+        narrations_once(client, 2)
+
+        # A 播完了但回報還沒送到；B 被問題打斷、等著接續
+        response = client.post(
+            "/v1/voice", json={"name": "M1", "played_ids": ["wiki:A", "wiki:B"]}, headers=TOKEN
+        )
+        body = narrations_once(client, 2)
+
+    assert response.status_code == 200
+    assert preparer.revoiced == []  # 都講過了：不用新聲音重講
+    assert [(n["id"], n["voice"]) for n in body["narrations"]] == [
+        ("wiki:A", "F2@1.2"),
+        ("wiki:B", "F2@1.2"),
+    ]
+
+
+def test_played_ids_are_told_even_when_the_voice_stays_the_same(tmp_path):
+    add_usable_voice(tmp_path, "F2")
+    add_usable_voice(tmp_path, "M1")
+    wav = tmp_path / "a.wav"
+    wav.write_bytes(b"RIFF")
+    preparer = TwoPlacesPreparer(wav)
+    with make_client(tmp_path, preparer=preparer) as client:
+        client.post("/v1/tour/start", json={"lat": 25.05, "lon": 121.51}, headers=TOKEN)
+        narrations_once(client, 2)
+
+        # 切換中又點回原本的聲音：App 收到 200 就清掉待送回報，主機不能漏記
+        client.post("/v1/voice", json={"name": "F2", "played_ids": ["wiki:A"]}, headers=TOKEN)
+        client.post("/v1/voice", json={"name": "M1"}, headers=TOKEN)
+        narrations_once(client, 2)
+
+    assert preparer.revoiced == [["wiki:B"]]
+
+
+def test_played_ids_the_host_does_not_know_are_ignored(tmp_path):
+    add_usable_voice(tmp_path, "F2")
+    add_usable_voice(tmp_path, "M1")
+    with make_client(tmp_path, preparer=TwoPlacesPreparer(tmp_path / "a.wav")) as client:
+        response = client.post(
+            "/v1/voice", json={"name": "M1", "played_ids": ["wiki:重啟之前的"]}, headers=TOKEN
+        )
+
+    assert response.json() == {"current": "M1"}
+
+
 def test_switching_without_a_tour_changes_the_voice_of_the_next_narrations(tmp_path):
     add_usable_voice(tmp_path, "F2")
     add_usable_voice(tmp_path, "M1")

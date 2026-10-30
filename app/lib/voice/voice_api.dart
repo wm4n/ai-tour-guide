@@ -67,10 +67,12 @@ abstract class VoiceApi {
   /// 請主機改用這個聲音；回傳主機的目前聲音。不存在是 404、短句沒準備好是 409。
   ///
   /// [playingId] 是正在播的介紹：它會用舊聲音播完，主機不必用新聲音重做。
+  /// [playedIds] 是主機該先記成講過的（還沒送達的播完回報、被打斷不再接續的那段）。
   Future<String> choose(
     HostSettings settings,
     String name, {
     String? playingId,
+    List<String> playedIds = const [],
   });
 }
 
@@ -98,11 +100,16 @@ class HttpVoiceApi implements VoiceApi {
     HostSettings settings,
     String name, {
     String? playingId,
+    List<String> playedIds = const [],
   }) async {
     final response = await _host.post(
       settings,
       '/v1/voice',
-      body: {'name': name, 'playing_id': ?playingId},
+      body: {
+        'name': name,
+        'playing_id': ?playingId,
+        if (playedIds.isNotEmpty) 'played_ids': playedIds,
+      },
     );
     try {
       final json = jsonDecode(utf8.decode(response.bodyBytes));

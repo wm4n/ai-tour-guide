@@ -491,3 +491,17 @@ PR 上的獨立整合審查（https://github.com/wm4n/ai-tour-guide/pull/26）�
 - 留給後續票：點選就停住佇列、`played_ids`、被打斷的那段不接續（#36）；實機驗收（#37）。
 
 驗證：host 767 項、ruff 乾淨；App 360 項、analyze 乾淨。
+
+## #36 切換不會讓講過的段落再講一次（2026-10-31，分支 `feat/voice-switch-played`）
+
+- 主機：`POST /v1/voice` 接受 `played_ids`，先檢查 404／409，再逐一 `mark_played`（不認得的忽略），最後才撤下未播介紹。**切到目前聲音也照記**（設定頁允許切換中點回原本的聲音，App 收到 200 就清掉待送回報，主機不能漏記）；設計文件主機第 2 點一併更新。README 換聲音段落補上 `playing_id`／`played_ids`，拿掉 #35 已過時的「照樣播出（另案）」。
+- App：
+  - `TourController.holdForVoiceSwitch`／`releaseVoiceSwitch`（計數，和發問的 hold 同一套寫法）：`select` 一開始就停住，`finally` 放開。停住時不開始新介紹、等音檔回來的那段放回佇列、被打斷的那段不接續；失敗就照常播。計數不跟旅程歸零：切換途中重新出發，新的這趟也等切換完成才開播。
+  - `playbackReport`（`PlaybackReport` record）在送出請求當下才取：`playingId` 排除被打斷的那段；`playedIds`＝`_unreportedPlayed`＋被打斷的那段。成功後只清掉這次送出的。
+  - 換成了：被打斷的那段不接續、替它收尾（`_busy`、`_playing`，否則新聲音的介紹開不了）。請求送出後才被打斷的（主機不知道）照一般播完回報。聲音沒變（點回原本的）就照常接續。
+  - 抽出 `_notePlayed`（播完回報共用，含 20 筆上限）。
+- mutation 檢查（拿掉後測試會紅）：等音檔那段放回佇列、被打斷的不放進／不收尾／不丟、清掉已送回報、`playingId` 排除被打斷的、請求後才打斷要另外回報、旅程歸零 hold。`_evaluate` 與 `_resumeInterrupted` 的 hold 檢查各自和後一層是雙重防護（同 `paused`），單獨拿掉不紅、兩層一起拿掉才紅。
+- `/code-review` 後修：抽 `_notePlayed`（原本被打斷那段的回報沒有上限）；設計文件第 63 行改成和實作一致；補「空檔播完且回報沒送到」「切換途中重新出發」兩個測試。
+- 沒照建議改的：`_dropInterrupted` 沒等前一次播放收尾就清 `_busy`（播放器已在打斷時停掉，下一段還要下載音檔）；`_resumeInterrupted` 清掉 `_interrupted`、等收尾的那一瞬間點新聲音，那段會當成 `playing_id` 送出並用舊聲音接完（主機不重做，不會重講）；主機回的聲音不在清單上（`key == null`）時不清待送回報（之後照常重送，主機冪等）；`_voiceHolds > 0` 散在四處沒收成 getter（各處和 `paused`／`_questionHolds` 的組合不同）。
+
+驗證：host 770 項、ruff 乾淨；App 373 項、analyze 乾淨。

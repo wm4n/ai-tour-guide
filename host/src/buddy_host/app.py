@@ -94,6 +94,8 @@ class AskPhotoBody(FixBody):
 class VoiceBody(BaseModel):
     name: Annotated[str, StringConstraints(min_length=1, max_length=100)]
     playing_id: str | None = None  # App 正在播、會播完的介紹：不撤下重做
+    # App 還沒送達的播完回報，加上被問題打斷、不再接續的那段：都算講過，不用新聲音重講
+    played_ids: list[str] = Field(default_factory=list, max_length=100)
 
 
 AnswererFactory = Callable[[QuotaGate, JourneyMemory], QaService]
@@ -195,19 +197,27 @@ def create_app(
         重啟後仍是這個聲音（存在 voice/current）。連續切換以最後一次為準。整段在事件迴圈上做完、
         中間沒有 await（只讀寫幾個小檔）：兩次切換不會交錯，合成器與介紹也一起換，不會有一段
         準備夾在中間。
+
+        `played_ids` 在撤下之前先記成講過；切到目前聲音也照記，App 收到 200 就不會再送。
         """
         nonlocal current_voice
-        if body.name == current_voice:
+        voice = None
+        if body.name != current_voice:
+            profile = find_voice(config.home / "voice", body.name)
+            if profile is None:
+                raise HTTPException(status_code=404, detail="找不到這個聲音")
+            if not phrases_ready(config.home, profile.key):
+                raise HTTPException(status_code=409, detail="這個聲音的固定短句還沒準備好")
+            try:  # 重讀 voice.toml：主機開著時改的語速與停頓上限也會套用
+                voice = load_reference(config.home / "voice" / profile.name)
+            except VoiceError:
+                detail = "這個聲音缺少參考錄音或逐字稿"
+                raise HTTPException(status_code=409, detail=detail) from None
+        if session is not None:
+            for narration_id in body.played_ids:
+                session.mark_played(narration_id)  # 不認得的直接忽略，同 /v1/tour/played
+        if voice is None:
             return {"current": current_voice}
-        profile = find_voice(config.home / "voice", body.name)
-        if profile is None:
-            raise HTTPException(status_code=404, detail="找不到這個聲音")
-        if not phrases_ready(config.home, profile.key):
-            raise HTTPException(status_code=409, detail="這個聲音的固定短句還沒準備好")
-        try:  # 重讀 voice.toml：主機開著時改的語速與停頓上限也會套用
-            voice = load_reference(config.home / "voice" / profile.name)
-        except VoiceError:
-            raise HTTPException(status_code=409, detail="這個聲音缺少參考錄音或逐字稿") from None
         save_current_voice(config.home, voice.name)
         if on_voice_change is not None:
             on_voice_change(voice)

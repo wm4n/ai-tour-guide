@@ -157,26 +157,36 @@ class VoiceController extends Notifier<VoiceState> {
 
   /// 換成這個聲音：先把它的固定短句全部存進手機，再請主機換；任何一步失敗就不換。
   ///
-  /// 換的過程中可以再點別的聲音，以最後一次為準。旅程中：正在播的介紹用舊聲音播完，
-  /// 其餘舊聲音的介紹丟掉，等主機用新聲音重做。
+  /// 換的過程中可以再點別的聲音，以最後一次為準。旅程中：一點下去就不再開始舊聲音的介紹
+  /// （正在播的用舊聲音播完），換好之後其餘舊聲音的介紹丟掉，等主機用新聲音重做；失敗就照常播。
   Future<void> select(VoiceInfo voice) async {
     final generation = ++_selections;
     bool latest() => ref.mounted && generation == _selections;
+    final tour = ref.read(tourProvider.notifier);
+    // 下載短句、等主機回應的空檔不開播下一段舊介紹，免得它之後被當成沒播、用新聲音重講
+    tour.holdForVoiceSwitch();
     state = state.copyWith(switching: voice.name, error: null);
     try {
       if (!await _savePhrases(voice, latest) || !latest()) return;
       final settings = ref.read(settingsProvider);
       final api = ref.read(voiceApiProvider);
-      final tour = ref.read(tourProvider.notifier);
-      // 照點選的順序送：先點的請求晚到，主機就會停在先點的那個聲音
-      final sent = _choosing.then<String?>(
-        (_) => latest()
-            ? api.choose(settings, voice.name, playingId: tour.playingId)
-            : null,
-      );
+      // 照點選的順序送：先點的請求晚到，主機就會停在先點的那個聲音。
+      // 播放狀況在送出當下才看：空檔裡剛播完的那段也要算進去
+      final sent = _choosing.then<(String, PlaybackReport)?>((_) async {
+        if (!latest()) return null;
+        final report = tour.playbackReport;
+        final chosen = await api.choose(
+          settings,
+          voice.name,
+          playingId: report.playingId,
+          playedIds: report.playedIds,
+        );
+        return (chosen, report);
+      });
       _choosing = sent.then((_) {}, onError: (_) {});
-      final chosen = await sent;
-      if (chosen == null || !ref.mounted) return;
+      final result = await sent;
+      if (result == null || !ref.mounted) return;
+      final (chosen, report) = result;
       // 主機已經換了：即使之後又點了別的，畫面也要和主機一致，直到下一個請求成功
       final catalog = VoiceCatalog(
         current: chosen,
@@ -184,7 +194,10 @@ class VoiceController extends Notifier<VoiceState> {
       );
       final current = _currentOf(catalog);
       final key = current.key;
-      if (key != null) tour.useVoice(key); // 馬上丟掉舊聲音的介紹，不讓它們趁空檔開播
+      if (key != null) {
+        // 馬上丟掉舊聲音的介紹，不讓它們趁空檔開播
+        tour.useVoice(key, reported: report.playedIds);
+      }
       _refreshes++; // 換之前就送出的清單回應還是舊聲音：作廢，別把剛換好的蓋回去
       await _remember(current);
       if (!ref.mounted) return;
@@ -201,6 +214,7 @@ class VoiceController extends Notifier<VoiceState> {
       if (latest()) state = state.copyWith(error: '換聲音失敗：手機存不下這個聲音的短句');
     } finally {
       if (latest()) state = state.copyWith(switching: null);
+      tour.releaseVoiceSwitch(); // 失敗就照常播（換成了的話，舊聲音的已經丟掉）
     }
   }
 

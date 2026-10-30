@@ -135,6 +135,9 @@ class TourState {
 
 const Object _keep = Object();
 
+/// 換聲音時告訴主機的播放狀況，見 [TourController.playbackReport]。
+typedef PlaybackReport = ({String? playingId, List<String> playedIds});
+
 final tourProvider = NotifierProvider<TourController, TourState>(
   TourController.new,
 );
@@ -163,6 +166,9 @@ class TourController extends Notifier<TourState> {
   final _seen = <String>{};
   final _gone = <String>{}; // 主機已經沒有的介紹（下載回 404）：丟掉，不重試
   int _questionHolds = 0; // 使用者正在發問、等答案或聽答案：不開始新的主動介紹
+  // 使用者點了新聲音、還沒換好或失敗：不開始任何介紹（正在播的照常播完）。
+  // 跟著換聲音的請求走、不跟旅程走，所以出發／結束時不歸零
+  int _voiceHolds = 0;
   _Playing? _playing; // 正在播（含使用者暫停中、或被問題打斷等著接續）的介紹
   _Interrupted? _interrupted; // 被問題打斷、等答完從那一句的開頭接著播
   QueuedNarration? _starting; // 輪到它播、正在等音檔（已不在佇列裡）
@@ -214,25 +220,45 @@ class TourController extends Notifier<TourState> {
   /// 問答連上了主機：結束斷線，安靜恢復。
   void noteHostReached() => _onHostReached();
 
-  /// 正在播（含暫停中、被問題打斷等著接續）的介紹；換聲音時它用舊聲音播完，主機不必重做。
-  String? get playingId {
+  /// 使用者點了新聲音：換好（[useVoice]）或失敗之前，不開始任何舊聲音的介紹，被問題打斷的也先不接。
+  /// 正在播的照常播完。可以疊加（切換中又點了別的），每個 hold 都要有對應的 [releaseVoiceSwitch]。
+  void holdForVoiceSwitch() => _voiceHolds++;
+
+  void releaseVoiceSwitch() {
+    if (_voiceHolds > 0) _voiceHolds--;
+    if (_voiceHolds == 0) _evaluate();
+  }
+
+  /// 換聲音的請求要帶的：正在播、會用舊聲音播完的那段（主機不必重做），以及主機該先記成講過的
+  /// （播完了還沒送達的回報，加上被問題打斷、換了聲音就不再接續的那段）。
+  PlaybackReport get playbackReport {
     final playing = _playing;
-    return playing == null || playing.finished ? null : playing.item.info.id;
+    final interrupted = _interrupted?.playing;
+    return (
+      playingId:
+          playing == null || playing.finished || identical(playing, interrupted)
+          ? null
+          : playing.item.info.id,
+      playedIds: [..._unreportedPlayed, ?interrupted?.item.info.id],
+    );
   }
 
   /// 使用者換了聲音、主機已經換成這個聲音（聲音鍵）：旅程中提示「這段播完就換，下一段準備中…」。
-  void useVoice(String key) {
+  /// [reported] 是隨換聲音的請求送出、主機已記成講過的（[playbackReport] 的 playedIds）。
+  void useVoice(String key, {List<String> reported = const []}) {
+    _unreportedPlayed.removeWhere(reported.contains);
     if (key == _voiceKey) return;
-    _switchTo(key);
+    _switchTo(key, reported: reported);
     if (state.active) state = state.copyWith(voiceChanging: true);
   }
 
   /// 佇列裡別的聲音的介紹丟掉（正在播的那段照常播完），也不再算「看過」，
-  /// 主機用新聲音重做的同一個景點（同一個 id）才進得來。
-  void _switchTo(String key) {
+  /// 主機用新聲音重做的同一個景點（同一個 id）才進得來。被問題打斷的那段不接續、算講過。
+  void _switchTo(String key, {List<String> reported = const []}) {
     _voiceKey = key;
     _voiceSwitches++;
     if (!state.active) return;
+    _dropInterrupted(reported);
     for (final item in _queue.where((q) => !_inCurrentVoice(q.info)).toList()) {
       _queue.remove(item);
       _audio.remove(item.info.id);
@@ -241,6 +267,22 @@ class TourController extends Notifier<TourState> {
     // 正在等音檔的那段主機也撤下了（它還沒開始播，不是 playing_id）：音檔回來時不播
     final starting = _starting;
     if (starting != null) _seen.remove(starting.info.id);
+  }
+
+  /// 換了聲音：被打斷的舊聲音介紹不接著講（也不用新聲音重講），當作講完了。
+  /// 主機還不知道的（打斷時換聲音的請求已經送出）照一般播完回報。
+  void _dropInterrupted(List<String> reported) {
+    final interrupted = _interrupted;
+    if (interrupted == null) return;
+    _interrupted = null;
+    final playing = interrupted.playing;
+    final id = playing.item.info.id;
+    if (!reported.contains(id)) {
+      _unreportedPlayed.add(id);
+      unawaited(_reportPlayed(_session));
+    }
+    // 被打斷時 _playBytes 刻意沒收尾（還在「講」這一段）：替它收尾，下一段才開得了
+    _finishPlaying(playing);
   }
 
   bool _inCurrentVoice(NarrationInfo info) =>
@@ -493,8 +535,9 @@ class TourController extends Notifier<TourState> {
   void _evaluate() {
     if (!state.active || _questionHolds > 0) return;
     if (_interrupted != null) {
-      // 被問題打斷的介紹先接著講完；使用者按了暫停就等他按繼續
-      if (!state.paused) unawaited(_resumeInterrupted());
+      // 被問題打斷的介紹先接著講完；使用者按了暫停就等他按繼續，正在換聲音就等換好
+      // （換成了就不接）
+      if (!state.paused && _voiceHolds == 0) unawaited(_resumeInterrupted());
       return;
     }
     if (_unreachableDue && !_busy && !state.paused) {
@@ -524,7 +567,7 @@ class TourController extends Notifier<TourState> {
           position: _position,
           queue: List.of(_queue),
           lastFinishedAt: _lastFinishedAt,
-          paused: state.paused,
+          paused: state.paused || _voiceHolds > 0,
           busy: _busy,
         );
     for (final stale in decision.drop) {
@@ -557,8 +600,8 @@ class TourController extends Notifier<TourState> {
       _busy = false;
       return;
     }
-    if (state.paused || _questionHolds > 0) {
-      // 等音檔的時候使用者按了暫停、或開始發問：先放回去，之後再講
+    if (state.paused || _questionHolds > 0 || _voiceHolds > 0) {
+      // 等音檔的時候使用者按了暫停、開始發問、或點了新聲音：先放回去，之後再講
       _queue.insert(0, item);
       _audio[item.info.id] = Future.value(bytes);
       _busy = false;
@@ -601,14 +644,18 @@ class TourController extends Notifier<TourState> {
       debugPrint('播放 ${item.info.id} 失敗：$error');
     } finally {
       if (session == _session && (playing.finished || !playing.interrupted)) {
-        if (identical(_playing, playing)) _playing = null;
-        _lastFinishedAt = _now;
-        _busy = false;
-        state = state.copyWith(nowPlaying: null);
-        _syncRemote();
+        _finishPlaying(playing);
       }
       playing.done.complete(); // 這一次播放（含收尾）結束了：接續才可以開始
     }
+  }
+
+  void _finishPlaying(_Playing playing) {
+    if (identical(_playing, playing)) _playing = null;
+    _lastFinishedAt = _now;
+    _busy = false;
+    state = state.copyWith(nowPlaying: null);
+    _syncRemote();
   }
 
   /// 發問開始：停下正在播的介紹，記住要從哪一句的開頭接著播。
@@ -635,8 +682,8 @@ class TourController extends Notifier<TourState> {
     // 被停掉的那一次播放要先收尾完（播放器、暫存檔），才能開始下一次
     await interrupted.playing.done.future;
     if (session != _session) return;
-    if (_questionHolds > 0 || state.paused) {
-      // 等收尾的時候又開始發問、或使用者按了暫停：接續點留著，等之後
+    if (_questionHolds > 0 || state.paused || _voiceHolds > 0) {
+      // 等收尾的時候又開始發問、使用者按了暫停、或點了新聲音：接續點留著，等之後
       _interrupted = interrupted;
       return;
     }

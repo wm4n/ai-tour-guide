@@ -840,6 +840,254 @@ void main() {
 
       expect(tourState(h).voiceChanging, isFalse);
       expect(h.api.playingIds, [null]);
+      expect(h.api.playedIds, [isEmpty]);
     });
+  });
+
+  group('switching does not repeat what was heard', () {
+    const f2 = 'F2@1.2';
+    const m1 = 'M1@1.2';
+
+    NarrationInfo inVoice(String key, String id, {required int seq}) =>
+        NarrationInfo(
+          seq: seq,
+          id: id,
+          name: '景點$id',
+          lat: placeLat,
+          lon: placeLon,
+          audioSeconds: 30,
+          unitStarts: const [0.0, 1.5],
+          voice: key,
+        );
+
+    Future<void> tick(Harness h) async {
+      await h.tour.tick();
+      await h.settle();
+    }
+
+    Future<void> finishPlaying(Harness h) async {
+      h.narration.finish();
+      await h.settle();
+      await tick(h);
+    }
+
+    /// 主機與 App 都是 F2：出發，收到 F2 的 A、B；A 開始播，B 在佇列裡。
+    Future<Harness> touring() async {
+      final h = await makeHarness();
+      await h.voices.refresh();
+      await h.tour.start();
+      h.tourApi.queue([
+        inVoice(f2, 'A', seq: 1),
+        inVoice(f2, 'B', seq: 2),
+      ], voice: f2);
+      h.location.controller.add(nearFix());
+      await h.settle();
+      await tick(h);
+      expect(h.narration.played, ['A']);
+      return h;
+    }
+
+    test(
+      'nothing of the old voice starts while the switch is under way',
+      () async {
+        final h = await touring();
+        h.api.phraseGate = Completer<void>(); // 還在下載新聲音的短句
+
+        final switching = h.voices.select(voice('M1'));
+        await h.settle();
+        await finishPlaying(h); // A 剛好在空檔播完
+
+        expect(h.narration.played, ['A']); // B 沒有趁空檔開播
+        h.api.phraseGate!.complete();
+        await switching;
+        await tick(h);
+
+        expect(h.api.playingIds, [null]);
+        expect(h.tourApi.played, ['A']);
+        expect(h.narration.played, ['A']); // B 丟掉，等主機重做
+      },
+    );
+
+    test('a narration whose audio arrives during the switch waits', () async {
+      final h = await makeHarness();
+      await h.voices.refresh();
+      await h.tour.start();
+      h.tourApi.downloadGate = Completer<void>();
+      h.tourApi.queue([inVoice(f2, 'A', seq: 1)], voice: f2);
+      h.location.controller.add(nearFix());
+      await h.settle();
+      await tick(h); // A 開始等音檔
+      h.api.chooseGate = Completer<void>();
+
+      final switching = h.voices.select(voice('M1'));
+      await h.settle();
+      h.tourApi.downloadGate!.complete();
+      h.tourApi.downloadGate = null;
+      await tick(h);
+
+      expect(h.narration.played, isEmpty);
+      h.api.chooseError = TourApiException('refused', statusCode: 409);
+      h.api.chooseGate!.complete();
+      await switching;
+      await tick(h);
+      expect(h.narration.played, ['A']); // 失敗：照常播
+    });
+
+    test(
+      'a failed switch lets the old voice carry on where it left off',
+      () async {
+        final h = await touring();
+        h.api.phraseGate = Completer<void>();
+
+        final switching = h.voices.select(voice('M1'));
+        await h.settle();
+        await finishPlaying(h);
+        expect(h.narration.played, ['A']);
+
+        h.api.phraseError = TourApiException('timed out');
+        h.api.phraseGate!.complete();
+        await switching;
+        await h.settle();
+
+        expect(h.narration.played, ['A', 'B']);
+      },
+    );
+
+    test(
+      'reports the host has not received are sent with the switch',
+      () async {
+        final h = await touring();
+        h.tourApi.playedError = TourApiException('unreachable');
+        await finishPlaying(h); // A 播完，回報送不出去；B 開始播
+
+        await h.voices.select(voice('M1'));
+
+        expect(h.api.playedIds, [
+          ['A'],
+        ]);
+        expect(h.api.playingIds, ['B']);
+        h.tourApi.playedError = null;
+        await finishPlaying(h);
+        expect(h.tourApi.played, ['B']); // A 主機已經記了，不再送
+      },
+    );
+
+    test('reports still pending after a failed switch are kept', () async {
+      final h = await touring();
+      h.tourApi.playedError = TourApiException('unreachable');
+      await finishPlaying(h);
+      h.api.chooseError = TourApiException('refused', statusCode: 409);
+
+      await h.voices.select(voice('M1'));
+      h.tourApi.playedError = null;
+      await tick(h);
+
+      expect(h.tourApi.played, ['A']);
+    });
+
+    test(
+      'the narration interrupted by a preview is told, not resumed',
+      () async {
+        final h = await touring();
+        final previewing = h.voices.preview('M1'); // 試聽打斷 A
+        await h.settle();
+
+        await h.voices.select(voice('M1'));
+        h.preview.finish();
+        await previewing;
+        await tick(h);
+
+        expect(h.api.playingIds, [null]);
+        expect(h.api.playedIds, [
+          ['A'],
+        ]);
+        expect(h.narration.starts, [Duration.zero]); // 沒有接著播
+        expect(h.container.read(tourProvider).nowPlaying, isNull);
+
+        h.tourApi.queue([inVoice(m1, 'B', seq: 3)], voice: m1);
+        await tick(h);
+        expect(h.narration.played, ['A', 'B']); // 新聲音的介紹照常開播
+        expect(h.tourApi.played, isEmpty); // A 已隨切換記了，不另外回報
+      },
+    );
+
+    test(
+      'an interrupted narration does not resume while the switch is under way',
+      () async {
+        final h = await touring();
+        h.api.chooseGate = Completer<void>();
+        final previewing = h.voices.preview('M1');
+        await h.settle();
+        final switching = h.voices.select(voice('M1'));
+        await h.settle();
+
+        h.preview.finish(); // 試聽完了，但還在換聲音
+        await previewing;
+        await tick(h);
+        expect(h.narration.starts, [Duration.zero]);
+
+        h.api.chooseGate!.complete();
+        await switching;
+        await tick(h);
+        expect(h.narration.starts, [Duration.zero]);
+      },
+    );
+
+    test(
+      'a narration interrupted after the switch was sent is reported as heard',
+      () async {
+        final h = await touring();
+        h.api.chooseGate = Completer<void>();
+        final switching = h.voices.select(voice('M1'));
+        await h.settle(); // 請求已送出，A 還在播（playing_id）
+
+        final previewing = h.voices.preview('M1');
+        await h.settle();
+        h.api.chooseGate!.complete();
+        await switching;
+        h.preview.finish();
+        await previewing;
+        await tick(h);
+
+        expect(h.api.playingIds, ['A']);
+        expect(h.narration.starts, [Duration.zero]);
+        expect(h.tourApi.played, ['A']);
+      },
+    );
+
+    test('an interrupted narration resumes when the switch fails', () async {
+      final h = await touring();
+      h.narration.positionNow = at(2);
+      h.api.chooseError = TourApiException('refused', statusCode: 409);
+      final previewing = h.voices.preview('M1');
+      await h.settle();
+
+      await h.voices.select(voice('M1'));
+      h.preview.finish();
+      await previewing;
+      await h.settle();
+
+      expect(h.narration.starts, [Duration.zero, at(1.5)]);
+    });
+
+    test(
+      'going back to the same voice keeps the interrupted narration',
+      () async {
+        final h = await touring();
+        h.narration.positionNow = at(2);
+        final previewing = h.voices.preview('M1');
+        await h.settle();
+
+        await h.voices.select(voice('F2')); // 主機回 200，聲音沒變
+        h.preview.finish();
+        await previewing;
+        await h.settle();
+
+        expect(h.api.playedIds, [
+          ['A'],
+        ]);
+        expect(h.narration.starts, [Duration.zero, at(1.5)]);
+      },
+    );
   });
 }

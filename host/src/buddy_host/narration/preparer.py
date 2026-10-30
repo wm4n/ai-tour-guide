@@ -169,19 +169,8 @@ class AreaPreparer:
             )
             for item in ranked
         }
-        # 已有快取的直接用；只是聲音換了的拿舊稿重新合成；其餘的稿子同時開寫，
-        # 合成（只有一個模型）再依序進行
-        cached = {
-            item.candidate.id: self._load_cached(
-                item.candidate, prints[item.candidate.id], self.voice_key
-            )
-            for item in ranked
-        }
-        reusable = {
-            item.candidate.id: self._cached_script(item.candidate, prints[item.candidate.id])
-            for item in ranked
-            if cached[item.candidate.id] is None
-        }
+        # 稿子還能用的不必再寫（有這個聲音的音檔就直接用，沒有就拿舊稿重新合成）；其餘的稿子
+        # 同時開寫，合成（只有一個模型）再依序進行
         scripts = {
             item.candidate.id: asyncio.create_task(
                 self._write_script(
@@ -194,7 +183,7 @@ class AreaPreparer:
                 )
             )
             for item in ranked
-            if cached[item.candidate.id] is None and reusable[item.candidate.id] is None
+            if self._cached_script(item.candidate, prints[item.candidate.id]) is None
         }
         prepared: list[PreparedNarration] = []
         try:

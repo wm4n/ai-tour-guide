@@ -302,15 +302,16 @@ class TourSession:
                     # 準備一段要數分鐘：做好一段就通知一段，不等整批
                     on_ready=lambda item: self._publish_if_current(generation, item),
                 )
+            # 停止準備（清掉 _pending）之後仍回到迴圈：準備途中換了聲音的重做不呼叫 Claude，照樣做
             except LlmBudgetExhaustedError:
                 self._stop(generation, "llm_budget")
-                return
+                continue
             except QuotaExceededError as error:
                 self._stop(generation, "quota", error.resets_at)
-                return
+                continue
             except ForbiddenModelError:
                 self._stop(generation, "forbidden_model")
-                return
+                continue
             except Exception:  # 一次準備失敗（網路、逾時…）不結束整趟，等下次移動再試
                 logger.exception("為 %s 準備介紹失敗", fix.location)
                 self._failed_at = self._monotonic()

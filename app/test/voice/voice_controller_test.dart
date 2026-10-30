@@ -730,6 +730,67 @@ void main() {
       },
     );
 
+    test(
+      'a narration already gone before the switch still lets its redo in',
+      () async {
+        final h = await makeHarness();
+        await h.voices.refresh();
+        await h.tour.start();
+        h.tourApi.downloadGate = Completer<void>();
+        h.tourApi.queue([inVoice(f2, 'A', seq: 1)], voice: f2);
+        h.location.controller.add(nearFix());
+        await h.settle();
+        await tick(h); // A 開始等音檔
+        // 主機一收到切換就撤下 A：App 還沒收到切換的回應，下載就先回 404
+        h.tourApi.downloadErrorOnce = TourApiException('gone', statusCode: 404);
+        h.tourApi.downloadGate!.complete();
+        h.tourApi.downloadGate = null;
+        await h.settle();
+
+        await h.voices.select(voice('M1'));
+        h.tourApi.queue([inVoice(m1, 'A', seq: 2)], voice: m1);
+        await tick(h);
+
+        expect(h.narration.played, ['A']);
+      },
+    );
+
+    test(
+      'a narration waiting for its audio across away-and-back is heard once',
+      () async {
+        final h = await makeHarness();
+        await h.voices.refresh();
+        await h.tour.start();
+        h.tourApi.downloadGate = Completer<void>();
+        h.tourApi.queue([inVoice(f2, 'A', seq: 1)], voice: f2);
+        h.location.controller.add(nearFix());
+        await h.settle();
+        await tick(h); // A 開始等音檔
+
+        await h.voices.select(voice('M1'));
+        await h.voices.select(voice('F2')); // 主機兩次都撤下 A，最後用 F2 重做
+        h.tourApi.downloadGate!.complete();
+        h.tourApi.downloadGate = null;
+        await h.settle();
+        h.tourApi.queue([inVoice(f2, 'A', seq: 3)], voice: f2);
+        await tick(h);
+        await finishPlaying(h);
+
+        expect(h.narration.played, ['A']);
+      },
+    );
+
+    test('following the host does not claim a switch is coming', () async {
+      final h = await touring();
+      h.api.catalog = VoiceCatalog(current: 'M1', voices: h.api.catalog.voices);
+
+      h.tourApi.queue([], voice: m1);
+      await tick(h);
+
+      expect(h.state.current?.key, m1);
+      expect(tourState(h).voiceChanging, isFalse);
+    });
+
     test('switching away and back does not get a place stuck', () async {
       final h = await touring();
       await h.voices.select(voice('M1'));

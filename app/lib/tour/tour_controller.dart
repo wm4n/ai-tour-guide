@@ -220,11 +220,16 @@ class TourController extends Notifier<TourState> {
     return playing == null || playing.finished ? null : playing.item.info.id;
   }
 
-  /// 主機換成這個聲音（聲音鍵）了。旅程中：佇列裡別的聲音的介紹丟掉（正在播的那段照常播完），
-  /// 也不再算「看過」，主機用新聲音重做的同一個景點（同一個 id）才進得來。
+  /// 使用者換了聲音、主機已經換成這個聲音（聲音鍵）：旅程中提示「這段播完就換，下一段準備中…」。
   void useVoice(String key) {
     if (key == _voiceKey) return;
-    final previous = _voiceKey;
+    _switchTo(key);
+    if (state.active) state = state.copyWith(voiceChanging: true);
+  }
+
+  /// 佇列裡別的聲音的介紹丟掉（正在播的那段照常播完），也不再算「看過」，
+  /// 主機用新聲音重做的同一個景點（同一個 id）才進得來。
+  void _switchTo(String key) {
     _voiceKey = key;
     _voiceSwitches++;
     if (!state.active) return;
@@ -233,11 +238,9 @@ class TourController extends Notifier<TourState> {
       _audio.remove(item.info.id);
       _seen.remove(item.info.id);
     }
+    // 正在等音檔的那段主機也撤下了（它還沒開始播，不是 playing_id）：音檔回來時不播
     final starting = _starting;
-    if (starting != null && !_inCurrentVoice(starting.info)) {
-      _seen.remove(starting.info.id); // 音檔回來時不播（見 _playNarration）
-    }
-    if (previous != null) state = state.copyWith(voiceChanging: true);
+    if (starting != null) _seen.remove(starting.info.id);
   }
 
   bool _inCurrentVoice(NarrationInfo info) =>
@@ -245,7 +248,7 @@ class TourController extends Notifier<TourState> {
 
   /// 旅程中主機的聲音和 App 記的不同（例如換聲音的回應沒收到）：跟上主機，補下載它的短句。
   void _followHost(String key) {
-    useVoice(key);
+    _switchTo(key);
     if (ref.read(voiceProvider).current?.key != key) {
       unawaited(ref.read(voiceProvider.notifier).refresh());
     }
@@ -437,7 +440,11 @@ class TourController extends Notifier<TourState> {
       debugPrint('下載 $id 失敗：$error');
       if (error.statusCode == 404) {
         // 換聲音之後才回來的 404 是撤下的舊版：同一個 id 可能正要用新聲音重做，不記成不存在
-        if (session == _session && switches == _voiceSwitches) _gone.add(id);
+        if (session == _session && switches == _voiceSwitches) {
+          _gone.add(id);
+          // 主機之後若重新發布同一個 id（例如換聲音重做），要進得來
+          _seen.remove(id);
+        }
         return null;
       }
       _onHostFailed(session);
@@ -534,12 +541,13 @@ class TourController extends Notifier<TourState> {
   Future<void> _playNarration(QueuedNarration item) async {
     _busy = true; // 同步設定，下一次評估就不會再開始別段
     final session = _session;
+    final switches = _voiceSwitches;
     _starting = item;
     final bytes = await _audio.remove(item.info.id);
     if (session != _session) return;
     _starting = null;
-    if (!_inCurrentVoice(item.info)) {
-      // 等音檔的時候換了聲音：不播也不放回去，主機會用新聲音重做
+    if (switches != _voiceSwitches) {
+      // 等音檔的時候換了聲音（即使又換回來）：主機已撤下這段、會重做，不播也不放回去
       _busy = false;
       return;
     }
@@ -569,7 +577,7 @@ class TourController extends Notifier<TourState> {
     state = state.copyWith(
       nowPlaying: item.info.name,
       // 新聲音的介紹開始了：不必再提示「下一段準備中」
-      voiceChanging: state.voiceChanging && item.info.voice != _voiceKey,
+      voiceChanging: state.voiceChanging && !_inCurrentVoice(item.info),
     );
     _syncRemote(title: item.info.name);
     final playing = _Playing(item, bytes);

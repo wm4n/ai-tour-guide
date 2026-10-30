@@ -888,3 +888,19 @@ async def test_ending_the_tour_drops_pending_redos(tmp_path):
     await session.wait_idle()
 
     assert session.narrations_after(0) == []
+
+
+async def test_a_preparation_that_stops_the_tour_still_lets_the_redo_run(tmp_path):
+    preparer, session = await tour_with(
+        tmp_path, ["A"], later=[LlmBudgetExhaustedError("budget")], reprepare_distance_m=100
+    )
+    preparer.gate = asyncio.Event()
+    session.report(fix(north_of(START, 200)))
+    await asyncio.sleep(0)
+
+    session.change_voice("M1@1.2")  # 準備進行中換聲音，這次準備隨後用完 Claude 次數
+    preparer.gate.set()
+    await session.wait_idle()
+
+    assert session.stopped_reason == "llm_budget"
+    assert voices_of(session) == [("A", "M1@1.2")]  # 重做不呼叫 Claude：照樣做

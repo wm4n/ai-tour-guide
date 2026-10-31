@@ -21,11 +21,15 @@ abstract class PhrasePlayer {
 /// 只有一個播放器：短句一句一句排隊念。同時來兩句（例如剛念完「出發」就發問）若直接對同一個播放器
 /// 重新載入，前一句會被打斷（Loading interrupted）。
 class JustAudioPhrasePlayer implements PhrasePlayer {
-  JustAudioPhrasePlayer({String? Function(FixedPhrase phrase)? localFile})
-    : _localFile = localFile;
+  JustAudioPhrasePlayer({
+    String? Function(FixedPhrase phrase)? localFile,
+    Future<void> Function()? releaseFocus,
+  }) : _localFile = localFile,
+       _releaseFocus = releaseFocus ?? releaseAudioFocus;
 
   /// 念的當下才問：換了聲音，下一句就念新聲音的。
   final String? Function(FixedPhrase phrase)? _localFile;
+  final Future<void> Function() _releaseFocus;
   final AudioPlayer _player = AudioPlayer();
   Future<void> _tail = Future.value();
   int _stops = 0; // stop() 的次數：排隊中的短句看到它變了就不念
@@ -43,8 +47,14 @@ class JustAudioPhrasePlayer implements PhrasePlayer {
           await _player.setAsset(phrase.assetPath);
         }
         if (stops != _stops) return; // 載入的時候被 stop() 取消了
-        await _player.play();
-        if (releaseFocus) await releaseAudioFocus();
+        try {
+          await _player.play();
+        } finally {
+          // just_audio 念完仍算「播放中」：不停下的話，下一句的 play() 會立刻返回，
+          // 緊接著放掉 audio focus，iOS 就把那句掐斷
+          await _player.stop();
+        }
+        if (releaseFocus) await _releaseFocus();
       } catch (error) {
         debugPrint(
           '固定短句 ${phrase.number} 無法播放（手機裡沒有、也沒放進 assets/phrases/？）：$error',

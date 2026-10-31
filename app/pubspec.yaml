@@ -52,6 +52,9 @@ dev_dependencies:
     sdk: flutter
   integration_test:
     sdk: flutter
+  # 測試裡換掉 just_audio 的原生播放器，跑真的 AudioPlayer
+  just_audio_platform_interface: ^4.6.0
+  plugin_platform_interface: ^2.1.8
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is

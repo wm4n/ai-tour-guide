@@ -23,6 +23,9 @@ from buddy_host.speech.voice import find_voice, read_current_voice, voice_key
 PERSONA = Path(__file__).resolve().parents[2] / "config" / "buddy.md"
 DAY = 24 * 3600
 QA_LATENCY_LOG = "qa-latency.jsonl"
+# 閒置連線要比 App 留得久（dart:io HttpClient 閒置 15 秒才關），讓 App 先關。uvicorn 預設 5 秒
+# 正好撞上 App 每 5 秒的輪詢：App 拿剛被主機關掉的連線送出，就會斷線
+KEEP_ALIVE_SECONDS = 30
 
 
 def open_photo_store():
@@ -152,7 +155,12 @@ def main() -> None:
         answerer_factory=answerer,
         on_voice_change=change_voice,
     )
-    uvicorn.run(app, host=config.listen_host, port=config.listen_port)
+    uvicorn.run(
+        app,
+        host=config.listen_host,
+        port=config.listen_port,
+        timeout_keep_alive=KEEP_ALIVE_SECONDS,
+    )
 
 
 if __name__ == "__main__":
